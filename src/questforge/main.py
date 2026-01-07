@@ -1,5 +1,10 @@
+from .game import game_loop
+
+
 def main():
-    print("QuestForge is ready. Day 1 setup complete!")
+    game_loop()
+
 
 if __name__ == "__main__":
     main()
+

@@ -8,11 +8,12 @@ class Player:
     Flutter 類比：
     - 就像一個簡單的 Model class（不含 UI）
     """
-    name: str = "勇者"
+    name: str = "菲菲＆樂樂"
     hp: int = 20
     max_hp: int = 20
     gold: int = 0
-
+    # Flutter 類比：clues ?? <String>{}
+    clues: set[str] = field(default_factory=set)
 
 @dataclass
 class GameState:
@@ -27,3 +28,26 @@ class GameState:
     # 避免 mutable default（所有 GameState 共用同一個 Player 實例）
     # Flutter 類比：player ?? Player()
     player: Player = field(default_factory=Player)
+
+@dataclass
+class CaseConfig:
+    case_id: str
+    difficulty: str  # "short" | "medium" | "long"
+    min_required_clues: int = 2
+
+@dataclass
+class Progress:
+    short_play_count: int = 0
+    solved_count: int = 0  # 成功破案次數（跨所有難度）
+    # 可選：統計各難度破案
+    short_solved: int = 0
+    medium_solved: int = 0
+    long_solved: int = 0
+
+    def unlocked(self) -> set[str]:
+        unlocked = {"short"}
+        if self.short_play_count >= 3:
+            unlocked.add("medium")
+        if self.solved_count >= 5:
+            unlocked.add("long")
+        return unlocked

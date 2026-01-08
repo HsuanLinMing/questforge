@@ -1,4 +1,4 @@
-from .game import game_loop
+from .engine.game import game_loop
 
 
 def main():

@@ -3,6 +3,8 @@ from questforge.engine.case_selector import CaseSelector
 from questforge.engine.confirm_quiz import run_confirm_quiz
 from ..core.models import DetectiveState, GameConfig
 from ..content.cases import CASES
+from questforge.engine.session import GameSession
+from questforge.engine.actions import PlayerAction
 
 
 def show_status(state: DetectiveState) -> None:
@@ -206,3 +208,100 @@ def game_loop(config: GameConfig | None = None) -> None:
                 current = next_id
         else:
             current = next_id
+
+
+def game_loop_v6(config: GameConfig | None = None) -> None:
+    """Day6：改用 GameSession（純邏輯核心），CLI 只是 adapter。"""
+    selector = CaseSelector(CASES)
+    config = config or GameConfig()
+
+    case = selector.pick()
+    nodes = case["nodes"]
+    rule = case.get("solve_rule", {})
+    accuse_node = rule.get("accuse_node", "")
+
+    state = DetectiveState()
+    session = GameSession(
+        state=state, nodes=nodes, start_node=case["start"], config=config
+    )
+
+    print("\n歡迎來到《QuestForge：霏霏＆樂樂小偵探》！")
+    print(f"本次案件：{case['title']}\n")
+
+    while True:
+        # 先拿 view（避免 current 指到不存在的節點時 print 掛掉）
+        view = session.get_view()
+        if view is None:
+            return
+
+        state.turn += 1
+        current = session.current
+        trace(state, case["title"], current)
+        show_status(state)
+
+        print(f"\n【{view.title}】")
+        print(view.narration)
+
+        if view.choices:
+            print("\n你想怎麼做？")
+            for c in view.choices:
+                print(f"  {c.index}. {c.text}")
+            print("\n（輸入數字選擇，R=重播本段，Q=離開）")
+        else:
+            _ = session.step(PlayerAction(type="quit"))
+            return
+
+        raw = input("\n請選擇（輸入數字，R=重播，Q=離開）：").strip().lower()
+
+        if raw == "q":
+            _ = session.step(PlayerAction(type="quit"))
+            return
+
+        if raw == "r":
+            res = session.step(PlayerAction(type="replay"))
+            for e in res.events:
+                print(f"\n{e}")
+            continue
+
+        if not raw.isdigit():
+            print("輸入不正確喔～請輸入選項數字，或 R / Q。")
+            continue
+
+        idx = int(raw)
+        if idx <= 0 or idx > len(view.choices):
+            print("輸入不正確喔～請輸入有效的選項數字。")
+            continue
+
+        prev_node = session.current
+        res = session.step(PlayerAction(type="choose", choice_index=idx))
+        for e in res.events:
+            print("\n" + e)
+
+        # ✅ Day5：指認 accuse_node 邏輯保留在 CLI adapter
+        if prev_node == accuse_node:
+            next_id = res.selected_next or ""
+            if next_id.startswith("accuse_"):
+                chosen_suspect = next_id.replace("accuse_", "")
+                reasonable = is_reasonable_accuse(state, case, chosen_suspect)
+
+                if reasonable:
+                    print(
+                        "\n霏霏：嗯…你的想法很有根據，我們把『看到的』整理好，交給老師最安全。"
+                    )
+                    confirm = rule.get("confirm_quiz", [])
+                    if config.enable_quiz and confirm:
+                        run_confirm_quiz(
+                            quiz=confirm,
+                            collected=set(state.clues),
+                            can_skip=config.quiz_can_skip,
+                        )
+                else:
+                    print(
+                        "\n樂樂：我覺得你可能快想到了，但我們好像還少一個確認點。先找老師一起處理！"
+                    )
+
+                # ⭐ 模式1：永遠交給老師接手
+                session.current = "ending_check"
+
+        if res.is_over:
+            return

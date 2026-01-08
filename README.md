@@ -6,25 +6,25 @@ QuestForge
 📁 專案結構（Project Structure）
 src/questforge/
 ├── core/
-│   ├── models.py          # 核心資料模型（玩家、遊戲狀態）
-│   └── __init__.py
+│ ├── models.py # 核心資料模型（玩家、遊戲狀態）
+│ └── **init**.py
 │
 ├── engine/
-│   ├── game.py            # 遊戲主引擎（流程控制、節點渲染、判定）
-│   └── __init__.py
+│ ├── game.py # 遊戲主引擎（流程控制、節點渲染、判定）
+│ └── **init**.py
 │
 ├── content/
-│   ├── cases.py           # 案件清單與規則設定
-│   ├── story_case_theft.py
-│   ├── story_case_injury.py
-│   ├── story_case_bullying.py
-│   └── __init__.py
+│ ├── cases.py # 案件清單與規則設定
+│ ├── story_case_theft.py
+│ ├── story_case_injury.py
+│ ├── story_case_bullying.py
+│ └── **init**.py
 │
 ├── ai/
-│   ├── prompts.py         # AI 劇情生成提示（規劃中）
-│   └── schema.md          # AI 輸出格式規範（規劃中）
+│ ├── prompts.py # AI 劇情生成提示（規劃中）
+│ └── schema.md # AI 輸出格式規範（規劃中）
 │
-└── main.py                # 專案入口點
+└── main.py # 專案入口點
 
 🧠 架構設計說明（Architecture Overview）
 
@@ -95,7 +95,7 @@ content/ — 故事與案件資料（Game Content）
 
 cases.py：案件清單、起始節點、解案規則
 
-story_case_*.py：各類型案件的故事節點
+story*case*\*.py：各類型案件的故事節點
 
 設計重點
 
@@ -131,7 +131,7 @@ AI 是編劇，引擎是導演，規則由開發者掌控
 🎮 專案介紹（Project Overview）
 
 QuestForge 是一個以 Python 為核心的文字冒險推理遊戲專案，
-主題為 「菲菲小偵探＆樂樂小偵探」的推理冒險故事。
+主題為 「霏霏小偵探＆樂樂小偵探」的推理冒險故事。
 
 遊戲對象
 

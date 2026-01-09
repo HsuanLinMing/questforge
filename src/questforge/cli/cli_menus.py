@@ -34,20 +34,21 @@ def show_notes_menu(state: DetectiveState) -> None:
 
 
 def show_saves_list(save_mgr: SaveManager) -> None:
-    """CLI：印出存檔列表（用 SaveManager 取得資料）。"""
-    saves = save_mgr.list_saves()
+    """CLI：印出存檔列表（用 SaveManager.list() 取得資料）。"""
+    saves = save_mgr.list()  # ✅ 這個方法你已經有了（回 List[SaveMeta]）
+
     print("\n" + "=" * 40)
     print("【存檔列表】")
     if not saves:
         print("（目前沒有任何存檔）")
     else:
         for i, m in enumerate(saves, start=1):
-            if m.get("broken"):
-                print(f"{i}. {m['file']}  [壞檔/無法解析]")
+            if m.broken:
+                print(f"{i}. {m.file}  [壞檔/無法解析]")
                 continue
-            title = m.get("case_title") or "（未知案件）"
-            turn = m.get("turn", 0)
-            saved_at = m.get("saved_at") or "-"
-            quiz = "ON" if m.get("enable_quiz") else "OFF"
-            print(f"{i}. {m['file']} | {title} | 回合 {turn} | quiz {quiz} | {saved_at}")
+            title = m.case_title or "（未知案件）"
+            saved_at = m.saved_at or "-"
+            quiz = "ON" if m.enable_quiz else "OFF"
+            print(f"{i}. {m.file} | {title} | 回合 {m.turn} | quiz {quiz} | {saved_at}")
     print("=" * 40)
+

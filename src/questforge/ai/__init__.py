@@ -1,3 +1,4 @@
-from .ai_client import AiClient
-from .mock_ai import MockAiClient
-from .schemas import StoryPackage, ResponseRequest, ResponsePackage
+# src/questforge/ai/__init__.py
+from questforge.ai.ai_client import AiClient, build_ai_client
+
+__all__ = ["AiClient", "build_ai_client"]

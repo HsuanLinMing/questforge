@@ -4,7 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from questforge.ai import AiClient, MockAiClient
+from questforge.ai.ai_client import AiClient, build_ai_client
+from questforge.ai.guard_log import log_guard_result
+from questforge.ai.response_guard import guard_response
 from questforge.ai.schemas import ResponsePackage, ResponseRequest, StoryPackage
 from questforge.core.models import (
     AccuseConfig,
@@ -14,9 +16,9 @@ from questforge.core.models import (
     ReasoningFeedback,
 )
 from questforge.engine.actions import PlayerAction
-from questforge.engine.easoning import score_reasons_with_evidence
+
 from questforge.engine.effects import apply_effects
-from questforge.engine.reasoning import evaluate_accuse
+from questforge.engine.reasoning import evaluate_accuse, score_reasons_with_evidence
 from questforge.engine.solve_rule_adapter import solve_rule_to_accuse_config
 from questforge.engine.views import ChoiceView, NodeView
 
@@ -66,7 +68,10 @@ class GameSession:
         self._last_view_cache: Optional[NodeView] = None
 
         # ✅ Day12-A: AI client injection (default to Mock)
-        self.ai: AiClient = ai or MockAiClient()
+        self.ai: AiClient = ai or build_ai_client()
+
+        # ✅ Used by say_once()
+        self._last_ai_text_by_intent: Dict[str, str] = {}
 
     # ----------------------------
     # AI (Day12-A)
@@ -75,7 +80,64 @@ class GameSession:
         return self.ai.generate_story()
 
     def say(self, req: ResponseRequest) -> ResponsePackage:
-        return self.ai.generate_response(req)
+        # ----------------------------
+        # auto-fill safe context (centralized)
+        # ----------------------------
+        try:
+            if not getattr(req, "scene_title", ""):
+                req.scene_title = (
+                    self.nodes.get(self.current, {}).get("title") or ""
+                ).strip()
+
+            if not getattr(req, "node_id", ""):
+                req.node_id = (self.current or "").strip()
+
+            if not getattr(req, "turn", 0):
+                req.turn = int(getattr(self.state, "turn", 0) or 0)
+
+            if not getattr(req, "clues_preview", None):
+                # ONLY labels (safe). cap is handled by ResponseRequest.__post_init__
+                req.clues_preview = [
+                    self.state.clue_labels.get(k, k) for k in sorted(self.state.clues)
+                ]
+        except Exception:
+            # never break the game loop because of prompt helpers
+            pass
+
+        # ----------------------------
+        # generate + guard + log
+        # ----------------------------
+        pkg = self.ai.generate_response(req)
+
+        gr = guard_response(pkg.text)
+        log_guard_result(req=req, pkg=pkg, gr=gr)
+
+        # Day13-D：只警告，不阻斷
+        if (not gr.ok) or gr.warnings:
+            print("\n[AI 白名單檢查]")
+            if not gr.ok:
+                for e in gr.errors:
+                    print(f"  ❌ {e}")
+            for w in gr.warnings:
+                print(f"  ⚠️ {w}")
+
+        return pkg
+
+    def say_once(self, req: ResponseRequest) -> ResponsePackage:
+        """Like say(), but tries to avoid repeating the same text for the same intent."""
+        last = self._last_ai_text_by_intent.get(req.intent, "")
+        pkg: ResponsePackage = self.say(req)
+
+        if last and pkg.text.strip() == last.strip():
+            # Try up to 2 more times to get a different line (MockAI uses random choice).
+            for _ in range(2):
+                pkg2 = self.say(req)
+                if pkg2.text.strip() != last.strip():
+                    pkg = pkg2
+                    break
+
+        self._last_ai_text_by_intent[req.intent] = pkg.text
+        return pkg
 
     # ----------------------------
     # Public: Accuse (optional, kept for future)
@@ -117,6 +179,8 @@ class GameSession:
 
         # ✅ ending_check：只做反思回饋，不裁決、不揭曉 truth
         if self.current == self._ending_check_node():
+            narration = self._normalize_duo_narration(narration)
+
             accuse_config = solve_rule_to_accuse_config(self.solve_rule)
 
             result = AccuseResult(
@@ -134,14 +198,48 @@ class GameSession:
 
             threshold = accuse_config.min_good_score
 
+            # --- 額外顯示文字（引擎控制） ---
             extra_lines: List[str] = [
                 "",
                 "—",
                 "【推理回饋】這不是判對錯，是幫你整理思路。",
                 f"成熟度：{fb.level}"
                 + (f"｜分數：{fb.score}/{threshold}" if threshold > 0 else ""),
-                fb.message,
             ]
+
+            # --- AI 只負責「怎麼說」 ---
+            ai_resp = self.say_once(
+                ResponseRequest(
+                    intent="ending_feedback",
+                    role="teacher",
+                    scene_title=title,
+                    node_id=self.current,
+                    turn=self.state.turn,
+                    clues_preview=[
+                        self.state.clue_labels.get(k, k)
+                        for k in sorted(list(self.state.clues))[:6]
+                    ],
+                    meta={
+                        "level": fb.level,
+                        "score": fb.score,
+                        "threshold": threshold,
+                        "matched_evidence": [
+                            self.state.clue_labels.get(k, k)
+                            for k in (fb.matched_evidence or [])
+                        ],
+                        "missing_key_evidence": [
+                            self.state.clue_labels.get(k, k)
+                            for k in (fb.missing_key_evidence or [])
+                        ],
+                        "engine_message": (fb.message or "").strip(),
+                    },
+                )
+            )
+
+            if ai_resp.text.strip():
+                extra_lines.append(ai_resp.text.strip())
+            else:
+                extra_lines.append("我們慢慢來就好。")
 
             if fb.matched_evidence:
                 labels = [self.state.clue_labels.get(k, k) for k in fb.matched_evidence]
@@ -154,11 +252,10 @@ class GameSession:
                 ]
                 extra_lines.append("可以再留意：" + "、".join(labels))
 
-            # ✅ 安全出口（不確定是被支持的）
-            if not (self.state.last_accuse or "").strip():
-                extra_lines.append("老師：你願意先說『不確定』很安全，我們一起再確認。")
-            else:
-                extra_lines.append("老師：謝謝你把看到的整理出來，我們會一起再確認。")
+            # 安全收尾
+            extra_lines.append(
+                "老師：謝謝你把看到的整理出來，我們會一起再確認。"
+            )
 
             narration = narration + "\n" + "\n".join(extra_lines)
 
@@ -182,6 +279,21 @@ class GameSession:
             choices=choices,
         )
         return self._last_view_cache
+
+    def _normalize_duo_narration(text: str) -> str:
+        # 把 ending_check 常見的「我」敘事改成「我們」
+        pairs = [
+            ("我慢慢說：", "我們慢慢說："),
+            ("我補一句：", "我們補一句："),
+            ("我看到", "我們看到"),
+            ("我也看到", "我們也看到"),
+            ("我覺得", "我們覺得"),
+            ("我不確定", "我們不確定"),
+        ]
+        out = text or ""
+        for a, b in pairs:
+            out = out.replace(a, b)
+        return out
 
     # ----------------------------
     # Internal: ask reason command
@@ -263,21 +375,29 @@ class GameSession:
             support_map=support,
         )
 
-        # ✅ Day12-B Step 4: 用 AI 產生「指認後的安全導回」回應（只說一次）
-        resp = self.say(
+        # ✅ Day12-B Step 4: 用 AI 產生「指認後的安全導回」回應（避免同 intent 重複同一句）
+        resp = self.say_once(
             ResponseRequest(
                 intent="safe_redirect_after_accuse",
                 role="feifei",
                 accused_name=chosen_suspect,
-                # 讓 AI 有材料可以提到「你用了哪些觀察」（但仍不下結論）
                 selected_observations=[
                     (opt.get("text") or "").strip()
                     for opt in (self.solve_rule.get("reason_options") or [])
                     if (opt.get("id") or "").strip() in (reason_ids or [])
                 ],
+                node_id=self.current,
+                turn=self.state.turn,
+                scene_title=(
+                    self.nodes.get(self.current, {}).get("title") or ""
+                ).strip(),
+                clues_preview=[
+                    self.state.clue_labels.get(k, k) for k in sorted(self.state.clues)
+                ][:6],
             )
         )
-        events.append(resp.text)
+        if resp.text.strip():
+            events.append(resp.text)
 
         # ✅ 具體線索回饋：仍由 engine 控制（避免 AI 自己加戲）
         if matched:
@@ -307,7 +427,7 @@ class GameSession:
         commands: List[Dict[str, Any]] = []
 
         # ----------------------------
-        # set_reasons (Day12-B step 1: response via AI)
+        # set_reasons (Day12-B)
         # ----------------------------
         if action.type == "set_reasons":
             reason_ids = action.reason_ids or []
@@ -333,15 +453,25 @@ class GameSession:
 
                 text = (opt.get("text") or "").strip()
 
-                # ✅ NEW: 用 AI 產生「確認觀察」的回應
-                resp = self.say(
+                # ✅ 用 AI 產生「確認觀察」回應（避免同 intent 重複同一句）
+                resp = self.say_once(
                     ResponseRequest(
                         intent="acknowledge_observation",
                         role="feifei",
                         selected_observations=[text],
+                        node_id=self.current,
+                        turn=self.state.turn,
+                        scene_title=(
+                            self.nodes.get(self.current, {}).get("title") or ""
+                        ).strip(),
+                        clues_preview=[
+                            self.state.clue_labels.get(k, k)
+                            for k in sorted(self.state.clues)
+                        ][:6],
                     )
                 )
-                events.append(resp.text)
+                if resp.text.strip():
+                    events.append(resp.text)
 
                 # === 以下邏輯完全保留（不是 AI 負責） ===
                 expected = [str(x) for x in (opt.get("expected_evidence") or []) if x]
@@ -357,21 +487,29 @@ class GameSession:
                     for k in miss[:1]:
                         missing_hints.append(self.state.clue_labels.get(k, k))
 
-            # ✅ Day12-B Step 3（修正版）：reflect_reasoning 只說一次
+            # ✅ Step 3：不確定 / 沒 evidence 時的 AI 回應（只說一次）
             if not reason_ids:
-                # 不確定：support_uncertain
-                resp = self.say(
+                resp = self.say_once(
                     ResponseRequest(
                         intent="support_uncertain",
                         role="feifei",
                         player_text="我不確定",
+                        node_id=self.current,
+                        turn=self.state.turn,
+                        scene_title=(
+                            self.nodes.get(self.current, {}).get("title") or ""
+                        ).strip(),
+                        clues_preview=[
+                            self.state.clue_labels.get(k, k)
+                            for k in sorted(self.state.clues)
+                        ][:6],
                     )
                 )
-                events.append(resp.text)
+                if resp.text.strip():
+                    events.append(resp.text)
 
             elif not seen_any:
-                # 選了理由但還沒有 evidence：先做一次「反思型」AI 回應
-                resp = self.say(
+                resp = self.say_once(
                     ResponseRequest(
                         intent="reflect_reasoning",
                         role="feifei",
@@ -380,9 +518,19 @@ class GameSession:
                             for opt in reason_opts
                             if (opt.get("id") or "").strip() in reason_ids
                         ],
+                        node_id=self.current,
+                        turn=self.state.turn,
+                        scene_title=(
+                            self.nodes.get(self.current, {}).get("title") or ""
+                        ).strip(),
+                        clues_preview=[
+                            self.state.clue_labels.get(k, k)
+                            for k in sorted(self.state.clues)
+                        ][:6],
                     )
                 )
-                events.append(resp.text)
+                if resp.text.strip():
+                    events.append(resp.text)
 
                 # 再補「可以留意的具體線索」（這段是 engine，不是 AI）
                 if missing_hints:
@@ -401,7 +549,22 @@ class GameSession:
             return StepResult(view=None, events=["玩家選擇離開"], is_over=True)
 
         if action.type == "replay":
-            return StepResult(view=self.get_view(), events=["重播本段"], is_over=False)
+            resp = self.say_once(
+                ResponseRequest(
+                    intent="replay_context",
+                    role="feifei",
+                    scene_title=(
+                        self.nodes.get(self.current, {}).get("title") or ""
+                    ).strip(),
+                    node_id=self.current,
+                    turn=self.state.turn,
+                    clues_preview=[
+                        self.state.clue_labels.get(k, k)
+                        for k in sorted(self.state.clues)
+                    ][:6],
+                )
+            )
+            return StepResult(view=self.get_view(), events=[resp.text], is_over=False)
 
         if action.type != "choose":
             return StepResult(view=self.get_view(), events=["未知動作"], is_over=False)

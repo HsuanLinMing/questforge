@@ -47,7 +47,7 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         ).strip()
         if reason_node and session.current == reason_node:
             # 觸發 step 讓引擎吐出 ask_reason command
-            res0 = session.step(PlayerAction(type="choose", choice_index=0))
+            res0 = session.step(PlayerAction(type="replay"))
 
             # events
             for e in res0.events:

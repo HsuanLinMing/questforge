@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, List
 
-from questforge.ai.mock_ai import MockAiClient
+from questforge.ai.ai_client import build_ai_client
 from questforge.ai.schemas import ResponseRequest
 from questforge.cli.cli_menus import show_clues_menu, show_notes_menu, show_saves_list
 from questforge.core.models import GameConfig
@@ -13,7 +13,7 @@ from questforge.engine.save_manager import SaveManager
 
 
 def dev_test_ai_flow():
-    ai = MockAiClient()
+    ai = build_ai_client()
     story = ai.generate_story()
     print("== TITLE ==")
     print(story.title)
@@ -36,7 +36,11 @@ def dev_test_ai_flow():
     print("\n== END ==")
     print(story.open_ending)
 
-    resp = ai.generate_response(ResponseRequest(intent="support_uncertain", role="feifei", player_text="我不確定"))
+    resp = ai.generate_response(
+        ResponseRequest(
+            intent="support_uncertain", role="feifei", player_text="我不確定"
+        )
+    )
     print("\n== RESPONSE ==")
     print(resp.text)
 
@@ -83,17 +87,70 @@ def handle_cli_command(
     # clues
     if raw == "c":
         show_clues_menu(session.state)
+
+        # Day13: AI transition back to story
+        resp = session.say_once(
+            ResponseRequest(
+                intent="back_from_clues",
+                role="feifei",
+                scene_title=(
+                    session.nodes.get(session.current, {}).get("title") or ""
+                ).strip(),
+                node_id=session.current,
+                turn=session.state.turn,
+                clues_preview=[
+                    session.state.clue_labels.get(k, k)
+                    for k in sorted(session.state.clues)
+                ][:6],
+            )
+        )
+        print("\n" + resp.text)
         return True, session, case_id, case, config
 
     # notes
     if raw == "n":
         show_notes_menu(session.state)
+
+        # Day13: AI transition back to story
+        resp = session.say_once(
+            ResponseRequest(
+                intent="back_from_notes",
+                role="feifei",
+                scene_title=(
+                    session.nodes.get(session.current, {}).get("title") or ""
+                ).strip(),
+                node_id=session.current,
+                turn=session.state.turn,
+                clues_preview=[
+                    session.state.clue_labels.get(k, k)
+                    for k in sorted(session.state.clues)
+                ][:6],
+            )
+        )
+        print("\n" + resp.text)
         return True, session, case_id, case, config
 
     # saves list
     if raw == "p":
         show_saves_list(save_mgr)
         input("按 Enter 回到故事…")
+
+        resp = session.say_once(
+            ResponseRequest(
+                intent="back_from_saves",
+                role="feifei",
+                scene_title=(
+                    session.nodes.get(session.current, {}).get("title") or ""
+                ).strip(),
+                node_id=session.current,
+                turn=session.state.turn,
+                clues_preview=[
+                    session.state.clue_labels.get(k, k)
+                    for k in sorted(session.state.clues)
+                ][:6],
+            )
+        )
+        print("\n" + resp.text)
         return True, session, case_id, case, config
 
     # save
@@ -119,7 +176,9 @@ def handle_cli_command(
             if not src:
                 return True, session, case_id, case, config
 
-            new_session, new_case_id, new_case, new_config = save_mgr.load_from_file(src)
+            new_session, new_case_id, new_case, new_config = save_mgr.load_from_file(
+                src
+            )
             chosen_idx_ref["value"] = None
 
             print(

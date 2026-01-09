@@ -64,11 +64,6 @@ CASES = {
                     "text": "地上有透明背紙，像被拉過",
                     "expected_evidence": ["tape_was_pulled"],
                 },
-                {
-                    "id": "unspecified",
-                    "text": "我說不太清楚（先交給老師）",
-                    "expected_evidence": [],
-                },
             ],
             "reason_node": "accuse_reason",
             "correct_suspect": "dongdong",

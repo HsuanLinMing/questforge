@@ -25,6 +25,7 @@ class DetectiveState:
     last_accuse: str = ""  # 玩家最後一次指認的 suspect_id（或 ""）
     last_reason_id: str = ""  # Day8 先不用也行，先留著
     last_reason_text: str = ""  # 預留語音/自由文字（B）
+    last_reason_ids: List[str] = field(default_factory=list)
 
     def add_clue(self, clue: str) -> bool:
         """新增線索 key（Set 去重）。回傳 True 表示第一次收集到。"""
@@ -88,6 +89,7 @@ class DetectiveState:
             "last_accuse": self.last_accuse,
             "last_reason_id": self.last_reason_id,
             "last_reason_text": self.last_reason_text,
+            "last_reason_ids": list(self.last_reason_ids),  # ✅ Day9
         }
 
     @classmethod
@@ -103,6 +105,9 @@ class DetectiveState:
         state.last_accuse = str(data.get("last_accuse", ""))
         state.last_reason_id = str(data.get("last_reason_id", ""))
         state.last_reason_text = str(data.get("last_reason_text", ""))
+        state.last_reason_ids = list(data.get("last_reason_ids", []))
+        if not state.last_reason_ids and state.last_reason_id:
+            state.last_reason_ids = [state.last_reason_id]
         return state
 
 
@@ -154,15 +159,33 @@ class AccuseConfig:
 
 @dataclass
 class AccuseResult:
-    """玩家一次指認的輸入資料（A + 預留 B）。
-    - target：指認對象（suspect id/name）
-    - reason_id：A 模式選的理由
-    - reason_text：預留 B（語音轉文字/自由文字），Day8 先不做理解，只保存
+    """玩家一次指認的輸入資料（Day9：多理由）。
+    - target：指認對象
+    - reason_ids：多理由（A）
+    - reason_id：舊欄位相容（Day8）
+    - reason_text：預留 B
     """
 
     target: str
-    reason_id: str
+    reason_ids: List[str] = field(default_factory=list)
+
+    # backward compatible
+    reason_id: str = ""
     reason_text: str = ""
+
+    def normalized_reason_ids(self) -> List[str]:
+        ids = [str(x).strip() for x in (self.reason_ids or []) if str(x).strip()]
+        if not ids and self.reason_id.strip():
+            ids = [self.reason_id.strip()]
+        # 去重但保序
+        seen = set()
+        out: List[str] = []
+        for x in ids:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
+
 
 
 @dataclass

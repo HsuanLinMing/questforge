@@ -12,10 +12,12 @@ from questforge.core.models import (
     ReasoningFeedback,
 )
 from questforge.engine.actions import PlayerAction
+from questforge.engine.easoning import score_reasons_with_evidence
 from questforge.engine.effects import apply_effects
 from questforge.engine.reasoning import evaluate_accuse
-from questforge.engine.solve_rule_engine import handle_ending_check
 from questforge.engine.views import ChoiceView, NodeView
+from questforge.engine.solve_rule_adapter import solve_rule_to_accuse_config
+
 
 
 @dataclass
@@ -69,11 +71,15 @@ class GameSession:
         self,
         accuse_config: AccuseConfig,
         target: str,
-        reason_id: str,
+        reason_ids: List[str] | None = None,
         reason_text: str = "",
     ) -> ReasoningFeedback:
-        """玩家指認：永遠可進，不卡關，只回饋推理成熟度。"""
-        result = AccuseResult(target=target, reason_id=reason_id, reason_text=reason_text)
+        result = AccuseResult(
+            target=target,
+            reason_ids=list(reason_ids or []),
+            reason_id=(self.state.last_reason_id or ""),  # 相容舊 flow
+            reason_text=reason_text,
+        )
         return evaluate_accuse(accuse_config, result, self.state.clues)
 
     # ----------------------------
@@ -89,19 +95,6 @@ class GameSession:
         return (self.solve_rule.get("ending_check_node") or "ending_check").strip()
 
     # ----------------------------
-    # Scoring (accuse)
-    # ----------------------------
-    def _score_suspect(self, suspect: str) -> int:
-        suspects = (self.solve_rule.get("suspects") or {}) if self.solve_rule else {}
-        profile = (suspects.get(suspect) or {}) if isinstance(suspects, dict) else {}
-        support = (profile.get("support") or {}) if isinstance(profile, dict) else {}
-
-        score = 0
-        for ev in self.state.clues:
-            score += int(support.get(ev, 0) or 0)
-        return score
-
-    # ----------------------------
     # View
     # ----------------------------
     def get_view(self) -> NodeView:
@@ -111,14 +104,24 @@ class GameSession:
 
         # ✅ ending_check 進入時，動態把推理回饋文字 append 到 narration
         if self.current == self._ending_check_node():
-            fb = handle_ending_check(
-                solve_rule=self.solve_rule,
-                target=(self.state.last_accuse or "").strip(),
-                clues=set(self.state.clues),
-            )
-            threshold = int((self.solve_rule.get("threshold", 0)) or 0)
+            accuse_config = solve_rule_to_accuse_config(self.solve_rule)
 
-            extra_lines: List[str] = [
+            result = AccuseResult(
+                target=(self.state.last_accuse or "").strip(),
+                reason_ids=list(self.state.last_reason_ids or []),
+                reason_id=self.state.last_reason_id,
+                reason_text=self.state.last_reason_text,
+            )
+
+            fb = evaluate_accuse(
+                accuse_config,
+                result,
+                set(self.state.clues),
+            )
+
+            threshold = accuse_config.min_good_score
+
+            extra_lines = [
                 "",
                 "—",
                 f"【推理回饋】成熟度：{fb.level}"
@@ -131,21 +134,20 @@ class GameSession:
                 extra_lines.append("你有用到的線索：" + "、".join(labels))
 
             if fb.level != "good" and fb.missing_key_evidence:
-                hint = [self.state.clue_labels.get(k, k) for k in fb.missing_key_evidence[:2]]
-                extra_lines.append("可以再留意：" + "、".join(hint))
+                labels = [self.state.clue_labels.get(k, k) for k in fb.missing_key_evidence[:2]]
+                extra_lines.append("可以再留意：" + "、".join(labels))
 
-            # ✅ 揭曉引導（不判對錯，只溫柔說明）
-            correct = (self.solve_rule.get("correct_suspect") or "").strip()
-            if correct:
+            # 揭曉（可選）
+            if accuse_config.truth:
                 last = (self.state.last_accuse or "").strip()
-                if last == correct:
+                if last == accuse_config.truth:
                     extra_lines.append("老師：最後查清楚了，你的方向很接近！")
                 elif last:
                     extra_lines.append("老師：最後查清楚了，事情其實不是你一開始想的那樣。")
                 else:
                     extra_lines.append("老師：你先把看到的說清楚，這樣最安全。")
 
-            narration = narration + "\n" + "\n".join([s for s in extra_lines if s])
+            narration = narration + "\n" + "\n".join(extra_lines)
 
         # choices（注意：reason_node 會被當作「純 ask_reason 節點」，UI 不應使用它 choices）
         choices_raw = node.get("choices") or []
@@ -231,22 +233,49 @@ class GameSession:
             return ending_check
 
         threshold = int(self.solve_rule.get("threshold", 0) or 0)
-        score = self._score_suspect(chosen_suspect)
+        reason_ids = self.state.last_reason_ids or []
+
+        suspects = self.solve_rule.get("suspects", {}) or {}
+        profile = suspects.get(chosen_suspect, {}) or {}
+        support = profile.get("support", {}) or {}
+
+        total_score, matched, missing = score_reasons_with_evidence(
+            reason_ids=reason_ids,
+            reason_options=self.solve_rule.get("reason_options", []),
+            clues=set(self.state.clues),
+            support_map=support,
+        )
+
 
         # 永遠可指認：用分數分級回饋，不做卡關
-        if threshold > 0 and score >= threshold:
-            events.append("霏霏：嗯…你的想法很有根據。我們把『看到的』整理好，再交給老師最安全。")
-        elif threshold > 0 and score >= max(1, threshold // 2):
-            events.append("樂樂：你的想法有一些根據喔！如果再找到一個關鍵點，你會更有把握。")
+        if threshold > 0 and total_score >= threshold:
+            level = "good"
+        elif threshold > 0 and total_score >= max(1, threshold // 2):
+            level = "ok"
         else:
-            events.append("霏霏：你願意說出你的想法很棒！我們可以再觀察一下，找更明確的線索。")
+            level = "weak"
+
+        if level == "good":
+            events.append("霏霏：你的推理很完整，也有線索支持。")
+        elif level == "ok":
+            events.append("樂樂：你抓到一些重點了，再多一點線索會更清楚。")
+        else:
+            events.append("霏霏：你願意整理想法很棒，我們可以再多觀察一下。")
+
+        if matched:
+            labels = [self.state.clue_labels.get(k, k) for k in matched]
+            events.append("你有用到的線索：" + "、".join(labels))
+
+        if missing:
+            labels = [self.state.clue_labels.get(k, k) for k in missing[:2]]
+            events.append("可以再留意看看：" + "、".join(labels))
 
         # confirm_quiz：ok 以上再出（避免太吵）
         confirm = self.solve_rule.get("confirm_quiz", []) or []
         if (
             getattr(self.config, "enable_quiz", False)
             and confirm
-            and (threshold <= 0 or score >= max(1, threshold // 2))
+            and (threshold <= 0 or total_score >= max(1, threshold // 2))
         ):
             commands.append({"type": "confirm_quiz", "quiz": confirm})
 
@@ -259,42 +288,64 @@ class GameSession:
         events: List[str] = []
         commands: List[Dict[str, Any]] = []
 
-        # ----------------------------
-        # set_reason (UI -> Engine)
-        # ----------------------------
-        if action.type == "set_reason":
-            rid = (action.reason_id or "").strip() or "unspecified"
-            rtext = (action.reason_text or "").strip()
 
-            self.state.last_reason_id = rid
-            self.state.last_reason_text = rtext
+        # ----------------------------
+        # set_reasons (Day9: 多理由)
+        # ----------------------------
+        if action.type == "set_reasons":
+            reason_ids = action.reason_ids or []
 
-            # ✅ 立即回饋：讓孩子知道「理由已被聽到」
+            # 相容寫法：先記在 state（Day9 之後會正式升級）
+            self.state.last_reason_ids = list(reason_ids)
+            self.state.last_reason_id = ""      # 舊欄位清空
+            self.state.last_reason_text = ""
+
             reason_opts = self.solve_rule.get("reason_options") or []
-            opt = next((o for o in reason_opts if (o.get("id") or "").strip() == rid), None)
 
-            if opt:
-                events.append(f"霏霏：好，我記下你的理由：『{(opt.get('text') or '').strip()}』")
+            events = []
+            seen_any = False
+            missing_hints: List[str] = []
+
+            for rid in reason_ids:
+                opt = next(
+                    (o for o in reason_opts if (o.get("id") or "").strip() == rid),
+                    None,
+                )
+                if not opt:
+                    continue
+
+                text = (opt.get("text") or "").strip()
+                events.append(f"霏霏：你注意到一件事是——「{text}」")
+
                 expected = [str(x) for x in (opt.get("expected_evidence") or []) if x]
-                if expected:
-                    got = [k for k in expected if k in self.state.clues]
-                    miss = [k for k in expected if k not in self.state.clues]
-                    if got:
-                        labels = [self.state.clue_labels.get(k, k) for k in got]
-                        events.append("霏霏：你確實有看到：" + "、".join(labels))
-                    if miss:
-                        labels = [self.state.clue_labels.get(k, k) for k in miss[:2]]
-                        events.append("霏霏：還有一兩個小細節我們沒看到，可以再留意：" + "、".join(labels))
-            else:
-                if rtext:
-                    events.append(f"霏霏：好，我記下你說的理由：『{rtext}』")
-                else:
-                    events.append("霏霏：好，我記下你現在還說不太清楚，我們也可以交給老師處理。")
+                got = [k for k in expected if k in self.state.clues]
+                miss = [k for k in expected if k not in self.state.clues]
 
-            # ✅ 回到 accuse，讓玩家選嫌疑人
+                if got:
+                    seen_any = True
+                    labels = [self.state.clue_labels.get(k, k) for k in got]
+                    events.append("霏霏：這個想法有線索支持：" + "、".join(labels))
+
+                if miss:
+                    for k in miss[:1]:  # 每個理由最多提示一個
+                        missing_hints.append(self.state.clue_labels.get(k, k))
+
+            if not reason_ids:
+                events.append(
+                    "霏霏：你現在還不太確定，沒關係，我們也可以交給老師。"
+                )
+            elif not seen_any:
+                events.append(
+                    "霏霏：你願意整理想法很棒！我們可以再找一些更明確的線索。"
+                )
+
+            if missing_hints:
+                events.append("霏霏：之後可以再留意看看：" + "、".join(missing_hints[:2]))
+
+            # 回到 accuse，讓玩家選人（或不選）
             accuse_node = self._accuse_node() or "accuse"
             self.current = accuse_node
-            return StepResult(view=self.get_view(), events=events, is_over=False, selected_next=self.current)
+            return StepResult(view=self.get_view(), events=events, is_over=False)
 
         # ----------------------------
         # basic actions
@@ -353,7 +404,7 @@ class GameSession:
             )
 
         accuse_node = self._accuse_node()
-        has_reason = bool((self.state.last_reason_id or "").strip())
+        has_reason = bool(self.state.last_reason_ids)
 
         # ----------------------------
         # ✅ Gate: going to accuse -> ask reason first (if configured & not yet provided)

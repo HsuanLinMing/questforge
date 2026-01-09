@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Any, Dict, Tuple, Optional, List
 
 from questforge.cli.cli_menus import show_clues_menu, show_notes_menu, show_saves_list
 from questforge.core.models import GameConfig
@@ -101,3 +101,55 @@ def handle_cli_command(
             return True, session, case_id, case, config
 
     return False, session, case_id, case, config
+
+
+def _parse_multi_indexes(raw: str) -> List[int]:
+    s = (raw or "").strip()
+    if not s:
+        return []
+
+    for ch in ["，", ",", ";", "；", "、"]:
+        s = s.replace(ch, " ")
+
+    parts = [p for p in s.split() if p]
+    idxs: List[int] = []
+
+    for p in parts:
+        if not p.isdigit():
+            return [-1]
+        idxs.append(int(p))
+
+    return idxs
+
+
+def cli_handle_ask_reason(command: Dict[str, Any]) -> PlayerAction:
+    options = command.get("options") or []
+
+    print("\n【你為什麼這樣想？選出你的線索】")
+    for i, opt in enumerate(options, start=1):
+        print(f"{i}. {(opt.get('text') or '').strip()}")
+
+    unsure_index = len(options) + 1
+    print(f"{unsure_index}. 我說不太清楚（先交給老師）")
+
+    raw = input("請選擇理由（可多選，如：1 2）：").strip()
+    idxs = _parse_multi_indexes(raw)
+
+    if idxs == [-1] or any(i <= 0 or i > unsure_index for i in idxs):
+        print("輸入不正確，先幫你選『我說不太清楚』。")
+        return PlayerAction(type="set_reasons", reason_ids=[])
+
+    if not idxs or unsure_index in idxs:
+        return PlayerAction(type="set_reasons", reason_ids=[])
+
+    reason_ids: List[str] = []
+    seen = set()
+    for i in idxs:
+        if i in seen:
+            continue
+        seen.add(i)
+        rid = (options[i - 1].get("id") or "").strip()
+        if rid:
+            reason_ids.append(rid)
+
+    return PlayerAction(type="set_reasons", reason_ids=reason_ids)

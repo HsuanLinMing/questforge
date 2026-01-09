@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 import json
 from pathlib import Path
 
-from questforge.cli.cli_commands import handle_cli_command
+from questforge.cli.cli_commands import cli_handle_ask_reason, handle_cli_command
 from questforge.cli.cli_render import render_view, show_status, trace
 from questforge.engine.case_selector import CaseSelector
 from questforge.engine.confirm_quiz import run_confirm_quiz
@@ -130,50 +130,14 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         for cmd in res.commands or []:
             if cmd.get("type") == "confirm_quiz":
                 run_confirm_quiz(...)
-            elif cmd.get("type") == "ask_reason":
-                mode = (cmd.get("mode") or "choice").strip()
-                options = cmd.get("options") or []
+                continue
 
-                if mode == "choice":
-                    print("\n【你為什麼這樣想？選出你的線索】")
-                    for i, opt in enumerate(options, start=1):
-                        print(f"{i}. {opt.get('text','')}")
-                    raw2 = input("請選擇理由：").strip()
-                    if not raw2.isdigit() or not (1 <= int(raw2) <= len(options)):
-                        print("輸入不正確，先幫你選『我說不太清楚』。")
-                        reason_id = "unspecified"
-                    else:
-                        reason_id = (
-                            options[int(raw2) - 1].get("id") or ""
-                        ).strip() or "unspecified"
+            if cmd.get("type") == "ask_reason":
+                action = cli_handle_ask_reason(cmd)
+                res2 = session.step(action)
 
-                    # 回送引擎
-                    res2 = session.step(
-                        PlayerAction(type="set_reason", reason_id=reason_id)
-                    )
-                    for e in res2.events:
-                        print("\n" + e)
-
-                elif mode == "text":
-                    text = input("\n用一句話說說你的理由（可留空）：").strip()
-                    res2 = session.step(
-                        PlayerAction(
-                            type="set_reason", reason_id="free_text", reason_text=text
-                        )
-                    )
-                    for e in res2.events:
-                        print("\n" + e)
-
-                elif mode == "voice":
-                    print("\n（語音模式先預留：CLI 暫不支援錄音，先當作文字輸入）")
-                    text = input("請用文字代替語音說明（可留空）：").strip()
-                    res2 = session.step(
-                        PlayerAction(
-                            type="set_reason", reason_id="voice_text", reason_text=text
-                        )
-                    )
-                    for e in res2.events:
-                        print("\n" + e)
+                for e in res2.events:
+                    print("\n" + e)
 
         if res.is_over:
             return

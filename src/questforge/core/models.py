@@ -1,28 +1,33 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set, Any, Literal
+
+ReasonInputMode = Literal["choice", "text", "voice"]
 
 
 @dataclass
 class DetectiveState:
     """偵探向遊戲狀態（純故事 / 推理用）。
 
-    - turn：回合數（用來顯示進度、或做節奏控制）
-    - clues：已收集線索 key（Set 避免重複，給推理計分用）
-    - clue_labels：線索 key -> 中文說明（給 UI/回顧顯示用）
-    - notes：偵探筆記（List 保留順序，適合回顧）
-    - flags：劇情旗標（Set，用於分支條件：例如 'saw_camera', 'met_teacher'）
-    - vars：可選的變數倉庫（Dict，存一些計數/狀態，例如 {'asked_guard': 2}）
+    這是「核心領域模型（core）」：
+    - 不依賴 CLI/Flutter
+    - 可被存成 JSON
+    - 供推理計分、分支判斷、回顧顯示使用
     """
 
     turn: int = 0
     clues: Set[str] = field(default_factory=set)
-    clue_labels: Dict[str, str] = field(default_factory=dict)  # ✅ 新增
+    clue_labels: Dict[str, str] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
     flags: Set[str] = field(default_factory=set)
     vars: Dict[str, int] = field(default_factory=dict)
+    last_accuse: str = ""  # 玩家最後一次指認的 suspect_id（或 ""）
+    last_reason_id: str = ""  # Day8 先不用也行，先留著
+    last_reason_text: str = ""  # 預留語音/自由文字（B）
 
-    # --- helpers ---
     def add_clue(self, clue: str) -> bool:
+        """新增線索 key（Set 去重）。回傳 True 表示第一次收集到。"""
         clue = clue.strip()
         if not clue:
             return False
@@ -38,24 +43,24 @@ class DetectiveState:
 
         is_new = self.add_clue(key)
 
-        # label 只要有，就記住（即使不是新線索，也允許補上 label）
         if label:
             label = str(label).strip()
             if label:
                 self.clue_labels[key] = label
 
-        # 可選：第一次拿到線索，就寫入筆記（方便回顧）
         if is_new and self.clue_labels.get(key):
             self.add_note(f"【線索】{self.clue_labels[key]}")
 
         return is_new
 
     def add_note(self, note: str) -> None:
+        """新增偵探筆記（保留順序）。"""
         note = note.strip()
         if note:
             self.notes.append(note)
 
     def set_flag(self, flag: str) -> bool:
+        """設定旗標（Set 去重）。回傳 True 表示第一次設定到。"""
         flag = flag.strip()
         if not flag:
             return False
@@ -64,39 +69,108 @@ class DetectiveState:
         return len(self.flags) > before
 
     def inc(self, key: str, delta: int = 1) -> int:
+        """遞增變數（適合做計數，例如問了幾次）。回傳新值。"""
         key = key.strip()
         if not key:
             return 0
         self.vars[key] = int(self.vars.get(key, 0)) + int(delta)
         return self.vars[key]
 
+    def to_dict(self) -> Dict[str, Any]:
+        """存檔：把狀態轉成可 JSON 序列化的 dict。"""
+        return {
+            "turn": self.turn,
+            "clues": sorted(self.clues),
+            "clue_labels": dict(self.clue_labels),
+            "notes": list(self.notes),
+            "flags": sorted(self.flags),
+            "vars": dict(self.vars),
+            "last_accuse": self.last_accuse,
+            "last_reason_id": self.last_reason_id,
+            "last_reason_text": self.last_reason_text,
+        }
 
-@dataclass
-class CaseConfig:
-    case_id: str
-    difficulty: str  # "short" | "medium" | "long"
-    min_required_clues: int = 2
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DetectiveState":
+        """讀檔：從 dict 還原狀態。"""
+        state = cls()
+        state.turn = int(data.get("turn", 0))
+        state.clues = set(data.get("clues", []))
+        state.clue_labels = dict(data.get("clue_labels", {}))
+        state.notes = list(data.get("notes", []))
+        state.flags = set(data.get("flags", []))
+        state.vars = {str(k): int(v) for k, v in dict(data.get("vars", {})).items()}
+        state.last_accuse = str(data.get("last_accuse", ""))
+        state.last_reason_id = str(data.get("last_reason_id", ""))
+        state.last_reason_text = str(data.get("last_reason_text", ""))
+        return state
 
 
 @dataclass
 class GameConfig:
-    enable_quiz: bool = False  # 是否開啟「偵探回顧問答」
-    quiz_can_skip: bool = True  # 問答可跳過（更像遊戲）
+    """遊戲設定（可由 CLI/Flutter/FastAPI 注入）。
+
+    - enable_quiz：是否開啟「回顧問答」
+    - quiz_can_skip：回顧問答是否允許跳過
+    """
+
+    enable_quiz: bool = False
+    quiz_can_skip: bool = True
+    reason_input_mode: ReasonInputMode = "choice"
 
 
 @dataclass
-class Progress:
-    short_play_count: int = 0
-    solved_count: int = 0  # 成功破案次數（跨所有難度）
-    # 可選：統計各難度破案
-    short_solved: int = 0
-    medium_solved: int = 0
-    long_solved: int = 0
+class AccuseReasonOption:
+    """指認理由（A 模式的選項）。
+    - reason_id：穩定 key，後續語音 mapping 也會 map 成它
+    - text：給玩家看的理由文字
+    - expected_evidence：這個理由「通常對應到」哪些線索（用於加權）
+    - base_score：即使沒線索也給一點分（避免孩子全空）
+    """
 
-    def unlocked(self) -> set[str]:
-        unlocked = {"short"}
-        if self.short_play_count >= 3:
-            unlocked.add("medium")
-        if self.solved_count >= 5:
-            unlocked.add("long")
-        return unlocked
+    reason_id: str
+    text: str
+    expected_evidence: List[str] = field(default_factory=list)
+    base_score: int = 0
+
+
+@dataclass
+class AccuseConfig:
+    """案件的指認設定（每個 case 一份）。
+    - suspects：可指認的對象 id（或名字）
+    - reasons：理由選項（A）
+    - truth：正解（可選，用於結局/回饋；但不必當作卡關）
+    - key_evidence：關鍵證據權重（線索 -> 分數）
+    - min_good_score：達到這個分數就算推理很成熟
+    """
+
+    suspects: List[str]
+    reasons: List[AccuseReasonOption]
+    truth: Optional[str] = None
+
+    key_evidence: Dict[str, int] = field(default_factory=dict)
+    min_good_score: int = 6
+
+
+@dataclass
+class AccuseResult:
+    """玩家一次指認的輸入資料（A + 預留 B）。
+    - target：指認對象（suspect id/name）
+    - reason_id：A 模式選的理由
+    - reason_text：預留 B（語音轉文字/自由文字），Day8 先不做理解，只保存
+    """
+
+    target: str
+    reason_id: str
+    reason_text: str = ""
+
+
+@dataclass
+class ReasoningFeedback:
+    """推理回饋（不是對錯判定，是成熟度/建議）。"""
+
+    score: int
+    level: Literal["weak", "ok", "good"]
+    matched_evidence: List[str] = field(default_factory=list)
+    missing_key_evidence: List[str] = field(default_factory=list)
+    message: str = ""

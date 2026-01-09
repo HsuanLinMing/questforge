@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict, Tuple, Optional
+
+from questforge.cli.cli_menus import show_clues_menu, show_notes_menu, show_saves_list
+from questforge.core.models import GameConfig
+from questforge.engine.session import GameSession
+from questforge.engine.actions import PlayerAction
+from questforge.engine.save_manager import SaveManager
+
+
+
+def handle_cli_command(
+    raw: str,
+    *,
+    save_mgr: SaveManager,
+    session: GameSession,
+    case_id: str,
+    case: Dict,
+    config: GameConfig,
+    chosen_idx_ref: Dict[str, Optional[int]],
+) -> Tuple[bool, Optional[GameSession], str, Dict, GameConfig]:
+    """
+    回傳：
+      handled: 是否已處理（True 代表主迴圈應 continue / return）
+      new_session: 若為 None 代表要結束遊戲（例如 q）
+      case_id/case/config: 可能因 load 而改變
+    """
+    # quit
+    if raw == "q":
+        # 離開前 autosave（容錯）
+        try:
+            save_mgr.save_autosave(
+                session=session,
+                case_id=case_id,
+                case_title=case.get("title", ""),
+                config=config,
+            )
+        except Exception:
+            pass
+        _ = session.step(PlayerAction(type="quit"))
+        return True, None, case_id, case, config
+
+    # replay
+    if raw == "r":
+        chosen_idx_ref["value"] = None
+        res = session.step(PlayerAction(type="replay"))
+        for e in res.events:
+            print(f"\n{e}")
+        return True, session, case_id, case, config
+
+    # clues
+    if raw == "c":
+        show_clues_menu(session.state)
+        return True, session, case_id, case, config
+
+    # notes
+    if raw == "n":
+        show_notes_menu(session.state)
+        return True, session, case_id, case, config
+
+    # saves list
+    if raw == "p":
+        show_saves_list(save_mgr)
+        input("按 Enter 回到故事…")
+        return True, session, case_id, case, config
+
+    # save
+    if raw == "s":
+        try:
+            target = save_mgr.prompt_save_target_path()
+            save_mgr.save_to_path(
+                target,
+                session=session,
+                case_id=case_id,
+                case_title=case.get("title", ""),
+                config=config,
+            )
+            print(f"\n[存檔成功] 已儲存到 {Path(target).name}")
+        except Exception as e:
+            print(f"\n[存檔失敗] {e}")
+        return True, session, case_id, case, config
+
+    # load
+    if raw == "l":
+        try:
+            src = save_mgr.prompt_load_source_path()
+            if not src:
+                return True, session, case_id, case, config
+
+            new_session, new_case_id, new_case, new_config = save_mgr.load_from_file(src)
+            chosen_idx_ref["value"] = None
+
+            print(
+                f"\n[讀檔成功] 已還原：{new_case.get('title','')}（來源：{Path(src).name}，enable_quiz={new_config.enable_quiz}）"
+            )
+            return True, new_session, new_case_id, new_case, new_config
+        except Exception as e:
+            print(f"\n[讀檔失敗] {e}")
+            return True, session, case_id, case, config
+
+    return False, session, case_id, case, config

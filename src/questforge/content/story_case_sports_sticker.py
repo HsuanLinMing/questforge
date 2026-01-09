@@ -29,16 +29,24 @@ STORY_NODES = {
                 "text": "去看看貼紙桌",
                 "next": "scene_sticker_table",
                 "evidence": [
-                    {"key": "tape_was_pulled", "label": "貼紙桌邊的透明膠帶背紙翹起來，像被拉過"},
-                    {"key": "mei_near_table", "label": "小芽站得很近又退後，手藏在身後、臉有點紅"},
-                    {"key": "dongdong_stares_gold", "label": "東東站比較遠，但一直盯著金色貼紙"},
+                    {
+                        "key": "tape_was_pulled",
+                        "label": "貼紙桌邊的透明膠帶背紙翹起來，像被拉過",
+                    },
+                    {
+                        "key": "mei_near_table",
+                        "label": "小芽站得很近又退後，手藏在身後、臉有點紅",
+                    },
+                    {
+                        "key": "dongdong_stares_gold",
+                        "label": "東東站比較遠，但一直盯著金色貼紙",
+                    },
                 ],
             },
             {"text": "先去操場練習", "next": "scene_playground"},
             {"text": "先整理運動護照和書包", "next": "scene_bag"},
         ],
     },
-
     # =================================================
     # 🧳 生活感支線：整理書包（帶出人物）
     # =================================================
@@ -63,8 +71,14 @@ STORY_NODES = {
                 "text": "去看看貼紙桌",
                 "next": "scene_sticker_table",
                 "evidence": [
-                    {"key": "dongdong_hug_passport", "label": "東東把運動護照抱得很緊、一直看著貼紙桌方向"},
-                    {"key": "ali_wants_win", "label": "阿力說他明天一定要贏回來，語氣很急"},
+                    {
+                        "key": "dongdong_hug_passport",
+                        "label": "東東把運動護照抱得很緊、一直看著貼紙桌方向",
+                    },
+                    {
+                        "key": "ali_wants_win",
+                        "label": "阿力說他明天一定要贏回來，語氣很急",
+                    },
                     {"key": "mei_fast_actions", "label": "小芽動作很快，像很怕來不及"},
                 ],
             },
@@ -72,7 +86,6 @@ STORY_NODES = {
             {"text": "回座位看看大家在做什麼", "next": "scene_seat"},
         ],
     },
-
     # =================================================
     # 🏷️ 貼紙桌前：細節線索（不明講）
     # =================================================
@@ -96,7 +109,6 @@ STORY_NODES = {
             {"text": "回座位看看大家", "next": "scene_seat"},
         ],
     },
-
     # =================================================
     # 🪑 回座位：自然帶出「怪怪的」但不先下結論
     # =================================================
@@ -116,7 +128,6 @@ STORY_NODES = {
             {"text": "先去喝水休息", "next": "scene_water"},
         ],
     },
-
     "scene_water": {
         "title": "喝口水",
         "narration": "我們到飲水機旁邊喝水。\n"
@@ -131,7 +142,6 @@ STORY_NODES = {
             {"text": "回教室準備貼努力貼紙", "next": "scene_return"},
         ],
     },
-
     # =================================================
     # 🏃 操場練習：這裡不談貼紙不見（還沒發生）
     # =================================================
@@ -155,18 +165,28 @@ STORY_NODES = {
                 "text": "去問東東：你還好嗎？",
                 "next": "scene_check_dongdong",
                 "evidence": [
-                    {"key": "dongdong_hug_passport", "label": "東東沒跑步，只把運動護照抱在胸前"},
-                    {"key": "dongdong_hesitates", "label": "東東嘴巴動了一下又沒說出來，好像有話卡住"},
+                    {
+                        "key": "dongdong_hug_passport",
+                        "label": "東東沒跑步，只把運動護照抱在胸前",
+                    },
+                    {
+                        "key": "dongdong_hesitates",
+                        "label": "東東嘴巴動了一下又沒說出來，好像有話卡住",
+                    },
                 ],
             },
             {
                 "text": "去看看阿力怎麼了",
                 "next": "scene_check_ali",
-                "evidence": [{"key": "ali_frustrated", "label": "阿力跺腳說又踩線了，看起來很挫折"}],
+                "evidence": [
+                    {
+                        "key": "ali_frustrated",
+                        "label": "阿力跺腳說又踩線了，看起來很挫折",
+                    }
+                ],
             },
         ],
     },
-
     "scene_check_dongdong": {
         "title": "問問東東",
         "narration": "我走到東東旁邊。\n"
@@ -180,10 +200,21 @@ STORY_NODES = {
         "像是把話塞回心裡。",
         "choices": [
             {"text": "回教室", "next": "scene_return"},
-            {"text": "去找霏霏和樂樂", "next": "scene_return"},
+            {"text": "跟霏霏和樂樂小聲說剛剛看到的", "next": "scene_share_with_team"},
         ],
     },
-
+    "scene_share_with_team": {
+        "title": "小聲整理一下",
+        "narration": "我走回霏霏和樂樂身邊，小聲說：\n"
+        "『東東剛剛嚇了一下，抱護照抱更緊。』\n\n"
+        "霏霏點點頭：\n"
+        "『好，我們先記住：他看起來很緊張，但我們不急著下結論。』\n"
+        "樂樂也小聲說：\n"
+        "『嗯…等一下回教室，我們先看貼紙盒那邊有沒有新細節。』",
+        "choices": [
+            {"text": "回教室", "next": "scene_return"},
+        ],
+    },
     "scene_check_ali": {
         "title": "看看阿力",
         "narration": "阿力抓抓頭，臉紅紅的：\n"
@@ -197,7 +228,6 @@ STORY_NODES = {
             {"text": "回教室", "next": "scene_return"},
         ],
     },
-
     # =================================================
     # ‼️ 事件發生：回教室準備貼努力貼紙 → 發現第一名貼紙不見
     # =================================================
@@ -217,13 +247,14 @@ STORY_NODES = {
             {
                 "text": "先看看貼紙桌附近",
                 "next": "scene_problem",
-                "evidence": [{"key": "gold_sticker_missing", "label": "金色第一名貼紙不見了"}],
+                "evidence": [
+                    {"key": "gold_sticker_missing", "label": "金色第一名貼紙不見了"}
+                ],
             },
             {"text": "先去找老師（小聲說）", "next": "scene_teacher"},
             {"text": "先安慰一下大家，別慌", "next": "scene_calm_room"},
         ],
     },
-
     "scene_calm_room": {
         "title": "先讓教室不要亂",
         "narration": "樂樂看著貼紙盒，眉頭皺起來。\n"
@@ -237,7 +268,6 @@ STORY_NODES = {
             {"text": "去找老師", "next": "scene_teacher"},
         ],
     },
-
     "scene_problem": {
         "title": "貼紙盒旁邊",
         "narration": "貼紙盒還在桌上。\n"
@@ -254,22 +284,36 @@ STORY_NODES = {
             {
                 "text": "小聲問阿力：你剛剛有看到什麼嗎？",
                 "next": "ask_ali",
-                "evidence": [{"key": "ali_tense_stares_box", "label": "阿力一直盯著貼紙盒，嘴巴抿得很緊"}],
+                "evidence": [
+                    {
+                        "key": "ali_tense_stares_box",
+                        "label": "阿力一直盯著貼紙盒，嘴巴抿得很緊",
+                    }
+                ],
             },
             {
                 "text": "小聲問小芽：你剛剛有靠近貼紙盒嗎？",
                 "next": "ask_mei",
-                "evidence": [{"key": "mei_tense_bag", "label": "小芽把書包拉鍊拉很緊，手一直摸書包亮亮貼紙"}],
+                "evidence": [
+                    {
+                        "key": "mei_tense_bag",
+                        "label": "小芽把書包拉鍊拉很緊，手一直摸書包亮亮貼紙",
+                    }
+                ],
             },
             {
                 "text": "小聲問東東：你怎麼了？",
                 "next": "ask_dongdong",
-                "evidence": [{"key": "dongdong_restless", "label": "東東站起來又坐下來，看起來坐不住"}],
+                "evidence": [
+                    {
+                        "key": "dongdong_restless",
+                        "label": "東東站起來又坐下來，看起來坐不住",
+                    }
+                ],
             },
             {"text": "先去找老師（把看到的說清楚）", "next": "scene_teacher"},
         ],
     },
-
     "ask_ali": {
         "title": "問阿力",
         "narration": "我小聲問：\n"
@@ -283,14 +327,18 @@ STORY_NODES = {
             {
                 "text": "去問東東",
                 "next": "ask_dongdong",
-                "evidence": [{"key": "ali_saw_dongdong_linger", "label": "阿力說他看到東東在桌邊站很久、一直看著盒子"}],
+                "evidence": [
+                    {
+                        "key": "ali_saw_dongdong_linger",
+                        "label": "阿力說他看到東東在桌邊站很久、一直看著盒子",
+                    }
+                ],
             },
             {"text": "去問小芽", "next": "ask_mei"},
             {"text": "回去再看貼紙桌", "next": "scene_problem"},
             {"text": "進入指認前先停一下", "next": "final_accuse"},
         ],
     },
-
     "ask_mei": {
         "title": "問小芽",
         "narration": "我小聲問：\n"
@@ -308,7 +356,6 @@ STORY_NODES = {
             {"text": "進入指認前先停一下", "next": "final_accuse"},
         ],
     },
-
     "ask_dongdong": {
         "title": "問東東",
         "narration": "我走到東東旁邊。\n"
@@ -324,13 +371,17 @@ STORY_NODES = {
             {
                 "text": "先不問名字，去找霏霏和樂樂一起整理",
                 "next": "final_accuse",
-                "evidence": [{"key": "dongdong_wants_seen", "label": "東東說他想明天被大家看見，心裡很急"}],
+                "evidence": [
+                    {
+                        "key": "dongdong_wants_seen",
+                        "label": "東東說他想明天被大家看見，心裡很急",
+                    }
+                ],
             },
             {"text": "直接去跟老師說（可能會指錯）", "next": "ending_wrong"},
             {"text": "去找老師（只說看到的，不說猜的）", "next": "ending_check"},
         ],
     },
-
     # =================================================
     # 👩‍🏫 老師角色：早出場＋安全感
     # =================================================
@@ -351,12 +402,21 @@ STORY_NODES = {
             {"text": "把看到的整理好再說", "next": "ending_check"},
         ],
     },
-
     # =================================================
     # 🧠 指認前必出：情緒降溫對話（核心）
     # =================================================
+    "accuse_reason": {
+        "title": "先說說你注意到的事",
+        "narration": (
+            "霏霏輕聲說：\n"
+            "『我們先把看到的小細節說出來。』\n"
+            "『不用急著說名字，說清楚會比較安全。』\n\n"
+            "『你是注意到哪一個地方，才有這樣的想法呢？』"
+        ),
+        "choices": [],
+    },
     "final_accuse": {
-        "title": "停一下，先把心放慢",
+        "title": "停一下，整理一下思緒",
         "narration": "樂樂的眉毛皺得緊緊的。\n"
         "他小聲說：\n"
         "『我心裡很不舒服。』\n"
@@ -378,23 +438,22 @@ STORY_NODES = {
             {"text": "我想先做最後推理", "next": "accuse"},
         ],
     },
-
     "accuse": {
-        "title": "最後推理",
-        "narration": "你心裡覺得比較像是誰？（也可以選不確定）",
+        "title": "現在你的想法是？",
+        "narration": (
+            "你心裡目前比較偏向誰？\n"
+            "也可以選擇『我還不確定』。\n\n"
+            "霏霏說：\n"
+            "『這不是一定要答對的問題。』\n"
+            "『只是看看你現在的感覺。』"
+        ),
         "choices": [
-            {"text": "東東", "next": "accuse_dongdong"},
-            {"text": "小芽", "next": "accuse_mei"},
-            {"text": "阿力", "next": "accuse_ali"},
-            {"text": "我不確定，交給老師處理", "next": "ending_check"},
+            {"text": "東東", "next": "ending_check", "accuse": "dongdong"},
+            {"text": "小芽", "next": "ending_check", "accuse": "mei"},
+            {"text": "阿力", "next": "ending_check", "accuse": "ali"},
+            {"text": "我還不確定，交給老師處理", "next": "ending_check", "accuse": ""},
         ],
     },
-
-    # 這三個節點可以不用內容（引擎只用 next_id 取出嫌疑人），但留著也不會壞：
-    "accuse_dongdong": {"title": "", "narration": "", "choices": []},
-    "accuse_mei": {"title": "", "narration": "", "choices": []},
-    "accuse_ali": {"title": "", "narration": "", "choices": []},
-
     # =================================================
     # ✅ A：正確做法—先說看到的 → 老師接手
     # =================================================
@@ -414,7 +473,6 @@ STORY_NODES = {
             {"text": "讓老師問清楚（安全結案）", "next": "ending_result"},
         ],
     },
-
     "ending_result": {
         "title": "事情被安全接住了",
         "narration": "老師請大家先坐好。\n"
@@ -454,7 +512,6 @@ STORY_NODES = {
             {"text": "離開遊戲", "next": "quit"},
         ],
     },
-
     # =================================================
     # ❌ B：錯誤指認分支（教孩子不確定不要指人）
     # =================================================
@@ -485,7 +542,6 @@ STORY_NODES = {
             {"text": "重新開始", "next": "start"},
         ],
     },
-
     # =================================================
     # 🌙 尾聲
     # =================================================
@@ -508,7 +564,6 @@ STORY_NODES = {
             {"text": "離開遊戲", "next": "quit"},
         ],
     },
-
     "quit": {
         "title": "離開",
         "narration": "霏霏和樂樂揮揮手：\n" "『明天運動會，加油！』",

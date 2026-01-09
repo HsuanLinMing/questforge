@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
 
 
 def run_quiz(quiz: List[Dict[str, Any]]) -> bool:

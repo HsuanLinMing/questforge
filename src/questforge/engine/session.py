@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from questforge.ai import AiClient, MockAiClient
+from questforge.ai.schemas import ResponsePackage, ResponseRequest, StoryPackage
 from questforge.core.models import (
     AccuseConfig,
     AccuseResult,
@@ -15,9 +17,8 @@ from questforge.engine.actions import PlayerAction
 from questforge.engine.easoning import score_reasons_with_evidence
 from questforge.engine.effects import apply_effects
 from questforge.engine.reasoning import evaluate_accuse
-from questforge.engine.views import ChoiceView, NodeView
 from questforge.engine.solve_rule_adapter import solve_rule_to_accuse_config
-
+from questforge.engine.views import ChoiceView, NodeView
 
 
 @dataclass
@@ -42,10 +43,9 @@ class StepResult:
 class GameSession:
     """純邏輯遊戲流程控制器（不做 print/input）。
 
-    Day8 重點（單理由版）：
     - 指認永遠可進（不卡關）
-    - 進入 accuse 前可選擇先問理由（reason_node / ask_reason）
-    - ending_check 會動態追加推理成熟度回饋
+    - going to accuse 時可先 ask_reason（reason_node / command）
+    - ending_check 追加「反思型」推理回饋（不裁決、不揭曉）
     """
 
     def __init__(
@@ -56,6 +56,7 @@ class GameSession:
         start_node: str,
         config: GameConfig,
         solve_rule: Optional[Dict[str, Any]] = None,
+        ai: Optional[AiClient] = None,
     ) -> None:
         self.state = state
         self.nodes = nodes
@@ -63,6 +64,18 @@ class GameSession:
         self.config = config
         self.solve_rule = solve_rule or {}
         self._last_view_cache: Optional[NodeView] = None
+
+        # ✅ Day12-A: AI client injection (default to Mock)
+        self.ai: AiClient = ai or MockAiClient()
+
+    # ----------------------------
+    # AI (Day12-A)
+    # ----------------------------
+    def generate_new_case(self) -> StoryPackage:
+        return self.ai.generate_story()
+
+    def say(self, req: ResponseRequest) -> ResponsePackage:
+        return self.ai.generate_response(req)
 
     # ----------------------------
     # Public: Accuse (optional, kept for future)
@@ -102,7 +115,7 @@ class GameSession:
         title = (node.get("title") or "").strip()
         narration = (node.get("narration") or "").strip()
 
-        # ✅ ending_check 進入時，動態把推理回饋文字 append 到 narration
+        # ✅ ending_check：只做反思回饋，不裁決、不揭曉 truth
         if self.current == self._ending_check_node():
             accuse_config = solve_rule_to_accuse_config(self.solve_rule)
 
@@ -121,10 +134,11 @@ class GameSession:
 
             threshold = accuse_config.min_good_score
 
-            extra_lines = [
+            extra_lines: List[str] = [
                 "",
                 "—",
-                f"【推理回饋】成熟度：{fb.level}"
+                "【推理回饋】這不是判對錯，是幫你整理思路。",
+                f"成熟度：{fb.level}"
                 + (f"｜分數：{fb.score}/{threshold}" if threshold > 0 else ""),
                 fb.message,
             ]
@@ -134,22 +148,21 @@ class GameSession:
                 extra_lines.append("你有用到的線索：" + "、".join(labels))
 
             if fb.level != "good" and fb.missing_key_evidence:
-                labels = [self.state.clue_labels.get(k, k) for k in fb.missing_key_evidence[:2]]
+                labels = [
+                    self.state.clue_labels.get(k, k)
+                    for k in fb.missing_key_evidence[:2]
+                ]
                 extra_lines.append("可以再留意：" + "、".join(labels))
 
-            # 揭曉（可選）
-            if accuse_config.truth:
-                last = (self.state.last_accuse or "").strip()
-                if last == accuse_config.truth:
-                    extra_lines.append("老師：最後查清楚了，你的方向很接近！")
-                elif last:
-                    extra_lines.append("老師：最後查清楚了，事情其實不是你一開始想的那樣。")
-                else:
-                    extra_lines.append("老師：你先把看到的說清楚，這樣最安全。")
+            # ✅ 安全出口（不確定是被支持的）
+            if not (self.state.last_accuse or "").strip():
+                extra_lines.append("老師：你願意先說『不確定』很安全，我們一起再確認。")
+            else:
+                extra_lines.append("老師：謝謝你把看到的整理出來，我們會一起再確認。")
 
             narration = narration + "\n" + "\n".join(extra_lines)
 
-        # choices（注意：reason_node 會被當作「純 ask_reason 節點」，UI 不應使用它 choices）
+        # choices
         choices_raw = node.get("choices") or []
         choices: List[ChoiceView] = []
         for i, c in enumerate(choices_raw, start=1):
@@ -181,7 +194,9 @@ class GameSession:
     # ----------------------------
     # Internal: choice apply (effects/evidence/after/accuse record)
     # ----------------------------
-    def _apply_choice_effects_and_collect_events(self, choice: Dict[str, Any], events: List[str]) -> None:
+    def _apply_choice_effects_and_collect_events(
+        self, choice: Dict[str, Any], events: List[str]
+    ) -> None:
         """effects + evidence + after，並把「獲得線索/短對話」寫進 events。"""
         before_clues = set(self.state.clues)
 
@@ -229,7 +244,9 @@ class GameSession:
 
         # 不確定也允許：直接進 ending_check
         if not chosen_suspect:
-            events.append("霏霏：交給老師處理是很安全的選擇！我們把看到的線索整理清楚就好。")
+            events.append(
+                "霏霏：你先選『不確定』很安全，我們把看到的整理清楚交給老師就好。"
+            )
             return ending_check
 
         threshold = int(self.solve_rule.get("threshold", 0) or 0)
@@ -246,22 +263,23 @@ class GameSession:
             support_map=support,
         )
 
+        # ✅ Day12-B Step 4: 用 AI 產生「指認後的安全導回」回應（只說一次）
+        resp = self.say(
+            ResponseRequest(
+                intent="safe_redirect_after_accuse",
+                role="feifei",
+                accused_name=chosen_suspect,
+                # 讓 AI 有材料可以提到「你用了哪些觀察」（但仍不下結論）
+                selected_observations=[
+                    (opt.get("text") or "").strip()
+                    for opt in (self.solve_rule.get("reason_options") or [])
+                    if (opt.get("id") or "").strip() in (reason_ids or [])
+                ],
+            )
+        )
+        events.append(resp.text)
 
-        # 永遠可指認：用分數分級回饋，不做卡關
-        if threshold > 0 and total_score >= threshold:
-            level = "good"
-        elif threshold > 0 and total_score >= max(1, threshold // 2):
-            level = "ok"
-        else:
-            level = "weak"
-
-        if level == "good":
-            events.append("霏霏：你的推理很完整，也有線索支持。")
-        elif level == "ok":
-            events.append("樂樂：你抓到一些重點了，再多一點線索會更清楚。")
-        else:
-            events.append("霏霏：你願意整理想法很棒，我們可以再多觀察一下。")
-
+        # ✅ 具體線索回饋：仍由 engine 控制（避免 AI 自己加戲）
         if matched:
             labels = [self.state.clue_labels.get(k, k) for k in matched]
             events.append("你有用到的線索：" + "、".join(labels))
@@ -288,16 +306,15 @@ class GameSession:
         events: List[str] = []
         commands: List[Dict[str, Any]] = []
 
-
         # ----------------------------
-        # set_reasons (Day9: 多理由)
+        # set_reasons (Day12-B step 1: response via AI)
         # ----------------------------
         if action.type == "set_reasons":
             reason_ids = action.reason_ids or []
 
-            # 相容寫法：先記在 state（Day9 之後會正式升級）
+            # 記錄狀態（邏輯不變）
             self.state.last_reason_ids = list(reason_ids)
-            self.state.last_reason_id = ""      # 舊欄位清空
+            self.state.last_reason_id = ""
             self.state.last_reason_text = ""
 
             reason_opts = self.solve_rule.get("reason_options") or []
@@ -315,8 +332,18 @@ class GameSession:
                     continue
 
                 text = (opt.get("text") or "").strip()
-                events.append(f"霏霏：你注意到一件事是——「{text}」")
 
+                # ✅ NEW: 用 AI 產生「確認觀察」的回應
+                resp = self.say(
+                    ResponseRequest(
+                        intent="acknowledge_observation",
+                        role="feifei",
+                        selected_observations=[text],
+                    )
+                )
+                events.append(resp.text)
+
+                # === 以下邏輯完全保留（不是 AI 負責） ===
                 expected = [str(x) for x in (opt.get("expected_evidence") or []) if x]
                 got = [k for k in expected if k in self.state.clues]
                 miss = [k for k in expected if k not in self.state.clues]
@@ -327,22 +354,42 @@ class GameSession:
                     events.append("霏霏：這個想法有線索支持：" + "、".join(labels))
 
                 if miss:
-                    for k in miss[:1]:  # 每個理由最多提示一個
+                    for k in miss[:1]:
                         missing_hints.append(self.state.clue_labels.get(k, k))
 
+            # ✅ Day12-B Step 3（修正版）：reflect_reasoning 只說一次
             if not reason_ids:
-                events.append(
-                    "霏霏：你現在還不太確定，沒關係，我們也可以交給老師。"
+                # 不確定：support_uncertain
+                resp = self.say(
+                    ResponseRequest(
+                        intent="support_uncertain",
+                        role="feifei",
+                        player_text="我不確定",
+                    )
                 )
+                events.append(resp.text)
+
             elif not seen_any:
-                events.append(
-                    "霏霏：你願意整理想法很棒！我們可以再找一些更明確的線索。"
+                # 選了理由但還沒有 evidence：先做一次「反思型」AI 回應
+                resp = self.say(
+                    ResponseRequest(
+                        intent="reflect_reasoning",
+                        role="feifei",
+                        selected_observations=[
+                            (opt.get("text") or "").strip()
+                            for opt in reason_opts
+                            if (opt.get("id") or "").strip() in reason_ids
+                        ],
+                    )
                 )
+                events.append(resp.text)
 
-            if missing_hints:
-                events.append("霏霏：之後可以再留意看看：" + "、".join(missing_hints[:2]))
+                # 再補「可以留意的具體線索」（這段是 engine，不是 AI）
+                if missing_hints:
+                    labels = "、".join(missing_hints[:2])
+                    events.append(f"霏霏：之後可以再留意看看：{labels}")
 
-            # 回到 accuse，讓玩家選人（或不選）
+            # 回到 accuse（流程不變）
             accuse_node = self._accuse_node() or "accuse"
             self.current = accuse_node
             return StepResult(view=self.get_view(), events=events, is_over=False)
@@ -360,7 +407,7 @@ class GameSession:
             return StepResult(view=self.get_view(), events=["未知動作"], is_over=False)
 
         # ----------------------------
-        # reason_node: treat as "ask_reason only" node (DO NOT consume story choices here)
+        # reason_node: treat as "ask_reason only" node
         # ----------------------------
         reason_node = self._reason_node()
         if reason_node and self.current == reason_node:
@@ -406,9 +453,7 @@ class GameSession:
         accuse_node = self._accuse_node()
         has_reason = bool(self.state.last_reason_ids)
 
-        # ----------------------------
         # ✅ Gate: going to accuse -> ask reason first (if configured & not yet provided)
-        # ----------------------------
         if accuse_node and reason_node and next_id == accuse_node and not has_reason:
             self.current = reason_node
             commands.append(self._make_ask_reason_command())
@@ -421,7 +466,7 @@ class GameSession:
                 commands=commands,
             )
 
-        # 3) accuse feedback（只在 accuse_node 生效；通常會導向 ending_check）
+        # 3) accuse feedback
         final_next = self._handle_accuse_if_needed(
             current_node=self.current,
             next_id=next_id,
@@ -432,7 +477,7 @@ class GameSession:
         # 4) apply next
         self.current = final_next
 
-        # 5) entering accuse_node: reset reason（新一輪）
+        # 5) entering accuse_node: reset reason (new round)
         if accuse_node and self.current == accuse_node:
             self.state.last_reason_id = ""
             self.state.last_reason_text = ""
@@ -463,8 +508,9 @@ def restore_session_from_snapshot(
     nodes: Dict[str, Any],
     config: GameConfig,
     solve_rule: Optional[Dict[str, Any]] = None,
+    ai: Optional[AiClient] = None,
 ) -> GameSession:
-    """從 snapshot 還原 GameSession（避免 classmethod 不存在造成讀檔失敗）。"""
+    """從 snapshot 還原 GameSession。"""
     state = DetectiveState.from_dict(snapshot.get("state", {}) or {})
     current = str((snapshot.get("session") or {}).get("current") or "").strip()
     if not current or current not in nodes:
@@ -475,4 +521,5 @@ def restore_session_from_snapshot(
         start_node=current,
         config=config,
         solve_rule=solve_rule or {},
+        ai=ai,
     )

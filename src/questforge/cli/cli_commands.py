@@ -3,12 +3,42 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, List
 
+from questforge.ai.mock_ai import MockAiClient
+from questforge.ai.schemas import ResponseRequest
 from questforge.cli.cli_menus import show_clues_menu, show_notes_menu, show_saves_list
 from questforge.core.models import GameConfig
 from questforge.engine.session import GameSession
 from questforge.engine.actions import PlayerAction
 from questforge.engine.save_manager import SaveManager
 
+
+def dev_test_ai_flow():
+    ai = MockAiClient()
+    story = ai.generate_story()
+    print("== TITLE ==")
+    print(story.title)
+    print("\n== PROLOGUE ==")
+    print(story.prologue)
+
+    print("\n== SCENES ==")
+    for sc in story.scenes:
+        print(f"\n[{sc.title}]")
+        print(sc.narration)
+        for ob in sc.observations:
+            print(f"- {ob.text}")
+
+    print("\n== COOLDOWN ==")
+    print(story.cooldown_dialogue)
+
+    print("\n== TEACHER ==")
+    print(story.teacher_scene)
+
+    print("\n== END ==")
+    print(story.open_ending)
+
+    resp = ai.generate_response(ResponseRequest(intent="support_uncertain", role="feifei", player_text="我不確定"))
+    print("\n== RESPONSE ==")
+    print(resp.text)
 
 
 def handle_cli_command(

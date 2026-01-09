@@ -8,7 +8,6 @@ from questforge.cli.cli_commands import cli_handle_ask_reason, handle_cli_comman
 from questforge.cli.cli_render import render_view, show_status, trace
 from questforge.engine.case_selector import CaseSelector
 from questforge.engine.confirm_quiz import run_confirm_quiz
-from questforge.engine.session import GameSession
 from questforge.engine.actions import PlayerAction
 from questforge.core.models import DetectiveState, GameConfig
 from questforge.content.cases import CASES
@@ -42,6 +41,28 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
     chosen_idx: Optional[int] = None  # 只用於 trace 顯示（上一回合選了什麼）
 
     while True:
+        # ✅ 0) 先處理「command-only 節點」（例如 reason_node）
+        reason_node = str(
+            (case.get("solve_rule", {}) or {}).get("reason_node") or ""
+        ).strip()
+        if reason_node and session.current == reason_node:
+            # 觸發 step 讓引擎吐出 ask_reason command
+            res0 = session.step(PlayerAction(type="choose", choice_index=0))
+
+            # events
+            for e in res0.events:
+                print("\n" + e)
+
+            # commands
+            for cmd in res0.commands or []:
+                if cmd.get("type") == "ask_reason":
+                    action = cli_handle_ask_reason(cmd)
+                    res2 = session.step(action)
+                    for e in res2.events:
+                        print("\n" + e)
+
+            # 消耗完 command 後，回到 while 顯示下一個 view
+            continue
         # 1) view
         try:
             view = session.get_view()
@@ -60,6 +81,10 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         show_status(session.state)
         render_view(view)
         if not view.choices:
+            # 沒有選項就代表這個節點可能是純敘事或結尾
+            # 先讓使用者按 Enter 繼續，避免直接退出
+            _ = input("\n（按 Enter 繼續）").strip()
+            # 你也可以在這裡選擇自動結束，依你的 node 規則而定
             return
         raw = input("\n請選擇：").strip().lower()
 
@@ -129,7 +154,10 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         # commands
         for cmd in res.commands or []:
             if cmd.get("type") == "confirm_quiz":
-                run_confirm_quiz(...)
+                quiz = cmd.get("quiz") or []
+                picked = run_confirm_quiz(quiz, collected=set(session.state.clues))
+                # 如果你想把 picked 存起來（可選），可以：
+                # session.state.notes.extend(picked)  # 看你 state 有沒有 notes
                 continue
 
             if cmd.get("type") == "ask_reason":

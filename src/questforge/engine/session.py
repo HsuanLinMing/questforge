@@ -32,14 +32,17 @@ class StepResult:
 
     selected_choice_index: int = 0
     selected_next: str = ""
+
     commands: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class GameSession:
     """純邏輯遊戲流程控制器（不做 print/input）。
 
-    A) Tag 化：用 node.tag 判斷最後調查點 last_investigate_node
-    B) 結案流程：ending_result / ending_wrong / epilogue 由 engine 注入 Flow choices
+    Day16-C：
+    - ending_result / ending_wrong / epilogue：不再用 NodeView choices
+    - 改用 commands: show_end_screen，由 UI/CLI 自己顯示 EndScreen
+    - UI/CLI 選完回傳 PlayerAction(type=end_flow, end_action=...)
     """
 
     def __init__(
@@ -59,20 +62,16 @@ class GameSession:
         self.solve_rule = solve_rule or {}
         self._last_view_cache: Optional[NodeView] = None
 
-        # 用於「回到調查」fallback
         self._start_node_id: str = start_node
 
-        # AI
         self.ai: AiClient = ai or build_ai_client()
         self._last_ai_text_by_intent: Dict[str, str] = {}
 
-        # 保留：進入 ending_check 前的節點（你要用也行）
         self.last_play_node: str = start_node
-        # A) 真正用來回到調查的節點（只記 investigate 節點）
         self.last_investigate_node: str = start_node
 
     # ----------------------------
-    # Helpers: node ids from solve_rule
+    # Helpers: node ids
     # ----------------------------
     def _reason_node(self) -> str:
         return (self.solve_rule.get("reason_node") or "").strip()
@@ -92,20 +91,20 @@ class GameSession:
         except Exception:
             return ""
 
-    def _is_tag(self, node_id: str, tag: str) -> bool:
-        return self._node_tag(node_id) == tag
-
     def _is_investigate_node(self, node_id: str) -> bool:
-        return self._is_tag(node_id, "investigate")
+        return self._node_tag(node_id) == "investigate"
 
     def _is_ending_result_node(self, node_id: str) -> bool:
-        return self._is_tag(node_id, "ending_result")
+        return self._node_tag(node_id) == "ending_result"
 
     def _is_ending_wrong_node(self, node_id: str) -> bool:
-        return self._is_tag(node_id, "ending_wrong")
+        return self._node_tag(node_id) == "ending_wrong"
 
     def _is_epilogue_node(self, node_id: str) -> bool:
-        return self._is_tag(node_id, "epilogue")
+        return self._node_tag(node_id) == "epilogue"
+
+    def _is_end_screen_node(self, node_id: str) -> bool:
+        return self._node_tag(node_id) in ("ending_result", "ending_wrong", "epilogue")
 
     # ----------------------------
     # AI
@@ -178,51 +177,14 @@ class GameSession:
         return evaluate_accuse(accuse_config, result, self.state.clues)
 
     # ----------------------------
-    # View builders (Flow)
+    # View (非 EndScreen 的正常節點才會用到)
     # ----------------------------
-    def _flow_choices_for_epilogue(self) -> List[ChoiceView]:
-        # Flutter 之後直接畫三顆按鈕就好
-        return [
-            ChoiceView(
-                index=1,
-                text="再玩一次這個案件",
-                enabled=True,
-                reason=None,
-                tag="flow:restart_case",
-            ),
-            ChoiceView(
-                index=2,
-                text="玩下一個案件",
-                enabled=True,
-                reason=None,
-                tag="flow:switch_case",
-            ),
-            ChoiceView(
-                index=3, text="離開", enabled=True, reason=None, tag="flow:quit"
-            ),
-        ]
-
-    def _flow_choices_for_endings(self) -> List[ChoiceView]:
-        # ending_result / ending_wrong 統一：進尾聲
-        return [
-            ChoiceView(
-                index=1,
-                text="進入尾聲",
-                enabled=True,
-                reason=None,
-                tag="flow:go_epilogue",
-            ),
-        ]
-
-    # ----------------------------
-    # View
-    # ----------------------------
-    def get_view(self) -> NodeView:
+    def get_view(self):
         node = self.nodes[self.current]
         title = (node.get("title") or "").strip()
         narration = (node.get("narration") or "").strip()
 
-        # 1) ending_check：追加推理回饋 + 注入「回到調查」
+        # ending_check：追加推理回饋 + 回到調查
         if self.current == self._ending_check_node():
             narration = self._normalize_duo_narration(narration)
 
@@ -293,7 +255,6 @@ class GameSession:
             extra_lines.append("老師：謝謝你把看到的整理出來，我們會一起再確認。")
             narration = narration + "\n" + "\n".join(extra_lines)
 
-            # story 原生 choices（保留 story 自己的「安全結案」那顆）
             choices_raw = node.get("choices") or []
             choices: List[ChoiceView] = []
             for i, c in enumerate(choices_raw, start=1):
@@ -303,11 +264,10 @@ class GameSession:
                         text=(c.get("text") or "").strip(),
                         enabled=True,
                         reason=(c.get("after") or "").strip() or None,
-                        tag="",  # story choice
+                        tag="",
                     )
                 )
 
-            # 注入「回到調查」：用 last_investigate_node
             inv = (self.last_investigate_node or "").strip()
             if inv and inv in self.nodes and inv != self._ending_check_node():
                 choices.append(
@@ -316,7 +276,7 @@ class GameSession:
                         text="回到調查（再看看現場）",
                         enabled=True,
                         reason=None,
-                        tag="ux:back_to_investigate",
+                        tag="back_to_investigate",
                     )
                 )
 
@@ -328,40 +288,7 @@ class GameSession:
             )
             return self._last_view_cache
 
-        # 2) ending_result：engine flow choices
-        if self._is_ending_result_node(self.current):
-            choices = self._flow_choices_for_endings()
-            self._last_view_cache = NodeView(
-                node_id=self.current,
-                title=title,
-                narration=narration,
-                choices=choices,
-            )
-            return self._last_view_cache
-
-        # 3) ending_wrong：engine flow choices（同 ending_result）
-        if self._is_ending_wrong_node(self.current):
-            choices = self._flow_choices_for_endings()
-            self._last_view_cache = NodeView(
-                node_id=self.current,
-                title=title,
-                narration=narration,
-                choices=choices,
-            )
-            return self._last_view_cache
-
-        # 4) epilogue：engine flow choices
-        if self._is_epilogue_node(self.current):
-            choices = self._flow_choices_for_epilogue()
-            self._last_view_cache = NodeView(
-                node_id=self.current,
-                title=title,
-                narration=narration,
-                choices=choices,
-            )
-            return self._last_view_cache
-
-        # 5) Normal NodeView
+        # Normal node view
         choices_raw = node.get("choices") or []
         choices: List[ChoiceView] = []
         for i, c in enumerate(choices_raw, start=1):
@@ -371,7 +298,19 @@ class GameSession:
                     text=(c.get("text") or "").strip(),
                     enabled=True,
                     reason=(c.get("after") or "").strip() or None,
-                    tag="",  # story choice
+                    tag="",
+                )
+            )
+
+        # ✅ Day17-C：accuse 節點加「回去改理由」（這裡才會生效）
+        if (self._accuse_node() or "").strip() == self.current:
+            choices.append(
+                ChoiceView(
+                    index=len(choices) + 1,
+                    text="我想回去改一下我的理由（先整理再說）",
+                    enabled=True,
+                    reason=None,
+                    tag="edit_reasons",
                 )
             )
 
@@ -398,13 +337,109 @@ class GameSession:
             out = out.replace(a, b)
         return out
 
+    @staticmethod
+    def _build_reason_summary(selected_obs: List[str], reason_text: str) -> str:
+        obs = [x.strip() for x in (selected_obs or []) if x and x.strip()]
+        rt = (reason_text or "").strip()
+
+        if obs and rt:
+            return "、".join(obs[:3]) + f"（補充：{rt}）"
+        if obs:
+            return "、".join(obs[:3])
+        if rt:
+            return rt
+        return "我還不太確定，想交給老師一起確認。"
+
     # ----------------------------
-    # Internal: ask reason command
+    # Commands: ask reason / end screen
     # ----------------------------
     def _make_ask_reason_command(self) -> Dict[str, Any]:
         mode = getattr(self.config, "reason_input_mode", "choice")
         reason_opts = self.solve_rule.get("reason_options") or []
         return {"type": "ask_reason", "mode": mode, "options": reason_opts}
+
+    def _make_end_screen_command(self, *, node_id: str) -> Dict[str, Any]:
+        node = self.nodes.get(node_id, {}) or {}
+        title = (node.get("title") or "").strip()
+        narration = (node.get("narration") or "").strip()
+        lesson = node.get("lesson") or []
+
+        tag = self._node_tag(node_id)
+
+        # ✅ 回顧卡片資料（給 Flutter 用）
+        accused = (self.state.last_accuse or "").strip()
+        reason_ids = list(self.state.last_reason_ids or [])
+        accuse_config = solve_rule_to_accuse_config(self.solve_rule)
+
+        result = AccuseResult(
+            target=accused,
+            reason_ids=reason_ids,
+            reason_id=self.state.last_reason_id,
+            reason_text=self.state.last_reason_text,
+        )
+        fb = evaluate_accuse(accuse_config, result, set(self.state.clues))
+
+        # human-readable labels
+        matched_labels = [
+            self.state.clue_labels.get(k, k) for k in (fb.matched_evidence or [])
+        ]
+        missing_labels = [
+            self.state.clue_labels.get(k, k) for k in (fb.missing_key_evidence or [])
+        ]
+
+        # 你選的「觀察理由」文字（給卡片顯示）
+        reason_opts = self.solve_rule.get("reason_options", []) or []
+        selected_reason_texts = [
+            (opt.get("text") or "").strip()
+            for opt in reason_opts
+            if (opt.get("id") or "").strip()
+            in set([str(x).strip() for x in reason_ids])
+        ]
+        selected_reason_texts = [t for t in selected_reason_texts if t]
+
+        # ending_result / ending_wrong：有「進入尾聲」
+        if tag in ("ending_result", "ending_wrong"):
+            options = [
+                {"id": "go_epilogue", "text": "進入尾聲"},
+            ]
+        else:
+            options = [
+                {"id": "restart_case", "text": "再玩一次這個案件"},
+                {"id": "switch_case", "text": "玩下一個案件"},
+                {"id": "quit", "text": "離開"},
+            ]
+
+        return {
+            "type": "show_end_screen",
+            "node_id": node_id,
+            "tag": tag,
+            "title": title,
+            "narration": narration,
+            "lesson": list(lesson) if isinstance(lesson, list) else [],
+            "options": options,
+            # ✅ extra meta for UI
+            "meta": {
+                "case_title": (self.solve_rule.get("title") or "").strip(),  # 沒有就空
+                "accused": accused,  # 可能空（不確定）
+                "reason_ids": reason_ids,
+                "selected_observations": selected_reason_texts,
+                "turn": int(getattr(self.state, "turn", 0) or 0),
+                "clues_preview": [
+                    self.state.clue_labels.get(k, k) for k in sorted(self.state.clues)
+                ][:8],
+                # 推理回饋（同 ending_check 那套）
+                "level": fb.level,
+                "score": fb.score,
+                "threshold": accuse_config.min_good_score,
+                "engine_message": (fb.message or "").strip(),
+                "matched_evidence": matched_labels,
+                "missing_key_evidence": missing_labels[:6],
+                "reason_text": (self.state.last_reason_text or "").strip(),
+                "reason_summary": self._build_reason_summary(
+                    selected_reason_texts, (self.state.last_reason_text or "").strip()
+                ),
+            },
+        }
 
     # ----------------------------
     # Internal: apply choice
@@ -489,7 +524,7 @@ class GameSession:
             )
         )
         if resp.text.strip():
-            events.append(resp.text)
+            events.append(resp.text.strip())
 
         if matched:
             labels = [self.state.clue_labels.get(k, k) for k in matched]
@@ -517,14 +552,45 @@ class GameSession:
         commands: List[Dict[str, Any]] = []
 
         # ----------------------------
-        # set_reasons (Day12-B)
+        # Day16-C: end_flow
+        # ----------------------------
+        if action.type == "end_flow":
+            act = (action.end_action or "").strip()
+
+            if act == "go_epilogue":
+                # 留在 engine 內跳 epilogue（避免 UI 直接改 session.current）
+                if "epilogue" in self.nodes:
+                    self.current = "epilogue"
+                    # 進 epilogue 後也用 command-only endscreen
+                    commands.append(self._make_end_screen_command(node_id="epilogue"))
+                    return StepResult(
+                        view=None, events=events, is_over=True, commands=commands
+                    )
+
+                # 沒有 epilogue 就退化成 restart
+                commands.append({"type": "flow", "action": "restart_case"})
+                return StepResult(
+                    view=None, events=events, is_over=True, commands=commands
+                )
+
+            if act in ("restart_case", "switch_case", "quit"):
+                commands.append({"type": "flow", "action": act})
+                return StepResult(
+                    view=None, events=events, is_over=True, commands=commands
+                )
+
+            return StepResult(view=None, events=["未知 end_action"], is_over=True)
+
+        # ----------------------------
+        # set_reasons（Day16-A 已完成）
         # ----------------------------
         if action.type == "set_reasons":
             reason_ids = action.reason_ids or []
+            reason_text = (action.reason_text or "").strip()
 
             self.state.last_reason_ids = list(reason_ids)
             self.state.last_reason_id = ""
-            self.state.last_reason_text = ""
+            self.state.last_reason_text = reason_text
 
             reason_opts = self.solve_rule.get("reason_options") or []
 
@@ -532,14 +598,22 @@ class GameSession:
             seen_any = False
             missing_hints: List[str] = []
 
+            # 1) choice-mode：逐個理由 ack + evidence hints
             for rid in reason_ids:
                 opt = next(
-                    (o for o in reason_opts if (o.get("id") or "").strip() == rid), None
+                    (
+                        o
+                        for o in reason_opts
+                        if (o.get("id") or "").strip() == str(rid).strip()
+                    ),
+                    None,
                 )
                 if not opt:
                     continue
 
                 text = (opt.get("text") or "").strip()
+                if not text:
+                    continue
 
                 resp = self.say_once(
                     ResponseRequest(
@@ -558,9 +632,13 @@ class GameSession:
                     )
                 )
                 if resp.text.strip():
-                    events.append(resp.text)
+                    events.append(resp.text.strip())
 
-                expected = [str(x) for x in (opt.get("expected_evidence") or []) if x]
+                expected = [
+                    str(x).strip()
+                    for x in (opt.get("expected_evidence") or [])
+                    if str(x).strip()
+                ]
                 got = [k for k in expected if k in self.state.clues]
                 miss = [k for k in expected if k not in self.state.clues]
 
@@ -570,10 +648,31 @@ class GameSession:
                     events.append("霏霏：這個想法有線索支持：" + "、".join(labels))
 
                 if miss:
-                    for k in miss[:1]:
-                        missing_hints.append(self.state.clue_labels.get(k, k))
+                    missing_hints.append(self.state.clue_labels.get(miss[0], miss[0]))
 
-            if not reason_ids:
+            # 2) text-mode：一句話理由
+            if reason_text:
+                resp = self.say_once(
+                    ResponseRequest(
+                        intent="acknowledge_reason_text",
+                        role="feifei",
+                        player_text=reason_text,
+                        node_id=self.current,
+                        turn=self.state.turn,
+                        scene_title=(
+                            self.nodes.get(self.current, {}).get("title") or ""
+                        ).strip(),
+                        clues_preview=[
+                            self.state.clue_labels.get(k, k)
+                            for k in sorted(self.state.clues)
+                        ][:6],
+                    )
+                )
+                if resp.text.strip():
+                    events.append(resp.text.strip())
+
+            # 3) 都沒有（不確定）
+            if (not reason_ids) and (not reason_text):
                 resp = self.say_once(
                     ResponseRequest(
                         intent="support_uncertain",
@@ -591,9 +690,9 @@ class GameSession:
                     )
                 )
                 if resp.text.strip():
-                    events.append(resp.text)
-
-            elif not seen_any:
+                    events.append(resp.text.strip())
+            # 4) 有選理由但沒對上線索（補一段反思 + missing hints）
+            elif (not seen_any) and (reason_ids):
                 resp = self.say_once(
                     ResponseRequest(
                         intent="reflect_reasoning",
@@ -601,7 +700,8 @@ class GameSession:
                         selected_observations=[
                             (opt.get("text") or "").strip()
                             for opt in reason_opts
-                            if (opt.get("id") or "").strip() in reason_ids
+                            if (opt.get("id") or "").strip()
+                            in [str(x).strip() for x in reason_ids]
                         ],
                         node_id=self.current,
                         turn=self.state.turn,
@@ -615,19 +715,36 @@ class GameSession:
                     )
                 )
                 if resp.text.strip():
-                    events.append(resp.text)
-
+                    events.append(resp.text.strip())
                 if missing_hints:
                     labels = "、".join(missing_hints[:2])
                     events.append(f"霏霏：之後可以再留意看看：{labels}")
 
-            accuse_node = self._accuse_node() or "accuse"
-            self.current = accuse_node
+            # 5) 不確定（交給老師）：直接去 ending_check（不要再逼指認）
+            if (not reason_ids) and (not reason_text):
+                events.append("霏霏：好，我們先交給老師。你已經做得很棒了。")
+                self.current = self._ending_check_node()
+                return StepResult(
+                    view=self.get_view(),
+                    events=events,
+                    is_over=False,
+                    commands=commands,
+                )
+
+            # 6) 有理由：才回到 accuse
+            accuse_node = (self._accuse_node() or "accuse").strip()
+            self.current = (
+                accuse_node
+                if accuse_node in self.nodes
+                else next(iter(self.nodes.keys()))
+            )
             return StepResult(
                 view=self.get_view(), events=events, is_over=False, commands=commands
             )
 
+        # ----------------------------
         # basic actions
+        # ----------------------------
         if action.type == "quit":
             return StepResult(view=None, events=["玩家選擇離開"], is_over=True)
 
@@ -657,18 +774,14 @@ class GameSession:
         if idx <= 0 or idx > len(view.choices):
             return StepResult(view=view, events=["無效選項"], is_over=False)
 
-        # choose 才算一回合
         self.state.turn += 1
 
         ending_check_node = self._ending_check_node()
 
-        # ----------------------------
-        # 0) ending_check injected：回到調查
-        # ----------------------------
+        # ending_check injected：回到調查
         if self.current == ending_check_node:
             picked = view.choices[idx - 1]
-            tag = (getattr(picked, "tag", "") or "").strip()
-            if tag == "ux:back_to_investigate":
+            if (picked.tag or "").strip() == "back_to_investigate":
                 events.append(
                     "霏霏：好，我們先不急著收尾。再回去看看現場，找一個更清楚的小細節。"
                 )
@@ -688,63 +801,31 @@ class GameSession:
                     view=self.get_view(),
                     events=events,
                     is_over=False,
-                    selected_choice_index=idx,
-                    selected_next=self.current,
                     commands=commands,
                 )
 
-        # ----------------------------
-        # 0.5) Flow nodes：ending_result / ending_wrong / epilogue
-        # ----------------------------
-        if (
-            self._is_ending_result_node(self.current)
-            or self._is_ending_wrong_node(self.current)
-            or self._is_epilogue_node(self.current)
-        ):
-            picked = view.choices[idx - 1]
-            tag = (getattr(picked, "tag", "") or "").strip()
-            if tag.startswith("flow:"):
-                flow_action = tag.split(":", 1)[1].strip()
-
-                # flow:go_epilogue 是引擎內部跳轉，不交給 UI
-                if flow_action == "go_epilogue":
-                    # 你 story node id 叫 "epilogue"
-                    if "epilogue" in self.nodes:
-                        self.current = "epilogue"
-                        return StepResult(
-                            view=self.get_view(),
-                            events=events,
-                            is_over=False,
-                            selected_choice_index=idx,
-                            selected_next=self.current,
-                            commands=commands,
-                        )
-                    # 沒有 epilogue 就直接當 quit
-                    commands.append({"type": "flow", "action": "quit"})
-                    return StepResult(
-                        view=None, events=events, is_over=True, commands=commands
-                    )
-
-                # 其他 flow 交給 CLI/Flutter（restart_case / switch_case / quit）
-                commands.append({"type": "flow", "action": flow_action})
-                return StepResult(
-                    view=None,
-                    events=events,
-                    is_over=True,  # 讓 UI/CLI 收到 flow 後做重開/換案
-                    selected_choice_index=idx,
-                    selected_next="",
-                    commands=commands,
-                )
-
-        # ----------------------------
-        # 1) A) 只要現在是 investigate，就更新 last_investigate_node
-        # ----------------------------
+        # 記錄最後調查點
         if self._is_investigate_node(self.current):
             self.last_investigate_node = self.current
 
-        # ----------------------------
-        # 2) story choice（正常流程）
-        # ----------------------------
+        # ✅ Day17-C：accuse 節點的「回去改理由」
+        if self.current == (self._accuse_node() or "").strip():
+            picked = view.choices[idx - 1]
+            if (picked.tag or "").strip() == "edit_reasons":
+                events.append("霏霏：好呀！我們先把理由整理清楚，再慢慢想。")
+                # 回 reason_node，並重新 ask_reason
+                reason_node = (self._reason_node() or "").strip()
+                if reason_node and reason_node in self.nodes:
+                    self.current = reason_node
+                commands.append(self._make_ask_reason_command())
+                return StepResult(
+                    view=self.get_view(),
+                    events=events,
+                    is_over=False,
+                    commands=commands,
+                )
+
+        # story choice
         node = self.nodes[self.current]
         choice = (node.get("choices") or [])[idx - 1]
 
@@ -756,7 +837,9 @@ class GameSession:
 
         accuse_node = self._accuse_node()
         reason_node = self._reason_node()
-        has_reason = bool(self.state.last_reason_ids)
+        has_reason = bool(self.state.last_reason_ids) or bool(
+            (self.state.last_reason_text or "").strip()
+        )
 
         # Gate: going to accuse -> ask reason first
         if accuse_node and reason_node and next_id == accuse_node and not has_reason:
@@ -766,7 +849,6 @@ class GameSession:
                 view=self.get_view(), events=events, is_over=False, commands=commands
             )
 
-        # accuse feedback
         final_next = self._handle_accuse_if_needed(
             current_node=self.current,
             next_id=next_id,
@@ -774,16 +856,19 @@ class GameSession:
             commands=commands,
         )
 
-        # 進 ending_check 前記住 last_play_node（保留）
         if final_next == ending_check_node:
             self.last_play_node = self.current
 
         self.current = final_next
 
-        # entering accuse_node: reset reason (new round)
         if accuse_node and self.current == accuse_node:
             self.state.last_reason_id = ""
             self.state.last_reason_text = ""
+
+        # ✅ Day16-C：一旦「進入 EndScreen 節點」，回傳 command-only
+        if self._is_end_screen_node(self.current):
+            commands.append(self._make_end_screen_command(node_id=self.current))
+            return StepResult(view=None, events=events, is_over=True, commands=commands)
 
         return StepResult(
             view=self.get_view(), events=events, is_over=False, commands=commands

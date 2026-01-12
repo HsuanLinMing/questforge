@@ -13,26 +13,117 @@ from questforge.core.models import DetectiveState, GameConfig
 from questforge.content.cases import CASES
 
 
-def _handle_commands(session: GameSession, res, *, on_flow) -> None:
-    for cmd in res.commands or []:
-        t = cmd.get("type")
+def _handle_commands(session: GameSession, res, *, on_flow) -> bool:
+    """
+    回傳 True 代表發生 flow（restart/switch/quit），外層要立刻 continue 重新 render。
+    """
+    while res.commands:
+        cmds = list(res.commands or [])
+        res.commands = []  # 防止同一批被重跑（保守寫法）
 
-        if t == "ask_reason":
-            action = cli_handle_ask_reason(cmd)
-            res2 = session.step(action)
-            for e in res2.events:
-                print("\n" + e)
-            _handle_commands(session, res2, on_flow=on_flow)
-            continue
+        for cmd in cmds:
+            t = (cmd.get("type") or "").strip()
 
-        if t == "confirm_quiz":
-            quiz = cmd.get("quiz") or []
-            _ = run_confirm_quiz(quiz, collected=set(session.state.clues))
-            continue
+            if t == "ask_reason":
+                action = cli_handle_ask_reason(cmd)
+                res = session.step(action)
 
-        if t == "flow":
-            on_flow(cmd.get("action") or "")
-            continue
+                for e in res.events:
+                    print("\n" + e)
+
+                # 可能 step 後又產生新 commands，所以回到 while
+                break
+
+            if t == "confirm_quiz":
+                quiz = cmd.get("quiz") or []
+                _ = run_confirm_quiz(quiz, collected=set(session.state.clues))
+                continue
+
+            if t == "show_end_screen":
+                title = (cmd.get("title") or "").strip()
+                narration = (cmd.get("narration") or "").strip()
+                lesson = cmd.get("lesson") or []
+                options = cmd.get("options") or []
+
+                print(f"\n【{title}】")
+                if narration:
+                    print(narration)
+
+                if isinstance(lesson, list) and lesson:
+                    print("\n—")
+                    print("【今天學到的】")
+                    for ln in lesson[:6]:
+                        if ln:
+                            print(f"- {ln}")
+
+                meta = cmd.get("meta") or {}
+                rs = (meta.get("reason_summary") or "").strip()
+                if rs:
+                    print(f"理由整理：{rs}")
+                if meta:
+                    print("\n—")
+                    print("【回顧卡片】")
+                    if meta.get("accused"):
+                        print(f"你當時偏向：{meta.get('accused')}")
+                    obs = meta.get("selected_observations") or []
+                    if obs:
+                        print("你選的觀察：")
+                        for x in obs[:6]:
+                            print(f"- {x}")
+
+                    lvl = meta.get("level")
+                    if lvl:
+                        score = meta.get("score")
+                        th = meta.get("threshold")
+                        s = (
+                            f"{score}/{th}"
+                            if isinstance(score, int) and isinstance(th, int) and th > 0
+                            else ""
+                        )
+                        print(f"推理成熟度：{lvl} {s}".strip())
+
+                    me = meta.get("matched_evidence") or []
+                    if me:
+                        print("有用到的線索：" + "、".join(me[:6]))
+
+                    mk = meta.get("missing_key_evidence") or []
+                    if mk:
+                        print("可以再留意：" + "、".join(mk[:6]))
+
+                print("\n你想怎麼做？")
+                for i, opt in enumerate(options, start=1):
+                    print(f"  {i}. {opt.get('text', '')}")
+
+                raw = input("\n請選擇：").strip().lower()
+                if not raw.isdigit():
+                    print("輸入不正確喔～請輸入選項數字。")
+                    continue
+
+                idx = int(raw)
+                if idx <= 0 or idx > len(options):
+                    print("無效選項")
+                    continue
+
+                end_action = (options[idx - 1].get("id") or "").strip()
+                res = session.step(PlayerAction(type="end_flow", end_action=end_action))
+
+                for e in res.events:
+                    print("\n" + e)
+
+                # end_flow 很可能回 flow command，所以繼續 while 去吃
+                break
+
+            if t == "flow":
+                on_flow((cmd.get("action") or "").strip())
+                # ✅ 重要：flow 會換 session/case；不要再用舊 session 繼續處理
+                return True
+
+        else:
+            # 這輪 cmds 沒有 break（代表全部 continue 完，且沒有新的 res）
+            # 直接跳出 while
+            break
+
+    return False
 
 
 def game_loop_v6(config: GameConfig | None = None) -> None:
@@ -55,7 +146,7 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
     chosen_idx: Optional[int] = None
 
     def on_flow(action: str) -> None:
-        nonlocal session, case_id, case, config, chosen_idx
+        nonlocal session, case_id, case, chosen_idx, config
 
         action = (action or "").strip()
         if action == "quit":
@@ -74,7 +165,8 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
 
         if action == "switch_case":
             case_id2, case2 = selector.pick()
-            case_id, case = case_id2, case2
+            case_id = case_id2
+            case = case2
             session = GameSession(
                 state=DetectiveState(),
                 nodes=case["nodes"],
@@ -85,6 +177,8 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
             chosen_idx = None
             print(f"\n切換案件：{case['title']}\n")
             return
+
+        print(f"\n[WARN] Unknown flow action: {action}\n")
 
     while True:
         # 1) view
@@ -148,7 +242,6 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
 
         res = session.step(PlayerAction(type="choose", choice_index=idx))
 
-        # 每回合自動存檔
         try:
             save_mgr.save_autosave(
                 session=session,
@@ -162,11 +255,12 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         for e in res.events:
             print("\n" + e)
 
-        _handle_commands(session, res, on_flow=on_flow)
+        did_flow = _handle_commands(session, res, on_flow=on_flow)
+        if did_flow:
+            chosen_idx = None
+            continue
 
-        # flow 會用 is_over=True 讓 CLI 走 on_flow 後回到 while 開頭
-        # 一般故事真的結束才 return
         if res.is_over:
-            # 若是 flow 已被處理，通常會 restart/switch，或 raise SystemExit
-            # 走到這裡代表真的結束（例如 next_id 空）
-            return
+            if not (res.commands or []):
+                return
+            continue

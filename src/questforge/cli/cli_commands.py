@@ -242,3 +242,16 @@ def cli_handle_ask_reason(command: Dict[str, Any]) -> PlayerAction:
             reason_ids.append(rid)
 
     return PlayerAction(type="set_reasons", reason_ids=reason_ids)
+
+def cli_handle_ask_reason_text(command: Dict[str, Any]) -> PlayerAction:
+    print("\n【你為什麼這樣想？用一句話說說看】")
+    print("提示：只要講『你看到的』就好，不用猜誰做的。")
+    raw = input("你想說：").strip()
+
+    # 空字串就當不確定
+    if not raw:
+        return PlayerAction(type="set_reasons", reason_ids=[], reason_text="")
+
+    # 限制一下長度（避免太長）
+    raw = raw[:80]
+    return PlayerAction(type="set_reasons", reason_ids=[], reason_text=raw)

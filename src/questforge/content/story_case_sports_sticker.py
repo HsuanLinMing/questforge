@@ -24,6 +24,7 @@ STORY_NODES = {
         "『如果我明天拿到，我爸媽一定會超開心。』\n"
         "霏霏笑笑回他：\n"
         "『那我們今天先好好練習，明天再一起加油。』",
+        "tag": "investigate",
         "choices": [
             {
                 "text": "去看看貼紙桌",
@@ -66,6 +67,7 @@ STORY_NODES = {
         "『啊——我明天一定要贏回來！』\n\n"
         "小貓小芽把水壺放進袋子裡，動作快快的。\n"
         "她的書包上貼滿亮亮的貼紙，晃一下就閃一下。",
+        "tag": "investigate",
         "choices": [
             {
                 "text": "去看看貼紙桌",
@@ -104,6 +106,7 @@ STORY_NODES = {
         "『明天我不要再輸了……我不要再輸了。』\n\n"
         "小狗東東沒有靠近。\n"
         "他站在比較遠的地方，眼睛一直盯著那張金色貼紙。",
+        "tag": "investigate",
         "choices": [
             {"text": "去操場練習", "next": "scene_playground"},
             {"text": "回座位看看大家", "next": "scene_seat"},
@@ -122,6 +125,7 @@ STORY_NODES = {
         "『他看起來好緊張喔。』\n"
         "霏霏也小聲說：\n"
         "『等一下如果真的有事，我們先找老師，不要自己吵起來。』",
+        "tag": "investigate",
         "choices": [
             {"text": "去操場練習", "next": "scene_playground"},
             {"text": "再去看看貼紙桌", "next": "scene_sticker_table"},
@@ -137,6 +141,7 @@ STORY_NODES = {
         "霏霏點點頭：\n"
         "『想贏很正常啊。』\n"
         "『但如果心裡很急，我們就先把呼吸放慢。』",
+        "tag": "investigate",
         "choices": [
             {"text": "去操場練習", "next": "scene_playground"},
             {"text": "回教室準備貼努力貼紙", "next": "scene_return"},
@@ -159,6 +164,7 @@ STORY_NODES = {
         "小狗東東站在最後面。\n"
         "他沒有跑，只把運動護照抱在胸前，像抱著很重要的東西。\n"
         "他看著跑道，嘴巴動了一下，又沒說出來。",
+        "tag": "investigate",
         "choices": [
             {"text": "回教室準備貼努力貼紙", "next": "scene_return"},
             {
@@ -198,6 +204,7 @@ STORY_NODES = {
         "『我……我沒事。』\n\n"
         "他說完就低下頭。\n"
         "像是把話塞回心裡。",
+        "tag": "investigate",
         "choices": [
             {"text": "回教室", "next": "scene_return"},
             {"text": "跟霏霏和樂樂小聲說剛剛看到的", "next": "scene_share_with_team"},
@@ -211,6 +218,7 @@ STORY_NODES = {
         "『好，我們先記住：他看起來很緊張，但我們不急著下結論。』\n"
         "樂樂也小聲說：\n"
         "『嗯…等一下回教室，我們先看貼紙盒那邊有沒有新細節。』",
+        "tag": "investigate",
         "choices": [
             {"text": "回教室", "next": "scene_return"},
         ],
@@ -224,6 +232,7 @@ STORY_NODES = {
         "霏霏先開口：\n"
         "『差一點點也很努力啊。』\n"
         "『明天我們一起加油。』",
+        "tag": "investigate",
         "choices": [
             {"text": "回教室", "next": "scene_return"},
         ],
@@ -243,6 +252,7 @@ STORY_NODES = {
         "『咦？第一名貼紙呢？』\n\n"
         "教室安靜了一點點。\n"
         "像有人把大家的聲音先收起來。",
+        "tag": "investigate",
         "choices": [
             {
                 "text": "先看看貼紙桌附近",
@@ -263,6 +273,7 @@ STORY_NODES = {
         "霏霏點點頭：\n"
         "『我們先把聲音放小。』\n"
         "『讓老師可以好好處理。』",
+        "tag": "investigate",
         "choices": [
             {"text": "去貼紙桌附近看看", "next": "scene_problem"},
             {"text": "去找老師", "next": "scene_teacher"},
@@ -280,6 +291,7 @@ STORY_NODES = {
         "小熊阿力一直看著貼紙盒，嘴巴抿得緊緊的。\n\n"
         "小狗東東把運動護照蓋住，整本抱在胸前。\n"
         "他站起來又坐下來，像坐不住。",
+        "tag": "investigate",
         "choices": [
             {
                 "text": "小聲問阿力：你剛剛有看到什麼嗎？",
@@ -323,6 +335,7 @@ STORY_NODES = {
         "『他一直看著盒子。』\n\n"
         "阿力說完趕快補一句：\n"
         "『我不確定啦，我只是看到他站很久。』",
+        "tag": "investigate",
         "choices": [
             {
                 "text": "去問東東",
@@ -349,6 +362,7 @@ STORY_NODES = {
         "她把書包拉鍊拉得更緊：\n"
         "『可是我沒有拿金色貼紙。真的沒有。』\n\n"
         "她說的很快，像在趕時間。",
+        "tag": "investigate",
         "choices": [
             {"text": "回去再看貼紙桌", "next": "scene_problem"},
             {"text": "去問東東", "next": "ask_dongdong"},
@@ -367,6 +381,7 @@ STORY_NODES = {
         "『我……我想明天大家可以看我一眼。』\n\n"
         "他又趕快搖頭：\n"
         "『我不是故意要讓老師生氣……』",
+        "tag": "investigate",
         "choices": [
             {
                 "text": "先不問名字，去找霏霏和樂樂一起整理",
@@ -396,6 +411,7 @@ STORY_NODES = {
         "『不要用猜的，也不要指著人。』\n\n"
         "老師把貼紙盒先收好，放到講桌上。\n"
         "『先讓它安全。』她說。",
+        "tag": "investigate",
         "choices": [
             {"text": "回去再觀察一次", "next": "scene_problem"},
             {"text": "進入指認前先停一下", "next": "final_accuse"},
@@ -413,6 +429,7 @@ STORY_NODES = {
             "『不用急著說名字，說清楚會比較安全。』\n\n"
             "『你是注意到哪一個地方，才有這樣的想法呢？』"
         ),
+        "tag": "accuse",
         "choices": [],
     },
     "final_accuse": {
@@ -431,6 +448,7 @@ STORY_NODES = {
         "『我們可以說：我還在找。』\n\n"
         "樂樂吸一口氣：\n"
         "『好。先講看到的，不講猜的。』",
+        "tag": "investigate",
         "choices": [
             {"text": "把看到的整理好，跟老師說", "next": "ending_check"},
             {"text": "我覺得就是某個人！（可能會指錯）", "next": "ending_wrong"},
@@ -447,6 +465,7 @@ STORY_NODES = {
             "『這不是一定要答對的問題。』\n"
             "『只是看看你現在的感覺。』"
         ),
+        "tag": "accuse",
         "choices": [
             {"text": "東東", "next": "ending_check", "accuse": "dongdong"},
             {"text": "小芽", "next": "ending_check", "accuse": "mei"},
@@ -469,6 +488,7 @@ STORY_NODES = {
         "老師點點頭：\n"
         "『謝謝你講得很清楚。』\n"
         "『你沒有指人，你做得很好。』",
+        "tag": "ending_check",
         "choices": [
             {"text": "讓老師問清楚（安全結案）", "next": "ending_result"},
         ],
@@ -500,6 +520,7 @@ STORY_NODES = {
         "『原來找老師不是告狀，是讓事情變安全。』\n\n"
         "霏霏笑了一下：\n"
         "『對。說清楚，比吵起來更勇敢。』",
+        "tag": "ending_result",
         "lesson": [
             "霏霏說：『先講看到的，不講猜的。』",
             "樂樂說：『心裡不舒服，我可以先停一下。』",
@@ -507,9 +528,7 @@ STORY_NODES = {
             "你們學到：想被看到可以用努力，不用急著做小動作。",
         ],
         "choices": [
-            {"text": "進入尾聲", "next": "epilogue"},
-            {"text": "再玩一次", "next": "start"},
-            {"text": "離開遊戲", "next": "quit"},
+           
         ],
     },
     # =================================================
@@ -531,15 +550,14 @@ STORY_NODES = {
         "老師點點頭：\n"
         "『對。你們回去再看一次。』\n"
         "『我會一直在，也會一起處理。』",
+        "tag": "ending_wrong",
         "lesson": [
             "你們學到：不確定時不要指人。",
             "你可以說：『我還在找，我想請老師一起看。』",
             "找大人不是告狀，是讓大家更安全。",
         ],
         "choices": [
-            {"text": "回到貼紙盒附近再觀察", "next": "scene_problem"},
-            {"text": "回去找老師，把看到的整理好", "next": "ending_check"},
-            {"text": "重新開始", "next": "start"},
+           
         ],
     },
     # =================================================
@@ -559,9 +577,9 @@ STORY_NODES = {
         "霏霏笑著說：\n"
         "『明天我們用努力去拿貼紙。』\n"
         "『回家也可以大聲跟爸爸媽媽說：我有認真練習。』",
+        "tag": "epilogue",
         "choices": [
-            {"text": "再玩一次", "next": "start"},
-            {"text": "離開遊戲", "next": "quit"},
+           
         ],
     },
     "quit": {

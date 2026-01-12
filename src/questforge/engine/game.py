@@ -1,27 +1,41 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-import json
-from pathlib import Path
+from typing import Optional
 
 from questforge.cli.cli_commands import cli_handle_ask_reason, handle_cli_command
 from questforge.cli.cli_render import render_view, show_status, trace
+from questforge.engine.actions import PlayerAction
 from questforge.engine.case_selector import CaseSelector
 from questforge.engine.confirm_quiz import run_confirm_quiz
-from questforge.engine.actions import PlayerAction
+from questforge.engine.save_manager import SaveManager
+from questforge.engine.session import GameSession
 from questforge.core.models import DetectiveState, GameConfig
 from questforge.content.cases import CASES
-from questforge.engine.save_manager import SaveManager
-from questforge.engine.session import GameSession, restore_session_from_snapshot
+
+
+def _handle_commands(session: GameSession, res, *, on_flow) -> None:
+    for cmd in res.commands or []:
+        t = cmd.get("type")
+
+        if t == "ask_reason":
+            action = cli_handle_ask_reason(cmd)
+            res2 = session.step(action)
+            for e in res2.events:
+                print("\n" + e)
+            _handle_commands(session, res2, on_flow=on_flow)
+            continue
+
+        if t == "confirm_quiz":
+            quiz = cmd.get("quiz") or []
+            _ = run_confirm_quiz(quiz, collected=set(session.state.clues))
+            continue
+
+        if t == "flow":
+            on_flow(cmd.get("action") or "")
+            continue
 
 
 def game_loop_v6(config: GameConfig | None = None) -> None:
-    """Day6+：CLI adapter（input/print），核心推進交給 GameSession。
-
-    ✅ Day7：turn 改由 GameSession 統一管理（choose 時 +1）
-    ✅ Day7：指認 accuse_node 規則已在 GameSession（session.py）
-    ✅ Day7-C：CLI commands / SaveManager 拆分
-    """
     selector = CaseSelector(CASES)
     save_mgr = SaveManager(CASES)
     config = config or GameConfig()
@@ -38,31 +52,41 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
     print("\n歡迎來到《QuestForge：霏霏＆樂樂小偵探》！")
     print(f"本次案件：{case['title']}\n")
 
-    chosen_idx: Optional[int] = None  # 只用於 trace 顯示（上一回合選了什麼）
+    chosen_idx: Optional[int] = None
+
+    def on_flow(action: str) -> None:
+        nonlocal session, case_id, case, config, chosen_idx
+
+        action = (action or "").strip()
+        if action == "quit":
+            raise SystemExit
+
+        if action == "restart_case":
+            session = GameSession(
+                state=DetectiveState(),
+                nodes=case["nodes"],
+                start_node=case["start"],
+                config=config,
+                solve_rule=case.get("solve_rule", {}) or {},
+            )
+            chosen_idx = None
+            return
+
+        if action == "switch_case":
+            case_id2, case2 = selector.pick()
+            case_id, case = case_id2, case2
+            session = GameSession(
+                state=DetectiveState(),
+                nodes=case["nodes"],
+                start_node=case["start"],
+                config=config,
+                solve_rule=case.get("solve_rule", {}) or {},
+            )
+            chosen_idx = None
+            print(f"\n切換案件：{case['title']}\n")
+            return
 
     while True:
-        # ✅ 0) 先處理「command-only 節點」（例如 reason_node）
-        reason_node = str(
-            (case.get("solve_rule", {}) or {}).get("reason_node") or ""
-        ).strip()
-        if reason_node and session.current == reason_node:
-            # 觸發 step 讓引擎吐出 ask_reason command
-            res0 = session.step(PlayerAction(type="replay"))
-
-            # events
-            for e in res0.events:
-                print("\n" + e)
-
-            # commands
-            for cmd in res0.commands or []:
-                if cmd.get("type") == "ask_reason":
-                    action = cli_handle_ask_reason(cmd)
-                    res2 = session.step(action)
-                    for e in res2.events:
-                        print("\n" + e)
-
-            # 消耗完 command 後，回到 while 顯示下一個 view
-            continue
         # 1) view
         try:
             view = session.get_view()
@@ -80,15 +104,10 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         )
         show_status(session.state)
         render_view(view)
-        if not view.choices:
-            # 沒有選項就代表這個節點可能是純敘事或結尾
-            # 先讓使用者按 Enter 繼續，避免直接退出
-            _ = input("\n（按 Enter 繼續）").strip()
-            # 你也可以在這裡選擇自動結束，依你的 node 規則而定
-            return
+
         raw = input("\n請選擇：").strip().lower()
 
-        # 2) CLI commands（集中處理）
+        # 2) CLI commands（S/L/Q 等）
         chosen_idx_ref = {"value": chosen_idx}
         handled, new_session, new_case_id, new_case, new_config = handle_cli_command(
             raw,
@@ -99,11 +118,8 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
             config=config,
             chosen_idx_ref=chosen_idx_ref,
         )
-
         if handled:
-            # q 結束：handle_cli_command 會回 new_session=None
             if new_session is None:
-                # ✅ 你要的：離開前 autosave（就算 handle_cli_command 也做了，這裡再保險一次）
                 try:
                     save_mgr.save_autosave(
                         session=session,
@@ -115,7 +131,6 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
                     pass
                 return
 
-            # 其他指令（r/c/n/s/l/p）完成，更新狀態並 continue
             session = new_session
             case_id = new_case_id
             case = new_case
@@ -123,20 +138,17 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
             chosen_idx = chosen_idx_ref["value"]
             continue
 
-        # 3) choose（數字）
+        # 3) Normal node：raw 必須是數字
         if not raw.isdigit():
             print("輸入不正確喔～請輸入選項數字，或 C / N / P / R / S / L / Q。")
             continue
 
         idx = int(raw)
-        if idx <= 0 or idx > len(view.choices):
-            print("輸入不正確喔～請輸入有效的選項數字。")
-            continue
-
         chosen_idx = idx
+
         res = session.step(PlayerAction(type="choose", choice_index=idx))
 
-        # ✅ 每回合自動存檔（建議）
+        # 每回合自動存檔
         try:
             save_mgr.save_autosave(
                 session=session,
@@ -147,25 +159,14 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         except Exception:
             pass
 
-        # events
         for e in res.events:
             print("\n" + e)
 
-        # commands
-        for cmd in res.commands or []:
-            if cmd.get("type") == "confirm_quiz":
-                quiz = cmd.get("quiz") or []
-                picked = run_confirm_quiz(quiz, collected=set(session.state.clues))
-                # 如果你想把 picked 存起來（可選），可以：
-                # session.state.notes.extend(picked)  # 看你 state 有沒有 notes
-                continue
+        _handle_commands(session, res, on_flow=on_flow)
 
-            if cmd.get("type") == "ask_reason":
-                action = cli_handle_ask_reason(cmd)
-                res2 = session.step(action)
-
-                for e in res2.events:
-                    print("\n" + e)
-
+        # flow 會用 is_over=True 讓 CLI 走 on_flow 後回到 while 開頭
+        # 一般故事真的結束才 return
         if res.is_over:
+            # 若是 flow 已被處理，通常會 restart/switch，或 raise SystemExit
+            # 走到這裡代表真的結束（例如 next_id 空）
             return

@@ -9,7 +9,7 @@ class ChoiceView:
     text: str
     enabled: bool = True
     reason: Optional[str] = None  # 你想要的「為什麼找到線索」短對話（可先接 after）
-
+    tag: str = ""   # ✅ 新增：engine/ux 用的標籤
 
 @dataclass(frozen=True)
 class NodeView:
@@ -19,3 +19,9 @@ class NodeView:
     choices: List[ChoiceView]
     can_replay: bool = True
     can_quit: bool = True
+
+@dataclass
+class EndingCheckView:
+    title: str
+    narration: str
+    options: List[tuple[str, str]] 

@@ -38,16 +38,36 @@ def trace(
     )
 
 
-def render_view(view: NodeView) -> None:
-    """CLI：顯示目前節點內容。"""
-    print(f"\n【{view.title}】")
-    print(view.narration)
 
-    if not view.choices:
+def render_view(view: Any) -> None:
+    """CLI：顯示目前節點內容。
+
+    支援：
+    - NodeView（choices）
+    - EndingCheckView（options）
+    """
+    print(f"\n【{getattr(view, 'title', '')}】")
+    print(getattr(view, "narration", ""))
+
+    # EndingCheckView: options: List[tuple[str, str]]
+    options = getattr(view, "options", None)
+    if options:
+        print("\n你想怎麼做？")
+        for opt_id, label in options:
+            print(f"  {opt_id}. {label}")
+
+        print(
+            "\n（輸入數字選擇，C=線索，N=筆記，P=存檔列表，R=重播，S=儲存，L=讀檔，Q=離開）"
+        )
+        return
+
+    # NodeView: choices
+    choices = getattr(view, "choices", None) or []
+    if not choices:
         return
 
     print("\n你想怎麼做？")
-    for c in view.choices:
+    for c in choices:
         print(f"  {c.index}. {c.text}")
 
     print(

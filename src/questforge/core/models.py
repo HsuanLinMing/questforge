@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Any, Literal
 
-ReasonInputMode = Literal["choice", "text", "voice"]
+ReasonInputMode = Literal["choice", "text", "voice"]  # voice: reserved (not enabled yet)
 
 
 @dataclass

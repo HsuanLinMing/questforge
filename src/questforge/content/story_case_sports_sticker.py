@@ -46,6 +46,7 @@ STORY_NODES = {
             },
             {"text": "先去操場練習", "next": "scene_playground"},
             {"text": "先整理運動護照和書包", "next": "scene_bag"},
+            
         ],
     },
     # =================================================
@@ -430,7 +431,7 @@ STORY_NODES = {
             "『你是注意到哪一個地方，才有這樣的想法呢？』"
         ),
         "tag": "accuse",
-        "choices": [],
+        "choices": [{"text": "我整理好了，進入最後推理", "next": "accuse"},],
     },
     "final_accuse": {
         "title": "停一下，整理一下思緒",
@@ -453,7 +454,7 @@ STORY_NODES = {
             {"text": "把看到的整理好，跟老師說", "next": "ending_check"},
             {"text": "我覺得就是某個人！（可能會指錯）", "next": "ending_wrong"},
             {"text": "回去再看一次貼紙桌", "next": "scene_problem"},
-            {"text": "我想先做最後推理", "next": "accuse"},
+            {"text": "我想先做最後推理", "next": "accuse_reason"},
         ],
     },
     "accuse": {

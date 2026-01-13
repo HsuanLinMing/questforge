@@ -61,6 +61,8 @@ def handle_cli_command(
       new_session: 若為 None 代表要結束遊戲（例如 q）
       case_id/case/config: 可能因 load 而改變
     """
+    raw = (raw or "").strip().lower()
+
     # quit
     if raw == "q":
         # 離開前 autosave（容錯）
@@ -93,9 +95,7 @@ def handle_cli_command(
             ResponseRequest(
                 intent="back_from_clues",
                 role="feifei",
-                scene_title=(
-                    session.nodes.get(session.current, {}).get("title") or ""
-                ).strip(),
+                scene_title=(session.nodes.get(session.current, {}).get("title") or "").strip(),
                 node_id=session.current,
                 turn=session.state.turn,
                 clues_preview=[
@@ -116,9 +116,7 @@ def handle_cli_command(
             ResponseRequest(
                 intent="back_from_notes",
                 role="feifei",
-                scene_title=(
-                    session.nodes.get(session.current, {}).get("title") or ""
-                ).strip(),
+                scene_title=(session.nodes.get(session.current, {}).get("title") or "").strip(),
                 node_id=session.current,
                 turn=session.state.turn,
                 clues_preview=[
@@ -139,9 +137,7 @@ def handle_cli_command(
             ResponseRequest(
                 intent="back_from_saves",
                 role="feifei",
-                scene_title=(
-                    session.nodes.get(session.current, {}).get("title") or ""
-                ).strip(),
+                scene_title=(session.nodes.get(session.current, {}).get("title") or "").strip(),
                 node_id=session.current,
                 turn=session.state.turn,
                 clues_preview=[
@@ -176,9 +172,7 @@ def handle_cli_command(
             if not src:
                 return True, session, case_id, case, config
 
-            new_session, new_case_id, new_case, new_config = save_mgr.load_from_file(
-                src
-            )
+            new_session, new_case_id, new_case, new_config = save_mgr.load_from_file(src)
             chosen_idx_ref["value"] = None
 
             print(
@@ -189,6 +183,26 @@ def handle_cli_command(
             print(f"\n[讀檔失敗] {e}")
             return True, session, case_id, case, config
 
+    # ------------------------------
+    # Day18-A: ask_reason 雙模式（choice / text）
+    # ------------------------------
+    # 如果這次輸入不是快捷鍵，就把它當作「選項輸入」交回引擎
+    # 引擎若回 ask_reason command，主迴圈應該會呼叫這兩個 helper。
+    #
+    # 你目前的架構通常是：
+    # - 主迴圈拿 raw 判斷是否 command key
+    # - 否則把 raw 當作「選項序號」去 step(set_choice)
+    # - step 可能回傳 command=ask_reason
+    #
+    # 但你貼的這份 handle_cli_command 目前只處理快捷鍵，
+    # ask_reason 的處理應該在外層 (game_loop)。
+    #
+    # ✅ 所以我們在這裡提供一個「當外層判斷到 command=ask_reason 時」可直接呼叫的分流方法：
+    #
+    # => 你只要在 game_loop 看到 command["type"] == "ask_reason" 時，改成呼叫：
+    #    action = cli_handle_ask_reason_dispatch(command)
+    #    session.step(action)
+    #
     return False, session, case_id, case, config
 
 
@@ -226,10 +240,10 @@ def cli_handle_ask_reason(command: Dict[str, Any]) -> PlayerAction:
 
     if idxs == [-1] or any(i <= 0 or i > unsure_index for i in idxs):
         print("輸入不正確，先幫你選『我說不太清楚』。")
-        return PlayerAction(type="set_reasons", reason_ids=[])
+        return PlayerAction(type="set_reasons", reason_ids=[], reason_text="")
 
     if not idxs or unsure_index in idxs:
-        return PlayerAction(type="set_reasons", reason_ids=[])
+        return PlayerAction(type="set_reasons", reason_ids=[], reason_text="")
 
     reason_ids: List[str] = []
     seen = set()
@@ -241,7 +255,8 @@ def cli_handle_ask_reason(command: Dict[str, Any]) -> PlayerAction:
         if rid:
             reason_ids.append(rid)
 
-    return PlayerAction(type="set_reasons", reason_ids=reason_ids)
+    return PlayerAction(type="set_reasons", reason_ids=reason_ids, reason_text="")
+
 
 def cli_handle_ask_reason_text(command: Dict[str, Any]) -> PlayerAction:
     print("\n【你為什麼這樣想？用一句話說說看】")
@@ -255,3 +270,15 @@ def cli_handle_ask_reason_text(command: Dict[str, Any]) -> PlayerAction:
     # 限制一下長度（避免太長）
     raw = raw[:80]
     return PlayerAction(type="set_reasons", reason_ids=[], reason_text=raw)
+
+
+def cli_handle_ask_reason_dispatch(command: Dict[str, Any]) -> PlayerAction:
+    """
+    Day18-A 新增：依 command.mode 分流到 choice 或 text。
+    引擎 command:
+      { "type": "ask_reason", "mode": "choice" | "text", "options": [...] }
+    """
+    mode = (command.get("mode") or "choice").strip().lower()
+    if mode == "text":
+        return cli_handle_ask_reason_text(command)
+    return cli_handle_ask_reason(command)

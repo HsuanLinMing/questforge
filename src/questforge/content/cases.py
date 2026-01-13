@@ -37,6 +37,7 @@ CASES = {
             "ending_wrong_node": "ending_wrong",
             # ✅ 推理門檻
             "threshold": 3,
+            "reason_mode": "text", # choice/text/voice(=text)
             "suspects": {
                 "dongdong": {
                     "support": {

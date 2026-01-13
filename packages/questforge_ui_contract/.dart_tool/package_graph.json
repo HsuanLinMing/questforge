@@ -1,0 +1,21 @@
+{
+  "roots": [
+    "questforge_ui_contract"
+  ],
+  "packages": [
+    {
+      "name": "questforge_ui_contract",
+      "version": "0.1.0",
+      "dependencies": [],
+      "devDependencies": [
+        "lints"
+      ]
+    },
+    {
+      "name": "lints",
+      "version": "3.0.0",
+      "dependencies": []
+    }
+  ],
+  "configVersion": 1
+}

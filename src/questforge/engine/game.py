@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from questforge.cli.cli_commands import cli_handle_ask_reason, handle_cli_command
+from questforge.cli.cli_commands import (
+    cli_handle_ask_reason,
+    cli_handle_ask_reason_dispatch,
+    handle_cli_command,
+)
 from questforge.cli.cli_render import render_view, show_status, trace
 from questforge.engine.actions import PlayerAction
 from questforge.engine.case_selector import CaseSelector
@@ -25,9 +29,13 @@ def _handle_commands(session: GameSession, res, *, on_flow) -> bool:
             t = (cmd.get("type") or "").strip()
 
             if t == "ask_reason":
-                action = cli_handle_ask_reason(cmd)
+                action = cli_handle_ask_reason_dispatch(cmd)  # ✅ 新的
                 res = session.step(action)
-
+                if res is None:
+                    print(
+                        "\n[BUG] session.step() 回傳 None（ask_reason -> set_reasons）"
+                    )
+                    return False
                 for e in res.events:
                     print("\n" + e)
 
@@ -117,6 +125,33 @@ def _handle_commands(session: GameSession, res, *, on_flow) -> bool:
                 on_flow((cmd.get("action") or "").strip())
                 # ✅ 重要：flow 會換 session/case；不要再用舊 session 繼續處理
                 return True
+
+            if t == "show_reasoning_feedback":
+                text = (cmd.get("text") or "").strip()
+                meta = cmd.get("meta") or {}
+                print("\n—")
+                print("【推理回饋】（這不是判對錯，是幫你整理思路）")
+                if text:
+                    print(text)
+                lvl = meta.get("level")
+                if lvl:
+                    score = meta.get("score")
+                    th = meta.get("threshold")
+                    s = (
+                        f"{score}/{th}"
+                        if isinstance(score, int) and isinstance(th, int) and th > 0
+                        else ""
+                    )
+                    print(f"成熟度：{lvl} {s}".strip())
+
+                me = meta.get("matched_evidence") or []
+                if me:
+                    print("你有用到的線索：" + "、".join(me[:6]))
+
+                mk = meta.get("missing_key_evidence") or []
+                if mk:
+                    print("可以再留意：" + "、".join(mk[:6]))
+                continue
 
         else:
             # 這輪 cmds 沒有 break（代表全部 continue 完，且沒有新的 res）
@@ -241,6 +276,9 @@ def game_loop_v6(config: GameConfig | None = None) -> None:
         chosen_idx = idx
 
         res = session.step(PlayerAction(type="choose", choice_index=idx))
+        if res is None:
+            print("\n[BUG] session.step() 回傳 None（choose）")
+            return
 
         try:
             save_mgr.save_autosave(

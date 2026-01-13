@@ -278,7 +278,7 @@ def _unwrap_v2_envelope(m: JsonMap) -> JsonMap:
 
 
 # ------------------------------------------------------------
-# Day22: end_flow dispatcher (single-path)
+# Day22: end_flow dispatcher + consume flow commands (single-path)
 # ------------------------------------------------------------
 
 def _final_over_payload(*, events: list[str] | None = None) -> JsonMap:
@@ -314,12 +314,12 @@ def _dispatch_end_flow(
     Central routing for end_flow.
 
     Returns: (new_session, new_case_id, new_case, should_exit)
-    - restart_case / switch_case / quit are handled here (single-path; no apply_flow).
-    - other end_action (e.g. go_epilogue) goes to engine: session.step(end_flow).
+
+    - restart_case / switch_case / quit are handled here (no apply_flow, no Flutter legacy flow).
+    - others go to engine: session.step(end_flow).
     """
     a = (end_action or "").strip()
 
-    # ---- hard exits handled by bridge ----
     if a == "quit":
         _emit_step_v2(_final_over_payload(events=["quit"]))
         return session, case_id, case, True
@@ -337,15 +337,78 @@ def _dispatch_end_flow(
         _emit_replay_step(session2)
         return session2, str(new_case_id), new_case, False
 
-    # ---- default: let engine handle (epilogue / others) ----
+    # default: let engine handle
     res = session.step(PlayerAction(type="end_flow", end_action=a))
     out = _step_result_to_json(res)
     out = _upgrade_commands_for_v2_envelope(out)
+
+    # ✅ consume engine flow if any (e.g. engine fallback)
+    session3, case_id3, case3, handled = _consume_flow_command_if_any(
+        step_payload=out,
+        session=session,
+        case_id=case_id,
+        case=case,
+        config=config,
+        args=args,
+    )
+    if handled:
+        # handled path already emitted step (replay/hello/final_over)
+        # decide exit based on action (consume returns should_exit via handled bool? -> handled means already done)
+        # we should NOT emit `out` here.
+        # exit 여부는 consume 裡面會用 dispatcher 的 should_exit 控制。
+        # 여기서는 그냥 continue 동작을 위해 should_exit=False 로 보고.
+        return session3, case_id3, case3, False
+
     _emit_step_v2(out)
 
-    # if engine says it's over and no commands, allow bridge to exit (legacy behavior)
     should_exit = bool(out.get("is_over")) and not (out.get("commands") or [])
     return session, case_id, case, should_exit
+
+
+def _extract_flow_action(step_payload: JsonMap) -> str:
+    cmds = step_payload.get("commands")
+    if not isinstance(cmds, list):
+        return ""
+    for c in cmds:
+        if isinstance(c, dict) and _as_str(c.get("type", "")).strip() == "flow":
+            return _as_str(c.get("action", "")).strip()
+    return ""
+
+
+def _consume_flow_command_if_any(
+    *,
+    step_payload: JsonMap,
+    session: GameSession,
+    case_id: str,
+    case: JsonMap,
+    config: GameConfig,
+    args: argparse.Namespace,
+) -> Tuple[GameSession, str, JsonMap, bool]:
+    """
+    If step_payload contains command type=flow, handle it HERE (python side),
+    and DO NOT emit the original step_payload.
+
+    Returns: (session, case_id, case, handled)
+    handled=True means we already emitted a new step_result.
+    """
+    action = _extract_flow_action(step_payload)
+    if not action:
+        return session, case_id, case, False
+
+    _jprint({"type": "log", "msg": f"[flow_consume] action={action}"})
+    session2, case_id2, case2, should_exit = _dispatch_end_flow(
+        end_action=action,
+        session=session,
+        case_id=case_id,
+        case=case,
+        config=config,
+        args=args,
+    )
+    if should_exit:
+        # let caller return
+        return session2, case_id2, case2, True
+
+    return session2, case_id2, case2, True
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -363,10 +426,20 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not args.quiet:
         _emit_hello(case_id=case_id, case=case)
 
-    # 初始 view：v2 step_result + upgrade commands
     first = _step_result_to_json(session.step(PlayerAction(type="replay")))
     first = _upgrade_commands_for_v2_envelope(first)
-    _emit_step_v2(first)
+
+    # ✅ also consume flow in first (just in case)
+    session, case_id, case, handled = _consume_flow_command_if_any(
+        step_payload=first,
+        session=session,
+        case_id=case_id,
+        case=case,
+        config=config,
+        args=args,
+    )
+    if not handled:
+        _emit_step_v2(first)
 
     while True:
         line = sys.stdin.readline()
@@ -392,19 +465,10 @@ def main(argv: Optional[list[str]] = None) -> None:
         if _as_str(m.get("type", "")).strip() == "ui_action":
             payload = _normalize_map(m.get("payload"))
             kind = _as_str(payload.get("kind", "")).strip()
-            _jprint(
-                {
-                    "type": "log",
-                    "msg": f"ui_action received: kind={kind} id={payload.get('id','')}",
-                }
-            )
+            _jprint({"type": "log", "msg": f"ui_action received: kind={kind} id={payload.get('id','')}"})
 
             if kind in ("end_flow", "endFlow"):
-                end_action = (
-                    _as_str(payload.get("id", "")).strip()
-                    or _as_str(payload.get("action", "")).strip()
-                )
-
+                end_action = _as_str(payload.get("id", "")).strip() or _as_str(payload.get("action", "")).strip()
                 session, case_id, case, should_exit = _dispatch_end_flow(
                     end_action=end_action,
                     session=session,
@@ -443,23 +507,28 @@ def main(argv: Optional[list[str]] = None) -> None:
                 idx0 = idx
 
             try:
-                _jprint(
-                    {
-                        "type": "log",
-                        "msg": f"choose: idx={idx} -> idx0={idx0}, last={_LAST_CHOICE_INDEXES}",
-                    }
-                )
+                _jprint({"type": "log", "msg": f"choose: idx={idx} -> idx0={idx0}, last={_LAST_CHOICE_INDEXES}"})
                 res = session.step(PlayerAction(type="choose", choice_index=idx0))
             except Exception as e:
-                _emit_error(
-                    f"choose_failed: idx={idx} idx0={idx0} last={_LAST_CHOICE_INDEXES} err={e}"
-                )
+                _emit_error(f"choose_failed: idx={idx} idx0={idx0} last={_LAST_CHOICE_INDEXES} err={e}")
                 continue
 
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
-            _emit_step_v2(out)
 
+            session, case_id, case, handled = _consume_flow_command_if_any(
+                step_payload=out,
+                session=session,
+                case_id=case_id,
+                case=case,
+                config=config,
+                args=args,
+            )
+            if handled:
+                # flow handled already emitted new step_result
+                continue
+
+            _emit_step_v2(out)
             if out.get("is_over") and not (out.get("commands") or []):
                 return
             continue
@@ -469,6 +538,18 @@ def main(argv: Optional[list[str]] = None) -> None:
             res = session.step(PlayerAction(type="replay"))
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+
+            session, case_id, case, handled = _consume_flow_command_if_any(
+                step_payload=out,
+                session=session,
+                case_id=case_id,
+                case=case,
+                config=config,
+                args=args,
+            )
+            if handled:
+                continue
+
             _emit_step_v2(out)
             if out.get("is_over") and not (out.get("commands") or []):
                 return
@@ -500,6 +581,18 @@ def main(argv: Optional[list[str]] = None) -> None:
             )
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+
+            session, case_id, case, handled = _consume_flow_command_if_any(
+                step_payload=out,
+                session=session,
+                case_id=case_id,
+                case=case,
+                config=config,
+                args=args,
+            )
+            if handled:
+                continue
+
             _emit_step_v2(out)
             if out.get("is_over") and not (out.get("commands") or []):
                 return
@@ -514,18 +607,26 @@ def main(argv: Optional[list[str]] = None) -> None:
 
             try:
                 res = session.step(
-                    PlayerAction(
-                        type="confirm_quiz_answer", answers=answers, skipped=skipped
-                    )
+                    PlayerAction(type="confirm_quiz_answer", answers=answers, skipped=skipped)
                 )
             except Exception as e:
-                _emit_error(
-                    f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}"
-                )
+                _emit_error(f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}")
                 continue
 
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+
+            session, case_id, case, handled = _consume_flow_command_if_any(
+                step_payload=out,
+                session=session,
+                case_id=case_id,
+                case=case,
+                config=config,
+                args=args,
+            )
+            if handled:
+                continue
+
             _emit_step_v2(out)
             if out.get("is_over") and not (out.get("commands") or []):
                 return
@@ -533,11 +634,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
         # ---- end_flow (legacy direct) ----
         if typ == "end_flow":
-            end_action = (
-                _as_str(m.get("action", "")).strip()
-                or _as_str(m.get("end_action", "")).strip()
-            )
-            # Keep legacy path: route through dispatcher too (consistent)
+            end_action = _as_str(m.get("action", "")).strip() or _as_str(m.get("end_action", "")).strip()
             session, case_id, case, should_exit = _dispatch_end_flow(
                 end_action=end_action,
                 session=session,

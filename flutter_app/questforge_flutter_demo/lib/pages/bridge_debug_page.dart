@@ -142,13 +142,6 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
         if (quiz == null && c is ConfirmQuizCommandV2) quiz = c;
       }
 
-      // legacy flow command（仍保留解析，但 Day22 主路徑不依賴）
-      final flowAction = _extractFlowActionFromRaw(m);
-      if (flowAction != null) {
-        debugPrint('[QF][FLOW][RAW] action=$flowAction');
-        _scheduleUiJob(() => _handleFlowAction(flowAction));
-      }
-
       setState(() {
         _lastRaw = m;
         _view = stepV2!.view;
@@ -204,51 +197,6 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
     });
   }
 
-  // ✅ 直接從 raw step_result payload 裡抓 flow（不要依賴 contract parser）
-  String? _extractFlowActionFromRaw(Map<String, dynamic> m) {
-    try {
-      if (m['contract_version'] != 'ui_contract_v2') return null;
-      if (m['type'] != 'step_result') return null;
-
-      final payload = (m['payload'] is Map) ? Map<String, dynamic>.from(m['payload']) : null;
-      if (payload == null) return null;
-
-      final commands = payload['commands'];
-      if (commands is! List) return null;
-
-      for (final c in commands) {
-        if (c is Map && (c['type']?.toString() == 'flow')) {
-          final action = (c['action'] ?? c['id'] ?? '').toString().trim();
-          return action.isEmpty ? null : action;
-        }
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  void _handleFlowAction(String action) {
-    debugPrint('[QF][FLOW][LEGACY] action=$action');
-
-    if (_endButtonsLocked) return;
-
-    _lockEndButtons('legacy_flow/$action');
-
-    if (mounted) {
-      Navigator.of(context, rootNavigator: true).maybePop();
-    }
-
-    BridgeDebugPage.bridge.send({
-      'type': 'apply_flow',
-      'action': action,
-    });
-
-    if (action == 'quit' && mounted) {
-      Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
-    }
-  }
-
   String _buildEndKey(ShowEndScreenCommandV2 cmd) {
     final ids = cmd.actions.map((e) => e.id).join(',');
     return '${cmd.end.nodeId}|${cmd.end.title}|${cmd.end.narration.hashCode}|$ids';
@@ -284,14 +232,17 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
 
     final nav = Navigator.of(context, rootNavigator: true); // ✅ 用同一個 root nav
 
-    if (_isEndScreenShowing) {
-      await nav.pushReplacement(route); // ✅ root pushReplacement
-      return;
-    }
-
     _isEndScreenShowing = true;
-    await nav.push(route); // ✅ root push
-    _isEndScreenShowing = false;
+    try {
+      if (nav.canPop()) {
+        // 用 replacement 也 OK，但記得 finally 會回收旗標
+        await nav.pushReplacement(route);
+      } else {
+        await nav.push(route);
+      }
+    } finally {
+      if (mounted) _isEndScreenShowing = false;
+    }
   }
 
   @override

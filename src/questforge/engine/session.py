@@ -678,20 +678,15 @@ class GameSession:
                 if "epilogue" in self.nodes:
                     self.current = "epilogue"
                     commands.append(self._make_end_screen_command(node_id="epilogue"))
-                    return StepResult(
-                        view=None, events=events, is_over=True, commands=commands
-                    )
+                    return StepResult(view=None, events=events, is_over=True, commands=commands)
 
-                commands.append({"type": "flow", "action": "restart_case"})
-                return StepResult(
-                    view=None, events=events, is_over=True, commands=commands
-                )
+                # 保底：沒有 epilogue 就結束（讓 bridge 決定怎麼做）
+                return StepResult(view=None, events=events + ["沒有 epilogue 節點"], is_over=True, commands=[])
 
+            # ✅ Day22: restart/switch/quit 不再由 engine 送 flow command
             if act in ("restart_case", "switch_case", "quit"):
-                commands.append({"type": "flow", "action": act})
-                return StepResult(
-                    view=None, events=events, is_over=True, commands=commands
-                )
+                # 交給 json_bridge dispatcher（跨 session/跨 case）
+                return StepResult(view=None, events=events, is_over=True, commands=[])
 
             return StepResult(view=None, events=["未知 end_action"], is_over=True)
 

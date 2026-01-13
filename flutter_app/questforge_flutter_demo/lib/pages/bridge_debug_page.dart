@@ -6,6 +6,7 @@ import 'package:questforge_ui_contract/questforge_contract.dart';
 import '../debug/ask_reason_panel.dart';
 import '../debug/confirm_quiz_panel.dart';
 import '../dev/python_bridge.dart';
+import 'dart:async'; // ✅ 加這個（Timer）
 
 class BridgeDebugPage extends StatefulWidget {
   const BridgeDebugPage({super.key});
@@ -37,25 +38,52 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
   // flutter run -d macos --dart-define=QF_WORKDIR=/Users/user/Projects/QUESTFORGE
   static const String _workingDir = String.fromEnvironment('QF_WORKDIR', defaultValue: '');
 
-  // ------------------------------------------------------------
-  // Day22: anti-double-step lock (ValueNotifier edition)
-  // ------------------------------------------------------------
+// ------------------------------------------------------------
+// Day22: anti-double-step lock (ValueNotifier + pending + timeout)
+// ------------------------------------------------------------
   final ValueNotifier<bool> _endLockVN = ValueNotifier<bool>(false);
+  final ValueNotifier<String?> _pendingActionVN = ValueNotifier<String?>(null);
+
   String? _pendingActionId; // e.g. "end_flow/restart_case"
+  Timer? _endLockTimeout;
 
   bool get _endButtonsLocked => _endLockVN.value;
 
-  void _lockEndButtons(String actionId) {
+  /// 可自訂超時秒數
+  static const Duration _endLockTimeoutDur = Duration(seconds: 5);
+
+  void _lockEndButtons(String actionId, {String? pendingLabel}) {
     _pendingActionId = actionId;
+
+    // label 優先：explicit > actionId
+    _pendingActionVN.value = pendingLabel ?? actionId;
+
     if (!_endLockVN.value) _endLockVN.value = true;
+
+    // ✅ reset timeout timer（避免永遠鎖死）
+    _endLockTimeout?.cancel();
+    _endLockTimeout = Timer(_endLockTimeoutDur, () {
+      if (!mounted) return;
+      // 超時：解鎖，並在 log 留一行
+      setState(() {
+        _appendLogLine('[QF][LOCK][TIMEOUT] unlock after $_endLockTimeoutDur action=$_pendingActionId');
+      });
+      _unlockEndButtons();
+    });
   }
 
   void _unlockEndButtons() {
     _pendingActionId = null;
+
+    if (_endLockTimeout != null) {
+      _endLockTimeout!.cancel();
+      _endLockTimeout = null;
+    }
+
+    if (_pendingActionVN.value != null) _pendingActionVN.value = null;
     if (_endLockVN.value) _endLockVN.value = false;
   }
-
-  // ------------------------------------------------------------
+// ------------------------------------------------------------
 
   @override
   void initState() {
@@ -241,31 +269,28 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
         cmd: cmd,
         kindToWire: _uiActionKindToWire,
         lockVN: _endLockVN,
+        pendingVN: _pendingActionVN,
         onSendEndFlow: (actionId, payload) {
           if (_endButtonsLocked) return;
-          _lockEndButtons(actionId);
+
+          final actionText = (payload['id'] ?? payload['action'] ?? '').toString();
+          _lockEndButtons(actionId, pendingLabel: actionText);
 
           debugPrint('[QF][UI_ACTION][SEND_PAYLOAD] ${jsonEncode(payload)}');
-          BridgeDebugPage.bridge.send({
-            'type': 'ui_action',
-            'payload': payload,
-          });
-
-          // ✅ Day22: send 後立刻關閉 endscreen，讓使用者看到下一個 view
-          if (mounted) {
-            Navigator.of(context, rootNavigator: true).maybePop();
-          }
+          BridgeDebugPage.bridge.send({'type': 'ui_action', 'payload': payload});
         },
       ),
     );
 
+    final nav = Navigator.of(context, rootNavigator: true); // ✅ 用同一個 root nav
+
     if (_isEndScreenShowing) {
-      await Navigator.of(context).pushReplacement(route);
+      await nav.pushReplacement(route); // ✅ root pushReplacement
       return;
     }
 
     _isEndScreenShowing = true;
-    await Navigator.of(context).push(route);
+    await nav.push(route); // ✅ root push
     _isEndScreenShowing = false;
   }
 
@@ -277,7 +302,10 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _endLockTimeout?.cancel();
+    _endLockTimeout = null;
     _endLockVN.dispose();
+    _pendingActionVN.dispose(); // ✅ 新增
     BridgeDebugPage.bridge.dispose();
     super.dispose();
   }
@@ -426,7 +454,6 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
               SelectableText(_log.isEmpty ? '—' : _clip(_log)),
             ],
           ),
-
           if (ask != null)
             AskReasonPanel(
               command: ask,
@@ -436,7 +463,6 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
               },
               onClose: () => setState(() => _askReason = null),
             ),
-
           if (ask == null && quiz != null)
             ConfirmQuizPanel(
               command: quiz,
@@ -460,6 +486,7 @@ class _EndScreenPreviewPageV2 extends StatelessWidget {
     required this.cmd,
     required this.kindToWire,
     required this.lockVN,
+    required this.pendingVN,
     required this.onSendEndFlow,
   });
 
@@ -467,6 +494,8 @@ class _EndScreenPreviewPageV2 extends StatelessWidget {
   final String Function(Object? kind) kindToWire;
 
   final ValueNotifier<bool> lockVN;
+  final ValueNotifier<String?> pendingVN;
+
   final void Function(String actionId, Map<String, dynamic> payload) onSendEndFlow;
 
   @override
@@ -481,6 +510,7 @@ class _EndScreenPreviewPageV2 extends StatelessWidget {
         children: [
           Text(end.narration),
           const SizedBox(height: 16),
+
           if (end.lessons.isNotEmpty) ...[
             Text('今天學到的', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -492,6 +522,7 @@ class _EndScreenPreviewPageV2 extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
+
           if (reasoning != null) ...[
             Text('理由整理（v2）', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -509,8 +540,28 @@ class _EndScreenPreviewPageV2 extends StatelessWidget {
               ),
             const SizedBox(height: 16),
           ],
+
           Text('接下來要做什麼？', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
+
+          // ✅ 顯示目前處理狀態（可選，但很實用）
+          ValueListenableBuilder<bool>(
+            valueListenable: lockVN,
+            builder: (_, locked, __) {
+              if (!locked) return const SizedBox.shrink();
+              return ValueListenableBuilder<String?>(
+                valueListenable: pendingVN,
+                builder: (_, pending, __) {
+                  final text = pending == null || pending.isEmpty ? '處理中…' : '處理中：$pending…';
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(text),
+                  );
+                },
+              );
+            },
+          ),
+
           ...cmd.actions.map((a) {
             final wireKind = kindToWire(a.kind);
             final actionId = '$wireKind/${a.id}';
@@ -532,7 +583,7 @@ class _EndScreenPreviewPageV2 extends StatelessWidget {
                             };
 
                             onSendEndFlow(actionId, payload);
-
+                            Navigator.of(context).maybePop();
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text('已送出 ui_action：$wireKind/${a.id}')),
                             );

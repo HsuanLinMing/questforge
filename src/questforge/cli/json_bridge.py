@@ -277,6 +277,76 @@ def _unwrap_v2_envelope(m: JsonMap) -> JsonMap:
     return {}
 
 
+# ------------------------------------------------------------
+# Day22: end_flow dispatcher (single-path)
+# ------------------------------------------------------------
+
+def _final_over_payload(*, events: list[str] | None = None) -> JsonMap:
+    """Return a terminal step_result payload to unblock UI then allow bridge to exit."""
+    out: JsonMap = {
+        "view": {},
+        "events": events or [],
+        "is_over": True,
+        "selected_choice_index": 0,
+        "selected_next": "",
+        "commands": [],
+    }
+    return _upgrade_commands_for_v2_envelope(out)
+
+
+def _emit_replay_step(session: GameSession) -> None:
+    res = session.step(PlayerAction(type="replay"))
+    out = _step_result_to_json(res)
+    out = _upgrade_commands_for_v2_envelope(out)
+    _emit_step_v2(out)
+
+
+def _dispatch_end_flow(
+    *,
+    end_action: str,
+    session: GameSession,
+    case_id: str,
+    case: JsonMap,
+    config: GameConfig,
+    args: argparse.Namespace,
+) -> Tuple[GameSession, str, JsonMap, bool]:
+    """
+    Central routing for end_flow.
+
+    Returns: (new_session, new_case_id, new_case, should_exit)
+    - restart_case / switch_case / quit are handled here (single-path; no apply_flow).
+    - other end_action (e.g. go_epilogue) goes to engine: session.step(end_flow).
+    """
+    a = (end_action or "").strip()
+
+    # ---- hard exits handled by bridge ----
+    if a == "quit":
+        _emit_step_v2(_final_over_payload(events=["quit"]))
+        return session, case_id, case, True
+
+    if a == "restart_case":
+        session2 = _new_session_for_case(case, config=config)
+        _emit_replay_step(session2)
+        return session2, case_id, case, False
+
+    if a == "switch_case":
+        new_case_id, new_case = _pick_case(None, seed=getattr(args, "seed", None))
+        session2 = _new_session_for_case(new_case, config=config)
+        if not getattr(args, "quiet", False):
+            _emit_hello(case_id=new_case_id, case=new_case)
+        _emit_replay_step(session2)
+        return session2, str(new_case_id), new_case, False
+
+    # ---- default: let engine handle (epilogue / others) ----
+    res = session.step(PlayerAction(type="end_flow", end_action=a))
+    out = _step_result_to_json(res)
+    out = _upgrade_commands_for_v2_envelope(out)
+    _emit_step_v2(out)
+
+    # if engine says it's over and no commands, allow bridge to exit (legacy behavior)
+    should_exit = bool(out.get("is_over")) and not (out.get("commands") or [])
+    return session, case_id, case, should_exit
+
 
 def main(argv: Optional[list[str]] = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m questforge.cli.json_bridge")
@@ -317,56 +387,33 @@ def main(argv: Optional[list[str]] = None) -> None:
 
         m = _normalize_map(req)
         _jprint({"type": "log", "msg": f"stdin_recv: {req}"})
+
         # v2 ui_action
         if _as_str(m.get("type", "")).strip() == "ui_action":
             payload = _normalize_map(m.get("payload"))
             kind = _as_str(payload.get("kind", "")).strip()
-            _jprint({"type": "log", "msg": f"ui_action received: kind={kind} id={payload.get('id','')}"})
+            _jprint(
+                {
+                    "type": "log",
+                    "msg": f"ui_action received: kind={kind} id={payload.get('id','')}",
+                }
+            )
 
             if kind in ("end_flow", "endFlow"):
-                end_action = _as_str(payload.get("id", "")).strip() or _as_str(payload.get("action", "")).strip()
+                end_action = (
+                    _as_str(payload.get("id", "")).strip()
+                    or _as_str(payload.get("action", "")).strip()
+                )
 
-                # Day22: single-path end_flow handling (no apply_flow required)
-                if end_action == "quit":
-                    # Emit a final step_result to unblock UI, then exit
-                    out = {
-                        "view": {},
-                        "events": ["quit"],
-                        "is_over": True,
-                        "selected_choice_index": 0,
-                        "selected_next": "",
-                        "commands": [],
-                    }
-                    out = _upgrade_commands_for_v2_envelope(out)
-                    _emit_step_v2(out)
-                    return
-
-                if end_action == "restart_case":
-                    session = _new_session_for_case(case, config=config)
-                    res = session.step(PlayerAction(type="replay"))
-                    out = _step_result_to_json(res)
-                    out = _upgrade_commands_for_v2_envelope(out)
-                    _emit_step_v2(out)
-                    continue
-
-                if end_action == "switch_case":
-                    case_id, case = _pick_case(None, seed=args.seed)
-                    session = _new_session_for_case(case, config=config)
-                    if not args.quiet:
-                        _emit_hello(case_id=case_id, case=case)
-                    res = session.step(PlayerAction(type="replay"))
-                    out = _step_result_to_json(res)
-                    out = _upgrade_commands_for_v2_envelope(out)
-                    _emit_step_v2(out)
-                    continue
-
-                # Default: epilogue / other end actions are handled by engine
-                res = session.step(PlayerAction(type="end_flow", end_action=end_action))
-                out = _step_result_to_json(res)
-                out = _upgrade_commands_for_v2_envelope(out)
-                _emit_step_v2(out)
-
-                if out.get("is_over") and not (out.get("commands") or []):
+                session, case_id, case, should_exit = _dispatch_end_flow(
+                    end_action=end_action,
+                    session=session,
+                    case_id=case_id,
+                    case=case,
+                    config=config,
+                    args=args,
+                )
+                if should_exit:
                     return
                 continue
 
@@ -445,7 +492,11 @@ def main(argv: Optional[list[str]] = None) -> None:
             reason_text = _as_str(m.get("reason_text", "")).strip()
 
             res = session.step(
-                PlayerAction(type="set_reasons", reason_ids=reason_ids, reason_text=reason_text)
+                PlayerAction(
+                    type="set_reasons",
+                    reason_ids=reason_ids,
+                    reason_text=reason_text,
+                )
             )
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
@@ -454,7 +505,7 @@ def main(argv: Optional[list[str]] = None) -> None:
                 return
             continue
 
-        # ---- confirm_quiz_answer (NEW) ----
+        # ---- confirm_quiz_answer ----
         if typ == "confirm_quiz_answer":
             answers = m.get("answers") or []
             if not isinstance(answers, list):
@@ -463,10 +514,14 @@ def main(argv: Optional[list[str]] = None) -> None:
 
             try:
                 res = session.step(
-                    PlayerAction(type="confirm_quiz_answer", answers=answers, skipped=skipped)
+                    PlayerAction(
+                        type="confirm_quiz_answer", answers=answers, skipped=skipped
+                    )
                 )
             except Exception as e:
-                _emit_error(f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}")
+                _emit_error(
+                    f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}"
+                )
                 continue
 
             out = _step_result_to_json(res)
@@ -476,18 +531,26 @@ def main(argv: Optional[list[str]] = None) -> None:
                 return
             continue
 
-        # ---- end_flow ----
+        # ---- end_flow (legacy direct) ----
         if typ == "end_flow":
-            end_action = _as_str(m.get("action", "")).strip() or _as_str(m.get("end_action", "")).strip()
-            res = session.step(PlayerAction(type="end_flow", end_action=end_action))
-            out = _step_result_to_json(res)
-            out = _upgrade_commands_for_v2_envelope(out)
-            _emit_step_v2(out)
-            if out.get("is_over") and not (out.get("commands") or []):
+            end_action = (
+                _as_str(m.get("action", "")).strip()
+                or _as_str(m.get("end_action", "")).strip()
+            )
+            # Keep legacy path: route through dispatcher too (consistent)
+            session, case_id, case, should_exit = _dispatch_end_flow(
+                end_action=end_action,
+                session=session,
+                case_id=case_id,
+                case=case,
+                config=config,
+                args=args,
+            )
+            if should_exit:
                 return
             continue
 
-        # ---- apply_flow ----
+        # ---- apply_flow (legacy; keep for backward compatibility) ----
         if typ == "apply_flow":
             action = _as_str(m.get("action", "")).strip()
             if action == "quit":
@@ -496,9 +559,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             if action == "restart_case":
                 session = _new_session_for_case(case, config=config)
                 _jprint({"type": "ok", "action": "restart_case"})
-                out = _step_result_to_json(session.step(PlayerAction(type="replay")))
-                out = _upgrade_commands_for_v2_envelope(out)
-                _emit_step_v2(out)
+                _emit_replay_step(session)
                 continue
             if action == "switch_case":
                 case_id, case = _pick_case(None, seed=args.seed)
@@ -506,9 +567,7 @@ def main(argv: Optional[list[str]] = None) -> None:
                 if not args.quiet:
                     _emit_hello(case_id=case_id, case=case)
                 _jprint({"type": "ok", "action": "switch_case"})
-                out = _step_result_to_json(session.step(PlayerAction(type="replay")))
-                out = _upgrade_commands_for_v2_envelope(out)
-                _emit_step_v2(out)
+                _emit_replay_step(session)
                 continue
 
             _emit_error(f"unknown apply_flow action: {action}")

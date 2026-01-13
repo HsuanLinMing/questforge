@@ -80,3 +80,8 @@ class ShowEndScreenCommandV2 implements CommandV2 {
         if (analytics != null) 'analytics': analytics,
       };
 }
+
+extension EndContentV2MetaExt on EndContentV2 {
+  String get nodeId => (meta?['node_id'] ?? meta?['nodeId'] ?? '').toString();
+  String get tag => (meta?['tag'] ?? '').toString();
+}

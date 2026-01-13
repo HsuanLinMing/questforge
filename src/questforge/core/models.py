@@ -26,6 +26,8 @@ class DetectiveState:
     last_reason_id: str = ""  # Day8 先不用也行，先留著
     last_reason_text: str = ""  # 預留語音/自由文字（B）
     last_reason_ids: List[str] = field(default_factory=list)
+    last_confirm_quiz_answers: list = field(default_factory=list)
+    last_confirm_quiz_skipped: bool = False
 
     def add_clue(self, clue: str) -> bool:
         """新增線索 key（Set 去重）。回傳 True 表示第一次收集到。"""
@@ -90,6 +92,8 @@ class DetectiveState:
             "last_reason_id": self.last_reason_id,
             "last_reason_text": self.last_reason_text,
             "last_reason_ids": list(self.last_reason_ids),  # ✅ Day9
+            "last_confirm_quiz_answers": list(self.last_confirm_quiz_answers),
+            "last_confirm_quiz_skipped": bool(self.last_confirm_quiz_skipped),
         }
 
     @classmethod
@@ -108,6 +112,10 @@ class DetectiveState:
         state.last_reason_ids = list(data.get("last_reason_ids", []))
         if not state.last_reason_ids and state.last_reason_id:
             state.last_reason_ids = [state.last_reason_id]
+        # ✅ Day21
+        a = data.get("last_confirm_quiz_answers", [])
+        state.last_confirm_quiz_answers = list(a) if isinstance(a, list) else []
+        state.last_confirm_quiz_skipped = bool(data.get("last_confirm_quiz_skipped", False))
         return state
 
 

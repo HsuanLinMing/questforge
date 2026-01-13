@@ -871,6 +871,35 @@ class GameSession:
             return StepResult(
                 view=self.get_view(), events=events, is_over=False, commands=commands
             )
+        # ----------------------------
+        # confirm_quiz_answer (NEW)
+        # ----------------------------
+        if action.type == "confirm_quiz_answer":
+            answers = action.answers or []
+            skipped = bool(getattr(action, "skipped", False))
+
+            # 存 state（可選）
+            try:
+                self.state.last_confirm_quiz_answers = list(answers)
+                self.state.last_confirm_quiz_skipped = bool(skipped)
+            except Exception:
+                pass
+
+            if skipped:
+                events.append("霏霏：沒關係喔，我們先往下走。")
+            else:
+                events.append("霏霏：好，我知道你是怎麼想的了，我們往下看看。")
+
+            # ✅ 直接進尾聲（等同 UI 點「進入尾聲」）
+            act = "go_epilogue"
+            if "epilogue" in self.nodes:
+                self.current = "epilogue"
+                commands.append(self._make_end_screen_command(node_id="epilogue"))
+                return StepResult(view=None, events=events, is_over=True, commands=commands)
+
+            # 沒有 epilogue 就回 flow restart（保底）
+            commands.append({"type": "flow", "action": "restart_case"})
+            return StepResult(view=None, events=events, is_over=True, commands=commands)
 
         # ----------------------------
         # basic actions

@@ -53,15 +53,10 @@ class PythonBridge {
         'args': args,
       });
 
-      _sub = _proc!.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen(_handleStdoutLine);
+      _sub = _proc!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(_handleStdoutLine);
 
-      _errSub = _proc!.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
+      _errSub = _proc!.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+        debugPrint('[QF][BRIDGE][STDERR] $line'); // ✅ 加這行
         _outCtrl.add({'type': 'stderr', 'message': line});
       });
 
@@ -82,6 +77,7 @@ class PythonBridge {
   }
 
   void _handleStdoutLine(String line) {
+    debugPrint('[QF][BRIDGE][STDOUT] $line'); // ✅ 加這行
     final trimmed = line.trim();
     if (trimmed.isEmpty) return;
 
@@ -99,7 +95,14 @@ class PythonBridge {
 
   void send(Map<String, dynamic> payload) {
     final p = _proc;
-    if (p == null) return;
+
+    debugPrint('[QF][BRIDGE][SEND] running=${p != null} payload=${jsonEncode(payload)}');
+
+    if (p == null) {
+      debugPrint('[QF][BRIDGE][SEND][DROP] process is null (bridge not running)');
+      return;
+    }
+
     p.stdin.writeln(jsonEncode(payload));
   }
 
@@ -164,14 +167,8 @@ class PythonBridge {
 
     // 2) venv in project root
     final venvCandidates = <String>[
-      if (Platform.isWindows)
-        '$workingDir\\.venv\\Scripts\\python.exe'
-      else
-        '$workingDir/.venv/bin/python',
-      if (Platform.isWindows)
-        '$workingDir\\venv\\Scripts\\python.exe'
-      else
-        '$workingDir/venv/bin/python',
+      if (Platform.isWindows) '$workingDir\\.venv\\Scripts\\python.exe' else '$workingDir/.venv/bin/python',
+      if (Platform.isWindows) '$workingDir\\venv\\Scripts\\python.exe' else '$workingDir/venv/bin/python',
     ];
     for (final c in venvCandidates) {
       if (await _canExecute(c)) return c;
@@ -205,24 +202,23 @@ class PythonBridge {
 
   static bool _looksLikePath(String v) => v.contains('/') || v.contains('\\');
 
-static Future<bool> _canExecute(String path) async {
-  try {
-    final f = File(path);
-    if (!f.existsSync()) return false;
+  static Future<bool> _canExecute(String path) async {
+    try {
+      final f = File(path);
+      if (!f.existsSync()) return false;
 
-    // Windows: existence is enough.
-    if (Platform.isWindows) return true;
+      // Windows: existence is enough.
+      if (Platform.isWindows) return true;
 
-    // mac/linux: check executable bit (avoid Process.run due to sandbox)
-    final st = f.statSync();
-    final mode = st.mode; // POSIX permission bits are in low 9 bits.
-    final isExecutable = (mode & 0x49) != 0; // 0o111 = 73 = 0x49
-    return isExecutable;
-  } catch (_) {
-    return false;
+      // mac/linux: check executable bit (avoid Process.run due to sandbox)
+      final st = f.statSync();
+      final mode = st.mode; // POSIX permission bits are in low 9 bits.
+      final isExecutable = (mode & 0x49) != 0; // 0o111 = 73 = 0x49
+      return isExecutable;
+    } catch (_) {
+      return false;
+    }
   }
-}
-
 
   static Future<String?> _which(String cmd) async {
     try {

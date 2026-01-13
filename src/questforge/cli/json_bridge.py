@@ -26,10 +26,9 @@ def _jprint(obj: Any) -> None:
 
 
 def _wrap_v2(msg_type: str, payload: JsonMap) -> JsonMap:
-    # v2 envelope (engine -> UI)
     return {
         "contract_version": CONTRACT_V2,
-        "type": msg_type,  # "step_result" | "command" | "event" (我們先用 step_result)
+        "type": msg_type,
         "payload": payload,
     }
 
@@ -49,11 +48,26 @@ def _as_int(v: Any, default: int = 0) -> int:
         if isinstance(v, float):
             return int(v)
         if isinstance(v, str):
-            x = int(v.strip())
-            return x
+            return int(v.strip())
         return default
     except Exception:
         return default
+
+
+def _as_bool(v: Any, default: bool = False) -> bool:
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("1", "true", "yes", "y"):
+            return True
+        if s in ("0", "false", "no", "n"):
+            return False
+    return default
 
 
 def _as_str(v: Any, default: str = "") -> str:
@@ -106,8 +120,12 @@ def _node_view_to_json(view: Any) -> JsonMap:
 
 
 def _step_result_to_json(res: Any) -> JsonMap:
+    view_obj = getattr(res, "view", None)
+    if view_obj is None:
+        global _LAST_CHOICE_INDEXES
+        _LAST_CHOICE_INDEXES = []
     return {
-        "view": _node_view_to_json(getattr(res, "view", None)),
+        "view": _node_view_to_json(view_obj),
         "events": list(getattr(res, "events", []) or []),
         "is_over": bool(getattr(res, "is_over", False)),
         "selected_choice_index": int(getattr(res, "selected_choice_index", 0) or 0),
@@ -125,8 +143,6 @@ def _as_map(v: Any) -> JsonMap:
 
 
 def _upgrade_show_end_screen_v1_to_v2(cmd: JsonMap) -> Optional[JsonMap]:
-    # v1 show_end_screen payload:
-    # {type,node_id,tag,title,narration,lesson[],options[],meta{reasoning_contract_v1...}}
     if _as_str(cmd.get("type", "")).strip() != "show_end_screen":
         return None
 
@@ -134,7 +150,6 @@ def _upgrade_show_end_screen_v1_to_v2(cmd: JsonMap) -> Optional[JsonMap]:
     options = _as_list(cmd.get("options"))
     lessons = _as_list(cmd.get("lesson"))
 
-    # actions (UI -> engine)
     actions = []
     for opt in options:
         o = _as_map(opt)
@@ -175,7 +190,7 @@ def _upgrade_show_end_screen_v1_to_v2(cmd: JsonMap) -> Optional[JsonMap]:
         ],
     }
 
-    v2 = {
+    return {
         "type": "show_end_screen",
         "end": {
             "title": _as_str(cmd.get("title", "")),
@@ -184,14 +199,12 @@ def _upgrade_show_end_screen_v1_to_v2(cmd: JsonMap) -> Optional[JsonMap]:
             "meta": {
                 "node_id": _as_str(cmd.get("node_id", "")),
                 "tag": _as_str(cmd.get("tag", "")),
-                # 你想保留原 meta 也可以塞進來（debug 用）
                 "v1_meta": meta,
             },
         },
         "summary": {"reasoning": reasoning},
         "actions": actions,
     }
-    return v2
 
 
 def _upgrade_commands_for_v2_envelope(step_payload: JsonMap) -> JsonMap:
@@ -237,7 +250,6 @@ def _new_session_for_case(case: JsonMap, *, config: GameConfig) -> GameSession:
 
 
 def _emit_hello(*, case_id: str, case: JsonMap) -> None:
-    # hello 維持舊格式（dev log 用）
     _jprint(
         {
             "type": "hello",
@@ -249,7 +261,6 @@ def _emit_hello(*, case_id: str, case: JsonMap) -> None:
 
 
 def _emit_error(message: str) -> None:
-    # error 維持舊格式（dev log 用）
     _jprint({"type": "error", "message": message})
 
 
@@ -260,18 +271,16 @@ def _is_v2_envelope(m: JsonMap) -> bool:
 
 
 def _unwrap_v2_envelope(m: JsonMap) -> JsonMap:
-    # returns payload
     p = m.get("payload")
     if isinstance(p, dict):
         return {str(k): v for k, v in p.items()}
     return {}
 
 
+
 def main(argv: Optional[list[str]] = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m questforge.cli.json_bridge")
-    ap.add_argument(
-        "--case", dest="case_id", default=None, help="指定案件 id（例如 2）"
-    )
+    ap.add_argument("--case", dest="case_id", default=None, help="指定案件 id（例如 2）")
     ap.add_argument("--seed", dest="seed", type=int, default=None, help="固定抽案 seed")
     ap.add_argument("--quiet", action="store_true", help="不輸出 hello（測試用）")
     args = ap.parse_args(argv)
@@ -284,8 +293,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not args.quiet:
         _emit_hello(case_id=case_id, case=case)
 
-    # 初始 view：改成 v2 envelope(step_result)
+    # 初始 view：v2 step_result + upgrade commands
     first = _step_result_to_json(session.step(PlayerAction(type="replay")))
+    first = _upgrade_commands_for_v2_envelope(first)
     _emit_step_v2(first)
 
     while True:
@@ -294,10 +304,8 @@ def main(argv: Optional[list[str]] = None) -> None:
             return
 
         raw = line.strip()
-
         if not raw:
             continue
-
         if raw.startswith("\x1b[") or raw.startswith("^[["):
             continue
 
@@ -308,15 +316,13 @@ def main(argv: Optional[list[str]] = None) -> None:
             continue
 
         m = _normalize_map(req)
-
-        # ----------------------------
-        # v2 UI action support:
-        # { "type":"ui_action", "payload": { "kind":"end_flow", "id":"go_epilogue" } }
-        # ----------------------------
+        _jprint({"type": "log", "msg": f"stdin_recv: {req}"})
+        # v2 ui_action
         if _as_str(m.get("type", "")).strip() == "ui_action":
             payload = _normalize_map(m.get("payload"))
             kind = _as_str(payload.get("kind", "")).strip()
-            if kind == "end_flow":
+            _jprint({"type":"log","msg": f"ui_action received: kind={kind} id={payload.get('id','')}"})
+            if kind in ("end_flow", "endFlow"):
                 end_action = _as_str(payload.get("id", "")).strip()
                 res = session.step(PlayerAction(type="end_flow", end_action=end_action))
                 out = _step_result_to_json(res)
@@ -329,39 +335,26 @@ def main(argv: Optional[list[str]] = None) -> None:
             _emit_error(f"unknown ui_action kind: {kind}")
             continue
 
-        # ----------------------------
-        # optional: if someday UI sends a v2 envelope, we can unwrap it
-        # e.g. {contract_version,type:"event",payload:{type:"choose"...}}
-        # ----------------------------
         if _is_v2_envelope(m):
-            # interpret payload as request object
             m = _unwrap_v2_envelope(m)
 
         typ = _as_str(m.get("type", "")).strip()
 
-        # ---- client actions -> PlayerAction ----
+        # ---- choose ----
         if typ == "choose":
             idx = _as_int(m.get("choice_index"), 0)
-
-            # ✅ 引擎多半吃的是 ChoiceView.index（顯示用 index），不是 list position
-            # 我們做 0-based / 1-based 兼容，但「最後送回引擎的仍是 index 值」
             idx0 = idx
 
             if _LAST_CHOICE_INDEXES:
                 if idx in _LAST_CHOICE_INDEXES:
-                    # UI 送的就是顯示 index（最常見：1,2,3...）
                     idx0 = idx
                 elif (idx - 1) in _LAST_CHOICE_INDEXES:
-                    # UI 送 1-based，但 choices 是 0-based
                     idx0 = idx - 1
                 elif (idx + 1) in _LAST_CHOICE_INDEXES:
-                    # UI 送 0-based，但 choices 是 1-based
                     idx0 = idx + 1
                 else:
-                    # 找不到就不亂轉，直接丟出去，讓引擎自己報錯/忽略
                     idx0 = idx
             else:
-                # 沒有 last view 可用：保守不轉
                 idx0 = idx
 
             try:
@@ -386,24 +379,25 @@ def main(argv: Optional[list[str]] = None) -> None:
                 return
             continue
 
+        # ---- replay ----
         if typ == "replay":
             res = session.step(PlayerAction(type="replay"))
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
             _emit_step_v2(out)
-
             if out.get("is_over") and not (out.get("commands") or []):
                 return
             continue
 
+        # ---- quit ----
         if typ == "quit":
             res = session.step(PlayerAction(type="quit"))
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
             _emit_step_v2(out)
-
             return
 
+        # ---- set_reasons ----
         if typ == "set_reasons":
             reason_ids = m.get("reason_ids") or []
             if not isinstance(reason_ids, list):
@@ -411,27 +405,42 @@ def main(argv: Optional[list[str]] = None) -> None:
             reason_ids = [str(x).strip() for x in reason_ids if str(x).strip()]
 
             reason_text = _as_str(m.get("reason_text", "")).strip()
+
             res = session.step(
-                PlayerAction(
-                    type="set_reasons", reason_ids=reason_ids, reason_text=reason_text
-                )
+                PlayerAction(type="set_reasons", reason_ids=reason_ids, reason_text=reason_text)
             )
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
             _emit_step_v2(out)
-
             if out.get("is_over") and not (out.get("commands") or []):
                 return
             continue
 
+        # ---- confirm_quiz_answer (NEW) ----
+        if typ == "confirm_quiz_answer":
+            answers = m.get("answers") or []
+            if not isinstance(answers, list):
+                answers = []
+            skipped = _as_bool(m.get("skipped"), False)
+
+            try:
+                res = session.step(
+                    PlayerAction(type="confirm_quiz_answer", answers=answers, skipped=skipped)
+                )
+            except Exception as e:
+                _emit_error(f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}")
+                continue
+
+            out = _step_result_to_json(res)
+            out = _upgrade_commands_for_v2_envelope(out)
+            _emit_step_v2(out)
+            if out.get("is_over") and not (out.get("commands") or []):
+                return
+            continue
+
+        # ---- end_flow ----
         if typ == "end_flow":
-            # ✅ 相容你的 Flutter：
-            # - Day20 Preview: {"type":"end_flow","action":"go_epilogue"}
-            # - Old: {"type":"end_flow","end_action":"go_epilogue"}
-            end_action = (
-                _as_str(m.get("action", "")).strip()
-                or _as_str(m.get("end_action", "")).strip()
-            )
+            end_action = _as_str(m.get("action", "")).strip() or _as_str(m.get("end_action", "")).strip()
             res = session.step(PlayerAction(type="end_flow", end_action=end_action))
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
@@ -440,7 +449,7 @@ def main(argv: Optional[list[str]] = None) -> None:
                 return
             continue
 
-        # apply_flow（dev utility）仍保留舊格式 ok + step_result(v2)
+        # ---- apply_flow ----
         if typ == "apply_flow":
             action = _as_str(m.get("action", "")).strip()
             if action == "quit":
@@ -449,9 +458,9 @@ def main(argv: Optional[list[str]] = None) -> None:
             if action == "restart_case":
                 session = _new_session_for_case(case, config=config)
                 _jprint({"type": "ok", "action": "restart_case"})
-                _emit_step_v2(
-                    _step_result_to_json(session.step(PlayerAction(type="replay")))
-                )
+                out = _step_result_to_json(session.step(PlayerAction(type="replay")))
+                out = _upgrade_commands_for_v2_envelope(out)
+                _emit_step_v2(out)
                 continue
             if action == "switch_case":
                 case_id, case = _pick_case(None, seed=args.seed)
@@ -459,9 +468,9 @@ def main(argv: Optional[list[str]] = None) -> None:
                 if not args.quiet:
                     _emit_hello(case_id=case_id, case=case)
                 _jprint({"type": "ok", "action": "switch_case"})
-                _emit_step_v2(
-                    _step_result_to_json(session.step(PlayerAction(type="replay")))
-                )
+                out = _step_result_to_json(session.step(PlayerAction(type="replay")))
+                out = _upgrade_commands_for_v2_envelope(out)
+                _emit_step_v2(out)
                 continue
 
             _emit_error(f"unknown apply_flow action: {action}")

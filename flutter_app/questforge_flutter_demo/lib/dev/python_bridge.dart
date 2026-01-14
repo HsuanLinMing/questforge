@@ -11,7 +11,7 @@ class PythonBridge {
 
   final _outCtrl = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get outputs => _outCtrl.stream;
-
+  Stream<Map<String, dynamic>> get stream => outputs;
   bool get isRunning => _proc != null;
 
   Future<void> start({
@@ -44,6 +44,14 @@ class PythonBridge {
           'PYTHONUNBUFFERED': '1',
         },
       );
+
+      final startedProc = _proc!;
+
+      startedProc.exitCode.then((code) {
+        _outCtrl.add({'type': 'exit', 'code': code});
+        // ✅ 只停止當次啟動的 proc，避免殺到後來的新 proc
+        stop(proc: startedProc);
+      });
 
       _outCtrl.add({
         'type': 'bridge_started',
@@ -106,7 +114,7 @@ class PythonBridge {
     p.stdin.writeln(jsonEncode(payload));
   }
 
-  Future<void> stop() async {
+  Future<void> stop({Process? proc}) async {
     await _sub?.cancel();
     await _errSub?.cancel();
     _sub = null;
@@ -114,11 +122,16 @@ class PythonBridge {
 
     final p = _proc;
     _proc = null;
-    if (p != null) {
-      try {
-        p.kill(ProcessSignal.sigterm);
-      } catch (_) {}
+    if (p == null) return;
+
+    // ✅ 只有當 stop 的是「目前那個」proc，才把 _proc 清掉
+    if (identical(p, _proc)) {
+      _proc = null;
     }
+
+    try {
+      p.kill(ProcessSignal.sigterm);
+    } catch (_) {}
   }
 
   void dispose() {

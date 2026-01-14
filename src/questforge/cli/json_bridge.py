@@ -33,6 +33,23 @@ def _wrap_v2(msg_type: str, payload: JsonMap) -> JsonMap:
     }
 
 
+def _emit_v2(msg_type: str, payload: JsonMap) -> None:
+    _jprint(_wrap_v2(msg_type, payload))
+
+
+def _emit_ui_action_ack(
+    *, kind: str, action_id: str, status: str = "received", request_id: str = ""
+) -> None:
+    p: JsonMap = {
+        "kind": kind,
+        "id": action_id,
+        "status": status,
+    }
+    if request_id:
+        p["request_id"] = request_id
+    _emit_v2("ui_action_ack", p)
+
+
 def _emit_step_v2(step_payload: JsonMap) -> None:
     _jprint(_wrap_v2("step_result", step_payload))
 
@@ -281,6 +298,7 @@ def _unwrap_v2_envelope(m: JsonMap) -> JsonMap:
 # Day22: end_flow dispatcher + consume flow commands (single-path)
 # ------------------------------------------------------------
 
+
 def _final_over_payload(*, events: list[str] | None = None) -> JsonMap:
     """Return a terminal step_result payload to unblock UI then allow bridge to exit."""
     out: JsonMap = {
@@ -413,7 +431,9 @@ def _consume_flow_command_if_any(
 
 def main(argv: Optional[list[str]] = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m questforge.cli.json_bridge")
-    ap.add_argument("--case", dest="case_id", default=None, help="指定案件 id（例如 2）")
+    ap.add_argument(
+        "--case", dest="case_id", default=None, help="指定案件 id（例如 2）"
+    )
     ap.add_argument("--seed", dest="seed", type=int, default=None, help="固定抽案 seed")
     ap.add_argument("--quiet", action="store_true", help="不輸出 hello（測試用）")
     args = ap.parse_args(argv)
@@ -465,10 +485,28 @@ def main(argv: Optional[list[str]] = None) -> None:
         if _as_str(m.get("type", "")).strip() == "ui_action":
             payload = _normalize_map(m.get("payload"))
             kind = _as_str(payload.get("kind", "")).strip()
-            _jprint({"type": "log", "msg": f"ui_action received: kind={kind} id={payload.get('id','')}"})
+            action_id = (
+                _as_str(payload.get("id", "")).strip()
+                or _as_str(payload.get("action", "")).strip()
+            )
+            request_id = _as_str(payload.get("request_id", "")).strip()
 
+            _jprint(
+                {
+                    "type": "log",
+                    "msg": f"ui_action received: kind={kind} id={action_id} request_id={request_id}",
+                }
+            )
+
+            # ✅ Day23-C: 先立刻 ack（讓 Flutter 看到「已收到」）
+            _emit_ui_action_ack(
+                kind=kind, action_id=action_id, status="received", request_id=request_id
+            )
             if kind in ("end_flow", "endFlow"):
-                end_action = _as_str(payload.get("id", "")).strip() or _as_str(payload.get("action", "")).strip()
+                end_action = (
+                    _as_str(payload.get("id", "")).strip()
+                    or _as_str(payload.get("action", "")).strip()
+                )
                 session, case_id, case, should_exit = _dispatch_end_flow(
                     end_action=end_action,
                     session=session,
@@ -507,10 +545,17 @@ def main(argv: Optional[list[str]] = None) -> None:
                 idx0 = idx
 
             try:
-                _jprint({"type": "log", "msg": f"choose: idx={idx} -> idx0={idx0}, last={_LAST_CHOICE_INDEXES}"})
+                _jprint(
+                    {
+                        "type": "log",
+                        "msg": f"choose: idx={idx} -> idx0={idx0}, last={_LAST_CHOICE_INDEXES}",
+                    }
+                )
                 res = session.step(PlayerAction(type="choose", choice_index=idx0))
             except Exception as e:
-                _emit_error(f"choose_failed: idx={idx} idx0={idx0} last={_LAST_CHOICE_INDEXES} err={e}")
+                _emit_error(
+                    f"choose_failed: idx={idx} idx0={idx0} last={_LAST_CHOICE_INDEXES} err={e}"
+                )
                 continue
 
             out = _step_result_to_json(res)
@@ -607,10 +652,14 @@ def main(argv: Optional[list[str]] = None) -> None:
 
             try:
                 res = session.step(
-                    PlayerAction(type="confirm_quiz_answer", answers=answers, skipped=skipped)
+                    PlayerAction(
+                        type="confirm_quiz_answer", answers=answers, skipped=skipped
+                    )
                 )
             except Exception as e:
-                _emit_error(f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}")
+                _emit_error(
+                    f"confirm_quiz_failed: answers={answers} skipped={skipped} err={e}"
+                )
                 continue
 
             out = _step_result_to_json(res)
@@ -634,7 +683,10 @@ def main(argv: Optional[list[str]] = None) -> None:
 
         # ---- end_flow (legacy direct) ----
         if typ == "end_flow":
-            end_action = _as_str(m.get("action", "")).strip() or _as_str(m.get("end_action", "")).strip()
+            end_action = (
+                _as_str(m.get("action", "")).strip()
+                or _as_str(m.get("end_action", "")).strip()
+            )
             session, case_id, case, should_exit = _dispatch_end_flow(
                 end_action=end_action,
                 session=session,

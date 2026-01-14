@@ -1,12 +1,12 @@
+// lib/dev/bridge/bridge_debug_page.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
-import 'package:questforge_ui_contract/questforge_contract.dart';
+import 'package:questforge_flutter_demo/bridge/overlay_manager.dart';
+import 'package:questforge_flutter_demo/dev/python_bridge.dart';
 
-import '../debug/ask_reason_panel.dart';
-import '../debug/confirm_quiz_panel.dart';
-import '../dev/python_bridge.dart';
-import 'dart:async'; // ✅ 加這個（Timer）
+import '../bridge/bridge_controller_v2.dart';
 
 class BridgeDebugPage extends StatefulWidget {
   const BridgeDebugPage({super.key});
@@ -18,188 +18,33 @@ class BridgeDebugPage extends StatefulWidget {
 }
 
 class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingObserver {
-  Map<String, dynamic>? _lastRaw;
-
-  NodeView? _view;
-  List<CommandV2> _commands = const <CommandV2>[];
-
-  AskReasonCommandV2? _askReason;
-  ConfirmQuizCommandV2? _confirmQuiz;
-
-  // ✅ EndScreen single-layer controller
-  bool _isEndScreenShowing = false;
-  String _lastEndKey = ''; // 避免同一張 endscreen 重複 replace
-
-  String _log = '';
-  bool _uiJobScheduled = false;
-  bool _active = true;
-  VoidCallback? _pendingUiJob;
-
   // flutter run -d macos --dart-define=QF_WORKDIR=/Users/user/Projects/QUESTFORGE
   static const String _workingDir = String.fromEnvironment('QF_WORKDIR', defaultValue: '');
 
-// ------------------------------------------------------------
-// Day22: anti-double-step lock (ValueNotifier + pending + timeout)
-// ------------------------------------------------------------
-  final ValueNotifier<bool> _endLockVN = ValueNotifier<bool>(false);
-  final ValueNotifier<String?> _pendingActionVN = ValueNotifier<String?>(null);
-
-  String? _pendingActionId; // e.g. "end_flow/restart_case"
-  Timer? _endLockTimeout;
-
-  bool get _endButtonsLocked => _endLockVN.value;
-
-  /// 可自訂超時秒數
-  static const Duration _endLockTimeoutDur = Duration(seconds: 5);
-
-  void _lockEndButtons(String actionId, {String? pendingLabel}) {
-    _pendingActionId = actionId;
-
-    // label 優先：explicit > actionId
-    _pendingActionVN.value = pendingLabel ?? actionId;
-
-    if (!_endLockVN.value) _endLockVN.value = true;
-
-    // ✅ reset timeout timer（避免永遠鎖死）
-    _endLockTimeout?.cancel();
-    _endLockTimeout = Timer(_endLockTimeoutDur, () {
-      if (!mounted) return;
-      // 超時：解鎖，並在 log 留一行
-      setState(() {
-        _appendLogLine('[QF][LOCK][TIMEOUT] unlock after $_endLockTimeoutDur action=$_pendingActionId');
-      });
-      _unlockEndButtons();
-    });
-  }
-
-  void _unlockEndButtons() {
-    _pendingActionId = null;
-
-    if (_endLockTimeout != null) {
-      _endLockTimeout!.cancel();
-      _endLockTimeout = null;
-    }
-
-    if (_pendingActionVN.value != null) _pendingActionVN.value = null;
-    if (_endLockVN.value) _endLockVN.value = false;
-  }
-// ------------------------------------------------------------
+  final OverlayManagerV2 _overlays = const OverlayManagerV2();
+  late final BridgeControllerV2 _controller;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    BridgeDebugPage.bridge.outputs.listen((m) {
-      if (!mounted) return;
-
-      // ✅ 非前景時：不要 setState / 不要 append 巨量 log
-      if (!_active) return;
-
-      final t = (m['type'] ?? '').toString();
-      if (t == 'ok' || t == 'log' || t == 'stderr' || t == 'exit' || t == 'bridge_started' || t == 'start_error' || t == 'hello' || t == 'error') {
-        final line = jsonEncode(m);
-        setState(() {
-          _lastRaw = m;
-          _appendLogLine(line);
-        });
-        return;
-      }
-
-      // ✅ 只吃 v2 envelope 的 step_result
-      StepResultV2? stepV2;
-      try {
-        stepV2 = StepResultParserV2.parse(m);
-      } catch (_) {
-        final line = jsonEncode(m);
-        setState(() {
-          _lastRaw = m;
-          _appendLogLine(line);
-        });
-        return;
-      }
-
-      if (stepV2 == null) {
-        final line = jsonEncode(m);
-        setState(() {
-          _lastRaw = m;
-          _appendLogLine(line);
-        });
-        return;
-      }
-
-      // ✅ Day22: any next step_result means engine responded; unlock endscreen buttons
-      _unlockEndButtons();
-
-      // ✅ 先抓 commands
-      ShowEndScreenCommandV2? endScreen;
-      AskReasonCommandV2? ask;
-      ConfirmQuizCommandV2? quiz;
-
-      for (final c in stepV2.commands) {
-        if (endScreen == null && c is ShowEndScreenCommandV2) endScreen = c;
-        if (ask == null && c is AskReasonCommandV2) ask = c;
-        if (quiz == null && c is ConfirmQuizCommandV2) quiz = c;
-      }
-
-      setState(() {
-        _lastRaw = m;
-        _view = stepV2!.view;
-        _commands = stepV2.commands;
-
-        _askReason = ask;
-        _confirmQuiz = (ask == null) ? quiz : null;
-      });
-
-      // ✅ Day22 fix: 如果 EndScreen 正在顯示，但引擎回來的是一般 view（沒有 show_end_screen），就把 EndScreen pop 掉
-      final hasShowEndScreen = endScreen != null;
-      final isNormalView = !stepV2.isOver && (stepV2.view?.choices.isNotEmpty ?? false);
-
-      if (!hasShowEndScreen && isNormalView && _isEndScreenShowing) {
-        _scheduleUiJob(() {
-          if (!mounted) return;
-          Navigator.of(context, rootNavigator: true).maybePop();
-        });
-      }
-
-      // ✅ EndScreen：收到就自動開，而且只維持一層（pushReplacement）
-      if (endScreen != null) {
-        final endKey = _buildEndKey(endScreen!);
-        if (endKey != _lastEndKey) {
-          _lastEndKey = endKey;
-          _scheduleUiJob(() => _openOrReplaceEndScreen(endScreen!));
-        }
-      }
-    });
+    _controller = BridgeControllerV2(
+      bridge: BridgeDebugPage.bridge,
+      kindToWire: _uiActionKindToWire,
+    );
+    _controller.start();
   }
 
-  void _appendLogLine(String line) {
-    const maxChars = 20000;
-    final next = '$_log\n$line';
-    if (next.length <= maxChars) {
-      _log = next;
-    } else {
-      _log = next.substring(next.length - maxChars);
-    }
-  }
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.dispose();
 
-  void _scheduleUiJob(VoidCallback job) {
-    _pendingUiJob = job;
-    if (_uiJobScheduled) return;
-    _uiJobScheduled = true;
+    // ⚠️ 如果 PythonBridge 是全域 singleton 且別頁也會用，這行拿掉
+    BridgeDebugPage.bridge.dispose();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _uiJobScheduled = false;
-      final j = _pendingUiJob;
-      _pendingUiJob = null;
-      if (!mounted || j == null) return;
-      j();
-    });
-  }
-
-  String _buildEndKey(ShowEndScreenCommandV2 cmd) {
-    final ids = cmd.actions.map((e) => e.id).join(',');
-    return '${cmd.end.nodeId}|${cmd.end.title}|${cmd.end.narration.hashCode}|$ids';
+    super.dispose();
   }
 
   // enum / string -> wire string
@@ -209,344 +54,166 @@ class _BridgeDebugPageState extends State<BridgeDebugPage> with WidgetsBindingOb
     return s.split('.').last;
   }
 
-  Future<void> _openOrReplaceEndScreen(ShowEndScreenCommandV2 cmd) async {
-    if (!mounted) return;
-
-    final route = MaterialPageRoute(
-      builder: (_) => _EndScreenPreviewPageV2(
-        cmd: cmd,
-        kindToWire: _uiActionKindToWire,
-        lockVN: _endLockVN,
-        pendingVN: _pendingActionVN,
-        onSendEndFlow: (actionId, payload) {
-          if (_endButtonsLocked) return;
-
-          final actionText = (payload['id'] ?? payload['action'] ?? '').toString();
-          _lockEndButtons(actionId, pendingLabel: actionText);
-
-          debugPrint('[QF][UI_ACTION][SEND_PAYLOAD] ${jsonEncode(payload)}');
-          BridgeDebugPage.bridge.send({'type': 'ui_action', 'payload': payload});
-        },
-      ),
-    );
-
-    final nav = Navigator.of(context, rootNavigator: true); // ✅ 用同一個 root nav
-
-    _isEndScreenShowing = true;
-    try {
-      if (nav.canPop()) {
-        // 用 replacement 也 OK，但記得 finally 會回收旗標
-        await nav.pushReplacement(route);
-      } else {
-        await nav.push(route);
-      }
-    } finally {
-      if (mounted) _isEndScreenShowing = false;
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    _active = state == AppLifecycleState.resumed;
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _endLockTimeout?.cancel();
-    _endLockTimeout = null;
-    _endLockVN.dispose();
-    _pendingActionVN.dispose(); // ✅ 新增
-    BridgeDebugPage.bridge.dispose();
-    super.dispose();
-  }
-
   Future<void> _startAndHello() async {
     if (_workingDir.trim().isEmpty) {
-      setState(() {
-        _log = '請用 dart-define 設定 QF_WORKDIR（QuestForge 專案根目錄絕對路徑）\n'
-            '例：flutter run -d macos --dart-define=QF_WORKDIR=/Users/user/Projects/QUESTFORGE';
-      });
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('請用 dart-define 設定 QF_WORKDIR（QuestForge 專案根目錄絕對路徑）'),
+        ),
+      );
       return;
     }
-
-    setState(() => _log = 'Starting python bridge...\nworkingDir=$_workingDir');
 
     try {
       await BridgeDebugPage.bridge.start(
         workingDir: _workingDir,
         pythonBin: '$_workingDir/.venv/bin/python',
       );
-
-      BridgeDebugPage.bridge.send({'type': 'replay'});
+      _controller.sender.sendReplay();
     } catch (e) {
-      setState(() => _log = '$_log\nstart() failed: $e');
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(
+        SnackBar(content: Text('start() failed: $e')),
+      );
     }
-  }
-
-  void _sendChoose(int choiceIndex) {
-    BridgeDebugPage.bridge.send({'type': 'choose', 'choice_index': choiceIndex});
-  }
-
-  void _sendSetReasons(List<String> ids, String text) {
-    BridgeDebugPage.bridge.send({
-      'type': 'set_reasons',
-      'reason_ids': ids,
-      'reason_text': text,
-    });
-  }
-
-  void _sendConfirmQuizAnswer(List<Object?> answers, {bool skipped = false}) {
-    BridgeDebugPage.bridge.send({
-      'type': 'confirm_quiz_answer',
-      'answers': answers,
-      if (skipped) 'skipped': true,
-    });
   }
 
   String _clip(String s, [int n = 4000]) => s.length <= n ? s : '${s.substring(0, n)}\n...(${s.length} chars)';
 
-  String _summarizeStepResult(Map<String, dynamic> m) {
-    try {
-      final cv = (m['contract_version'] ?? '').toString();
-      final t = (m['type'] ?? '').toString();
-      if (cv != 'ui_contract_v2' || t != 'step_result') {
-        return 'not_step_result: contract_version=$cv type=$t';
-      }
-      final payload = (m['payload'] is Map) ? Map<String, dynamic>.from(m['payload']) : const <String, dynamic>{};
-      final isOver = payload['is_over'];
-      final view = (payload['view'] is Map) ? Map<String, dynamic>.from(payload['view']) : const <String, dynamic>{};
-      final nodeId = (view['node_id'] ?? '').toString();
-      final choices = (view['choices'] is List) ? (view['choices'] as List).length : 0;
-      final cmds = (payload['commands'] is List) ? (payload['commands'] as List) : const [];
-      final cmdTypes = cmds.map((e) => e is Map ? (e['type'] ?? '').toString() : e.toString()).where((s) => s.isNotEmpty).toList();
-      return 'is_over=$isOver node_id=$nodeId choices=$choices commands=${cmdTypes.join(",")} pendingAction=$_pendingActionId locked=${_endLockVN.value}';
-    } catch (e) {
-      return 'dump_failed: $e';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final view = _view;
-    final ask = _askReason;
-    final quiz = _confirmQuiz;
-    final overlayShowing = (ask != null) || (quiz != null);
+    return ValueListenableBuilder<BridgeUiStateV2>(
+      valueListenable: _controller.stateVN,
+      builder: (context, state, _) {
+        final view = state.view;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Day22 Bridge Debug (v2)'),
-        actions: [
-          IconButton(
-            onPressed: BridgeDebugPage.bridge.isRunning ? BridgeDebugPage.bridge.stop : _startAndHello,
-            icon: Icon(BridgeDebugPage.bridge.isRunning ? Icons.stop : Icons.play_arrow),
-            tooltip: BridgeDebugPage.bridge.isRunning ? 'Stop' : 'Start+Hello',
-          ),
-          IconButton(
-            onPressed: BridgeDebugPage.bridge.isRunning ? () => BridgeDebugPage.bridge.send({'type': 'replay'}) : null,
-            icon: const Icon(Icons.replay),
-            tooltip: 'Replay',
-          ),
-          IconButton(
-            onPressed: () {
-              final raw = _lastRaw;
-              if (raw == null) {
-                setState(() => _appendLogLine('[QF][DUMP] lastRaw=null'));
-                return;
-              }
-              final summary = _summarizeStepResult(raw);
-              setState(() => _appendLogLine('[QF][DUMP] $summary'));
-            },
-            icon: const Icon(Icons.subject),
-            tooltip: 'Dump summary',
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (view == null) ...[
-                const Text('尚未收到 view（請按右上 Start+Hello）'),
-                const SizedBox(height: 12),
-              ] else ...[
-                Text(view.title, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(view.narration),
-                const SizedBox(height: 12),
-                ...view.choices.map((c) {
-                  final disabled = overlayShowing || !c.enabled;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: FilledButton.tonal(
-                      onPressed: disabled ? null : () => _sendChoose(c.index),
-                      child: Text('${c.index}. ${c.text}'),
-                    ),
-                  );
-                }),
-              ],
-              const Divider(height: 32),
-              Text('Commands (${_commands.length})', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              ..._commands.map((c) {
-                return ListTile(
-                  title: Text(c.type),
-                  subtitle: Text(const JsonEncoder.withIndent('  ').convert(c.toJson())),
-                );
-              }),
-              const Divider(height: 32),
-              Text('Last raw', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              SelectableText(_lastRaw == null ? '—' : _clip(jsonEncode(_lastRaw))),
-              const Divider(height: 32),
-              Text('Log', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              SelectableText(_log.isEmpty ? '—' : _clip(_log)),
+        final ask = state.bundle.ask;
+        final quiz = state.bundle.quiz;
+        final end = state.bundle.end;
+
+        final overlayShowing = (ask != null) || (quiz != null) || (end != null);
+
+        final overlay = _overlays.buildOverlay(
+          context: context,
+
+          ask: ask,
+          quiz: quiz,
+          end: end,
+
+          // AskReason
+          onSubmitReasons: (ids, text) {
+            _controller.sender.sendSetReasons(reasonIds: ids, text: text);
+          },
+          onCloseAsk: () {},
+
+          // ConfirmQuiz
+          onSubmitQuiz: (answers) {
+            _controller.sender.sendConfirmQuizAnswerList(answers);
+          },
+          onCloseQuiz: () {
+            _controller.sender.sendConfirmQuizAnswerList(
+              const <Object?>[],
+              skipped: true,
+            );
+          },
+
+// EndScreen（✅ 收斂：只丟 spec，controller 負責 lock/timeout/send）
+          endLockVN: _controller.endActionLockVN,
+          pendingEndVN: _controller.pendingEndActionIdVN,
+          onTapEndAction: (action) {
+            final ok = _controller.sendEndActionSpec(action);
+            if (!ok) return; // 被 lock 擋住
+
+            if (kDebugMode) {
+              final kind = (action.kind ?? '').toString();
+              final id = (action.id ?? '').toString();
+              final label = action.text;
+              final msg = label.isNotEmpty ? '已送出：$label' : '已送出：$kind/$id';
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(msg)),
+              );
+            }
+          },
+          onCloseEnd: () {
+            // 保險：避免 lock 卡死（你目前 showCloseButton=false 幾乎不會觸發）
+            _controller.unlockEndAction();
+          },
+        );
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Day23 Bridge Debug (Controller v2)'),
+            actions: [
+              IconButton(
+                onPressed: BridgeDebugPage.bridge.isRunning ? BridgeDebugPage.bridge.stop : _startAndHello,
+                icon: Icon(
+                  BridgeDebugPage.bridge.isRunning ? Icons.stop : Icons.play_arrow,
+                ),
+                tooltip: BridgeDebugPage.bridge.isRunning ? 'Stop' : 'Start+Hello',
+              ),
+              IconButton(
+                onPressed: BridgeDebugPage.bridge.isRunning ? _controller.sender.sendReplay : null,
+                icon: const Icon(Icons.replay),
+                tooltip: 'Replay',
+              ),
             ],
           ),
-          if (ask != null)
-            AskReasonPanel(
-              command: ask,
-              onSubmit: (ids, text) {
-                _sendSetReasons(ids, text);
-                setState(() => _askReason = null);
-              },
-              onClose: () => setState(() => _askReason = null),
-            ),
-          if (ask == null && quiz != null)
-            ConfirmQuizPanel(
-              command: quiz,
-              onSubmit: (answers) {
-                _sendConfirmQuizAnswer(answers);
-                setState(() => _confirmQuiz = null);
-              },
-              onClose: () {
-                _sendConfirmQuizAnswer(const <Object?>[], skipped: true);
-                setState(() => _confirmQuiz = null);
-              },
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EndScreenPreviewPageV2 extends StatelessWidget {
-  const _EndScreenPreviewPageV2({
-    required this.cmd,
-    required this.kindToWire,
-    required this.lockVN,
-    required this.pendingVN,
-    required this.onSendEndFlow,
-  });
-
-  final ShowEndScreenCommandV2 cmd;
-  final String Function(Object? kind) kindToWire;
-
-  final ValueNotifier<bool> lockVN;
-  final ValueNotifier<String?> pendingVN;
-
-  final void Function(String actionId, Map<String, dynamic> payload) onSendEndFlow;
-
-  @override
-  Widget build(BuildContext context) {
-    final end = cmd.end;
-    final reasoning = cmd.summary;
-
-    return Scaffold(
-      appBar: AppBar(title: Text(end.title.isEmpty ? 'EndScreen' : end.title)),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(end.narration),
-          const SizedBox(height: 16),
-
-          if (end.lessons.isNotEmpty) ...[
-            Text('今天學到的', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            ...end.lessons.map(
-              (e) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('• $e'),
+          body: Stack(
+            children: [
+              ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (view == null) ...[
+                    const Text('尚未收到 view（請按右上 Start+Hello）'),
+                    const SizedBox(height: 12),
+                  ] else ...[
+                    Text(view.title, style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    Text(view.narration),
+                    const SizedBox(height: 12),
+                    ...view.choices.map((c) {
+                      final disabled = overlayShowing || !c.enabled;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: FilledButton.tonal(
+                          onPressed: disabled ? null : () => _controller.sender.sendChoose(c.index),
+                          child: Text('${c.index}. ${c.text}'),
+                        ),
+                      );
+                    }),
+                  ],
+                  const Divider(height: 32),
+                  Text('Commands (${state.commands.length})', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  ...state.commands.map((c) {
+                    return ListTile(
+                      title: Text(c.type),
+                      subtitle: Text(const JsonEncoder.withIndent('  ').convert(c.toJson())),
+                    );
+                  }),
+                  const Divider(height: 32),
+                  Text('Snapshot', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    const JsonEncoder.withIndent('  ').convert(state.snapshot.toJson()),
+                  ),
+                  const Divider(height: 32),
+                  Text('Last raw', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    state.lastRaw == null ? '—' : _clip(jsonEncode(state.lastRaw)),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 16),
-          ],
 
-          if (reasoning != null) ...[
-            Text('理由整理（v2）', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(reasoning.reason.text.isNotEmpty ? reasoning.reason.text : reasoning.reason.selectedObservationIds.join('、')),
-            const SizedBox(height: 12),
-            Text(
-              '成熟度：${reasoning.evaluation.level}  '
-                      '${reasoning.evaluation.threshold > 0 ? "${reasoning.evaluation.score}/${reasoning.evaluation.threshold}" : ""}'
-                  .trim(),
-            ),
-            if (reasoning.evaluation.engineMessage.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(reasoning.evaluation.engineMessage),
-              ),
-            const SizedBox(height: 16),
-          ],
-
-          Text('接下來要做什麼？', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-
-          // ✅ 顯示目前處理狀態（可選，但很實用）
-          ValueListenableBuilder<bool>(
-            valueListenable: lockVN,
-            builder: (_, locked, __) {
-              if (!locked) return const SizedBox.shrink();
-              return ValueListenableBuilder<String?>(
-                valueListenable: pendingVN,
-                builder: (_, pending, __) {
-                  final text = pending == null || pending.isEmpty ? '處理中…' : '處理中：$pending…';
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(text),
-                  );
-                },
-              );
-            },
+              // ✅ overlays only
+              if (overlay != null) overlay,
+            ],
           ),
-
-          ...cmd.actions.map((a) {
-            final wireKind = kindToWire(a.kind);
-            final actionId = '$wireKind/${a.id}';
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ValueListenableBuilder<bool>(
-                valueListenable: lockVN,
-                builder: (_, locked, __) {
-                  return FilledButton(
-                    onPressed: locked
-                        ? null
-                        : () {
-                            final payload = {
-                              'kind': wireKind,
-                              'id': a.id,
-                              'action': a.id,
-                              if (a.data != null) 'data': a.data,
-                            };
-
-                            onSendEndFlow(actionId, payload);
-                            Navigator.of(context).maybePop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('已送出 ui_action：$wireKind/${a.id}')),
-                            );
-                          },
-                    child: Text(locked ? '${a.text}（處理中…）' : a.text),
-                  );
-                },
-              ),
-            );
-          }),
-        ],
-      ),
+        );
+      },
     );
   }
 }

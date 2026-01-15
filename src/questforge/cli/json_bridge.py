@@ -257,13 +257,19 @@ def _pick_case(case_id: Optional[str], *, seed: Optional[int]) -> Tuple[str, Jso
 
 
 def _new_session_for_case(case: JsonMap, *, config: GameConfig) -> GameSession:
+    nodes = case["nodes"]
+    start = _as_str(case.get("start", "")).strip()
+    if (not start) or (start not in nodes):
+        start = next(iter(nodes.keys()))
+
     return GameSession(
         state=DetectiveState(),
-        nodes=case["nodes"],
-        start_node=case["start"],
+        nodes=nodes,
+        start_node=start,
         config=config,
         solve_rule=case.get("solve_rule", {}) or {},
     )
+
 
 
 def _emit_hello(*, case_id: str, case: JsonMap) -> None:

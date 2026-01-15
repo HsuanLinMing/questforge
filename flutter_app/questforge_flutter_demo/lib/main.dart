@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:questforge_flutter_demo/debug/bridge_dev_shell_page.dart';
 import 'package:questforge_flutter_demo/nav.dart';
 import 'package:questforge_flutter_demo/pages/bridge_debug_page.dart';
 import 'package:questforge_ui_contract/questforge_contract.dart';
@@ -20,7 +21,7 @@ class QuestForgeDemoApp extends StatelessWidget {
       title: 'QuestForge Demo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true),
-      home: const BridgeDebugPage(),
+      home: const BridgeDevShellPage(),
     );
   }
 }

@@ -58,30 +58,58 @@ class GameSession:
     ) -> None:
         self.state = state
         self.nodes = nodes
-        self.current = start_node
+        # ✅ 防呆：start_node 不存在就 fallback 到第一個節點
+        s = (start_node or "").strip()
+        if (not s) or (s not in self.nodes):
+            s = next(iter(self.nodes.keys()))
+        self.current = s
         self.config = config
         self.solve_rule = solve_rule or {}
-        self._last_view_cache: Optional[NodeView] = None
+        self._last_view_cache = None
 
-        self._start_node_id: str = start_node
+        self._start_node_id = s
 
         self.ai: AiClient = ai or build_ai_client()
         self._last_ai_text_by_intent: Dict[str, str] = {}
 
-        self.last_play_node: str = start_node
-        self.last_investigate_node: str = start_node
+        self.last_play_node = s
+        self.last_investigate_node = s
 
     # ----------------------------
     # Helpers: node ids
     # ----------------------------
+    def _resolve_node_id(self, configured: str, candidates: list[str]) -> str:
+        """
+        Compatibility resolver:
+        - if configured exists and present in nodes -> use it
+        - else try candidates in order -> first that exists in nodes
+        - else return "" (meaning disabled)
+        """
+        cid = (configured or "").strip()
+        if cid and cid in self.nodes:
+            return cid
+        for x in candidates:
+            xid = (x or "").strip()
+            if xid and xid in self.nodes:
+                return xid
+        return ""
+
     def _reason_node(self) -> str:
-        return (self.solve_rule.get("reason_node") or "").strip()
+        # old: solve_rule.reason_node (e.g. "reason")
+        # new: "mid_reason"
+        configured = (self.solve_rule.get("reason_node") or "").strip()
+        return self._resolve_node_id(configured, ["mid_reason", "reason"])
 
     def _accuse_node(self) -> str:
-        return (self.solve_rule.get("accuse_node") or "").strip()
+        # old: "accuse"
+        # new: "final_accuse"
+        configured = (self.solve_rule.get("accuse_node") or "").strip()
+        return self._resolve_node_id(configured, ["final_accuse", "accuse"])
 
     def _ending_check_node(self) -> str:
-        return (self.solve_rule.get("ending_check_node") or "ending_check").strip()
+        # 有些新模板根本不需要 ending_check，所以找不到就回 "" 代表停用
+        configured = (self.solve_rule.get("ending_check_node") or "").strip()
+        return self._resolve_node_id(configured, ["ending_check"])
 
     # ----------------------------
     # Helpers: node tags
@@ -96,7 +124,25 @@ class GameSession:
         return self._node_tag(node_id) == "investigate"
 
     def _is_end_screen_node(self, node_id: str) -> bool:
-        return self._node_tag(node_id) in ("ending_result", "ending_wrong", "epilogue")
+        # 1) tag-based (old cases)
+        if self._node_tag(node_id) in ("ending_result", "ending_wrong", "epilogue"):
+            return True
+
+        # 2) id-based (new naming)
+        nid = (node_id or "").strip().lower()
+        if nid.startswith("ending") or nid == "quit" or nid == "epilogue":
+            return True
+
+        # 3) content-based fallback: has lesson list => treat as end-ish
+        try:
+            node = self.nodes.get(node_id, {}) or {}
+            lesson = node.get("lesson")
+            if isinstance(lesson, list) and len(lesson) > 0:
+                return True
+        except Exception:
+            pass
+
+        return False
 
     # ----------------------------
     # Helpers: reason mode + config validation
@@ -255,7 +301,8 @@ class GameSession:
         narration = (node.get("narration") or "").strip()
 
         # ending_check：追加推理回饋 + 回到調查
-        if self.current == self._ending_check_node():
+        ending_check = (self._ending_check_node() or "").strip()
+        if ending_check and self.current == ending_check:
             narration = self._normalize_duo_narration(narration)
 
             choices_raw = node.get("choices") or []
@@ -678,10 +725,17 @@ class GameSession:
                 if "epilogue" in self.nodes:
                     self.current = "epilogue"
                     commands.append(self._make_end_screen_command(node_id="epilogue"))
-                    return StepResult(view=None, events=events, is_over=True, commands=commands)
+                    return StepResult(
+                        view=None, events=events, is_over=True, commands=commands
+                    )
 
                 # 保底：沒有 epilogue 就結束（讓 bridge 決定怎麼做）
-                return StepResult(view=None, events=events + ["沒有 epilogue 節點"], is_over=True, commands=[])
+                return StepResult(
+                    view=None,
+                    events=events + ["沒有 epilogue 節點"],
+                    is_over=True,
+                    commands=[],
+                )
 
             # ✅ Day22: restart/switch/quit 不再由 engine 送 flow command
             if act in ("restart_case", "switch_case", "quit"):
@@ -890,7 +944,9 @@ class GameSession:
             if "epilogue" in self.nodes:
                 self.current = "epilogue"
                 commands.append(self._make_end_screen_command(node_id="epilogue"))
-                return StepResult(view=None, events=events, is_over=True, commands=commands)
+                return StepResult(
+                    view=None, events=events, is_over=True, commands=commands
+                )
 
             # 沒有 epilogue 就回 flow restart（保底）
             commands.append({"type": "flow", "action": "restart_case"})
@@ -930,10 +986,8 @@ class GameSession:
 
         self.state.turn += 1
 
-        ending_check_node = self._ending_check_node()
-
-        # ending_check injected：回到調查
-        if self.current == ending_check_node:
+        ending_check_node = (self._ending_check_node() or "").strip()
+        if ending_check_node and self.current == ending_check_node:
             picked = view.choices[idx - 1]
             if (picked.tag or "").strip() == "back_to_investigate":
                 events.append(

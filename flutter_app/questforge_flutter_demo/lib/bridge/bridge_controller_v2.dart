@@ -1,4 +1,3 @@
-// lib/dev/bridge/bridge_controller_v2.dart
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -50,7 +49,7 @@ class BridgeUiStateV2 {
       endActionLocked: false,
       pendingEndActionId: null,
       lastRawClip: null,
-      lastAck: null, 
+      lastAck:null
     );
     return BridgeUiStateV2(
       view: null,
@@ -68,10 +67,12 @@ class BridgeControllerV2 {
     required String Function(Object? kind) kindToWire,
     CommandRouterV2 router = const CommandRouterV2(),
     Duration endActionTimeout = const Duration(seconds: 5),
+    Duration chooseActionTimeout = const Duration(seconds: 5),
   })  : _bridge = bridge,
         _router = router,
         _kindToWire = kindToWire,
         _endActionTimeoutDur = endActionTimeout,
+        _chooseTimeoutDur = chooseActionTimeout,
         sender = BridgeSender(bridge) {
     stateVN.value = BridgeUiStateV2.empty();
   }
@@ -82,27 +83,40 @@ class BridgeControllerV2 {
 
   final BridgeSender sender;
 
-  /// UI 監聽這個（view/commands/bundle/lastRaw/snapshot）
-  final ValueNotifier<BridgeUiStateV2> stateVN = ValueNotifier<BridgeUiStateV2>(BridgeUiStateV2.empty());
+  final ValueNotifier<BridgeUiStateV2> stateVN =
+      ValueNotifier<BridgeUiStateV2>(BridgeUiStateV2.empty());
 
   StreamSubscription<Map<String, dynamic>>? _sub;
 
-  /// EndScreen 按鈕 lock 狀態（UI 只讀這兩個顯示「處理中」）
+  // ------------------------------------------------------------
+  // EndScreen lock/unlock
+  // ------------------------------------------------------------
   final ValueNotifier<bool> endActionLockVN = ValueNotifier<bool>(false);
-  final ValueNotifier<String?> pendingEndActionIdVN = ValueNotifier<String?>(null);
+  final ValueNotifier<String?> pendingEndActionIdVN =
+      ValueNotifier<String?>(null);
 
-  /// 內建 timeout（避免永遠鎖死）
   final Duration _endActionTimeoutDur;
   Timer? _endActionTimeoutTimer;
 
-  /// Day23-C：記住最後一次送出的 actionId，ack 只接受匹配的
-  String? _lastSentEndActionId;
+  // ------------------------------------------------------------
+  // ✅ Day24-C: choose lock/unlock
+  // - 點選選項後鎖住（避免連點）
+  // - 顯示 pendingChoiceIndex
+  // - 收到 step_result 才解鎖（或 timeout）
+  // ------------------------------------------------------------
+  final ValueNotifier<bool> chooseLockVN = ValueNotifier<bool>(false);
+  final ValueNotifier<int?> pendingChoiceIndexVN = ValueNotifier<int?>(null);
+
+  final Duration _chooseTimeoutDur;
+  Timer? _chooseTimeoutTimer;
 
   bool get isStarted => _sub != null;
   bool get endActionLocked => endActionLockVN.value;
+  bool get chooseLocked => chooseLockVN.value;
 
   bool get isUiBlocked {
     final b = stateVN.value.bundle;
+    // overlays 開著時，一樣視為 blocked
     return b.end != null || b.ask != null || b.quiz != null;
   }
 
@@ -116,6 +130,9 @@ class BridgeControllerV2 {
 
     _endActionTimeoutTimer?.cancel();
     _endActionTimeoutTimer = null;
+
+    _chooseTimeoutTimer?.cancel();
+    _chooseTimeoutTimer = null;
   }
 
   void dispose() {
@@ -123,10 +140,12 @@ class BridgeControllerV2 {
     stateVN.dispose();
     endActionLockVN.dispose();
     pendingEndActionIdVN.dispose();
+    chooseLockVN.dispose();
+    pendingChoiceIndexVN.dispose();
   }
 
   // ------------------------------------------------------------
-  // EndScreen lock/unlock (controller 內建)
+  // EndScreen lock/unlock
   // ------------------------------------------------------------
 
   void lockEndAction(String actionId, {String? pendingLabel}) {
@@ -135,7 +154,6 @@ class BridgeControllerV2 {
 
     _endActionTimeoutTimer?.cancel();
     _endActionTimeoutTimer = Timer(_endActionTimeoutDur, () {
-      // timeout：解鎖，但不 throw
       unlockEndAction();
     });
 
@@ -146,10 +164,34 @@ class BridgeControllerV2 {
     _endActionTimeoutTimer?.cancel();
     _endActionTimeoutTimer = null;
 
-    _lastSentEndActionId = null;
-
     if (pendingEndActionIdVN.value != null) pendingEndActionIdVN.value = null;
     if (endActionLockVN.value) endActionLockVN.value = false;
+
+    _refreshSnapshotOnly();
+  }
+
+  // ------------------------------------------------------------
+  // ✅ Day24-C: choose lock/unlock
+  // ------------------------------------------------------------
+
+  void lockChoose(int index) {
+    pendingChoiceIndexVN.value = index;
+    if (!chooseLockVN.value) chooseLockVN.value = true;
+
+    _chooseTimeoutTimer?.cancel();
+    _chooseTimeoutTimer = Timer(_chooseTimeoutDur, () {
+      unlockChoose();
+    });
+
+    _refreshSnapshotOnly();
+  }
+
+  void unlockChoose() {
+    _chooseTimeoutTimer?.cancel();
+    _chooseTimeoutTimer = null;
+
+    if (pendingChoiceIndexVN.value != null) pendingChoiceIndexVN.value = null;
+    if (chooseLockVN.value) chooseLockVN.value = false;
 
     _refreshSnapshotOnly();
   }
@@ -163,90 +205,76 @@ class BridgeControllerV2 {
     stateVN.value = old.copyWith(snapshot: snap);
   }
 
-  /// ✅ 收斂：UI/Overlay 只要把 UiActionSpecV2 丟進來
-  /// - 自動 kindToWire
-  /// - 自動組 actionId
-  /// - 自動 lock + timeout
-  /// - 自動 send ui_action
-  ///
-  /// 回傳 true = 有送出；false = 被 lock/狀態擋下
-  bool sendEndActionSpec(UiActionSpecV2 action) {
-    // 1) 先擋 lock
-    if (endActionLockVN.value) return false;
+  // ------------------------------------------------------------
+  // Public send APIs (for Game UI)
+  // ------------------------------------------------------------
 
-    // 2) 更嚴格：EndScreen 不在 bundle 時不送（避免 overlay race）
-    if (stateVN.value.bundle.end == null) return false;
+  bool sendEndActionSpec(UiActionSpecV2 action) {
+    if (endActionLockVN.value) return false;
 
     final wireKind = _kindToWire(action.kind);
     final id = (action.id ?? '').toString();
     final actionId = '$wireKind/$id';
 
-    final data = (action.data is Map) ? Map<String, dynamic>.from(action.data as Map) : null;
+    final data = (action.data is Map)
+        ? Map<String, dynamic>.from(action.data as Map)
+        : null;
 
-    // 記住最後送出的 actionId：ack 用來比對
-    _lastSentEndActionId = actionId;
-
-    // pending label：用 action.text 最直覺
     lockEndAction(actionId, pendingLabel: action.text);
-
     sender.sendUiAction(kind: wireKind, id: id, data: data);
     return true;
   }
 
-  // ------------------------------------------------------------
-  // Day23-C: ui_action_ack (non-step_result) — ONLY for UI hint/debug
-  // ------------------------------------------------------------
+  /// ✅ Day24-C：給正式 UI 用的 choose（帶 lock）
+  bool sendChoose(int index) {
+    if (chooseLockVN.value) return false;
+    if (isUiBlocked) return false;
 
-  /// 回傳 true = 這個 raw 是 ack（已處理/吃掉，不走 step_result parse）
-bool _tryHandleUiActionAck(Map<String, dynamic> raw) {
-  final type = (raw['type'] ?? '').toString();
-  if (type != 'ui_action_ack') return false;
-
-  final payload = raw['payload'];
-  if (payload is! Map) {
-    // 仍然要讓 snapshot 記錄「收過 ack，但格式怪」
-    final old = stateVN.value;
-    stateVN.value = old.copyWith(
-      snapshot: old.snapshot.copyWith(
-        lastAck: <String, dynamic>{'malformed': true},
-      ),
-    );
+    lockChoose(index);
+    sender.sendChoose(index);
     return true;
   }
 
-  final p = Map<String, dynamic>.from(payload);
-  final kind = (p['kind'] ?? '').toString();
-  final id = (p['id'] ?? '').toString();
-  final status = (p['status'] ?? '').toString();
+  /// ✅ Day24-C：給正式 UI 用的 replay（也走 choose lock，避免連點）
+  bool sendReplay() {
+    if (chooseLockVN.value) return false;
+    if (isUiBlocked) return false;
 
-  // ✅ ack 只做 UI 呈現：更新 pending label（不要解鎖！）
-  if (endActionLockVN.value) {
-    final base = (kind.isEmpty || id.isEmpty) ? '已收到' : '已收到：$kind/$id';
-    final label = status.isEmpty ? base : '$base（$status）';
-    pendingEndActionIdVN.value = label;
+    // 用 -1 表示 replay（只拿來顯示送出中狀態）
+    lockChoose(-1);
+    sender.sendReplay();
+    return true;
   }
 
-  // ✅ Day23-E：把 ack 收進 DebugSnapshot（不依賴 lastRawClip，避免被 _clipRaw 截掉）
-  final old = stateVN.value;
-  stateVN.value = old.copyWith(
-    snapshot: old.snapshot.copyWith(
-      endActionLocked: endActionLockVN.value,
-      pendingEndActionId: pendingEndActionIdVN.value,
-      lastAck: <String, dynamic>{
-        if (kind.isNotEmpty) 'kind': kind,
-        if (id.isNotEmpty) 'id': id,
-        if (status.isNotEmpty) 'status': status,
-      },
-    ),
-  );
+  // ------------------------------------------------------------
+  // Day23-C: ui_action_ack — ONLY for UI hint/debug
+  // ------------------------------------------------------------
+  bool _tryHandleUiActionAck(Map<String, dynamic> raw) {
+    final type = (raw['type'] ?? '').toString();
+    if (type != 'ui_action_ack') return false;
 
-  return true;
-}
+    final payload = raw['payload'];
+    if (payload is! Map) return true;
+
+    final p = Map<String, dynamic>.from(payload);
+    final kind = (p['kind'] ?? '').toString();
+    final id = (p['id'] ?? '').toString();
+    final status = (p['status'] ?? '').toString();
+
+    if (endActionLockVN.value) {
+      final base =
+          (kind.isEmpty || id.isEmpty) ? '已收到' : '已收到：$kind/$id';
+      final label = status.isEmpty ? base : '$base（$status）';
+      pendingEndActionIdVN.value = label;
+      _refreshSnapshotOnly();
+    }
+
+    return true;
+  }
 
   void _onRaw(Map<String, dynamic> raw) {
-    // ✅ 先吃掉 ack（不影響 step_result 流；也不要在 ack 解鎖）
     if (_tryHandleUiActionAck(raw)) {
-      _updateStateRawOnly(raw); // 讓 debug page 仍顯示 lastRaw/snapshot
+      _updateStateRawOnly(raw);
       return;
     }
 
@@ -263,21 +291,22 @@ bool _tryHandleUiActionAck(Map<String, dynamic> raw) {
       return;
     }
 
-    // ✅ 有新的 step_result 代表引擎已回應：解鎖 end action
+    // ✅ 收到 step_result：代表引擎已回應，解除所有 UI 操作鎖
     unlockEndAction();
+    unlockChoose();
 
     final view = step.view;
     final commands = step.commands;
     final bundle = _router.parse(commands);
-
+    final old = stateVN.value;
     final snap = DebugSnapshotV2(
-      nodeId: '',
-      isOver: false,
-      cmdTypes: const <String>[],
-      endActionLocked: false,
-      pendingEndActionId: null,
-      lastRawClip: null,
-     lastAck: stateVN.value.snapshot.lastAck,
+      nodeId: view?.nodeId ?? '',
+      isOver: step.isOver,
+      cmdTypes: bundle.types,
+      endActionLocked: endActionLockVN.value,
+      pendingEndActionId: pendingEndActionIdVN.value,
+      lastRawClip: _clipRaw(raw),
+      lastAck: old.snapshot.lastAck,
     );
 
     stateVN.value = stateVN.value.copyWith(
@@ -296,7 +325,6 @@ bool _tryHandleUiActionAck(Map<String, dynamic> raw) {
       endActionLocked: endActionLockVN.value,
       pendingEndActionId: pendingEndActionIdVN.value,
       lastRawClip: _clipRaw(raw),
-      // lastAck: old.snapshot.lastAck  // copyWith 預設會保留，不用特別寫
     );
 
     stateVN.value = old.copyWith(
@@ -324,14 +352,15 @@ bool _tryHandleUiActionAck(Map<String, dynamic> raw) {
         p['view'] = <String, dynamic>{
           'node_id': viewMap['node_id'],
           'title': viewMap['title'],
-          'choices_count': (viewMap['choices'] is List) ? (viewMap['choices'] as List).length : null,
+          'choices_count': (viewMap['choices'] is List)
+              ? (viewMap['choices'] as List).length
+              : null,
         };
       }
 
       final cmds = payloadMap['commands'];
       if (cmds is List) p['commands_count'] = cmds.length;
 
-      // Day23-C: ack snapshot fields (match your python sample)
       if (payloadMap.containsKey('kind')) p['kind'] = payloadMap['kind'];
       if (payloadMap.containsKey('id')) p['id'] = payloadMap['id'];
       if (payloadMap.containsKey('status')) p['status'] = payloadMap['status'];

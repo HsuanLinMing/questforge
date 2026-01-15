@@ -24,7 +24,7 @@ solve_rule（Day8+ 語意）：
 """
 from .story_case_festival_medal import STORY_NODES as FESTIVAL_MEDAL_NODES
 from .story_case_sports_sticker import STORY_NODES as SPORTS_STICKER_NODES
-from .story_case_class_party_bag import STORY_NODES as CLASS_PARTY_BAG_NODES
+from .story_case_class_party_bag import STORY_NODES as SPORTS_STICKER_NODES
 
 CASES = {
     "2": {
@@ -32,57 +32,107 @@ CASES = {
         "start": "start",
         "nodes": SPORTS_STICKER_NODES,
         "solve_rule": {
+            # ----------------------------
+            # 流程節點（原本保留）
+            # ----------------------------
             "accuse_node": "accuse",
-            "ending_check_node": "ending_check",
-            "ending_wrong_node": "ending_wrong",
-            # ✅ 推理門檻
+            "ending_check_node": "",
+            "ending_wrong_node": "",
+
+            # ----------------------------
+            # ✅ 互動節奏（方案A：2次互動）
+            # 第一次互動：中段輕推理（voice/text）
+            # 第二次互動：accuse_node（指認）
+            # ----------------------------
+            "first_interaction_node": "mid_reason",   # 你在 STORY_NODES 裡新增一個中段互動節點
+            "first_interaction_mode": "voice",        # voice/text；voice 最後一樣當 text 處理
+            "reason_mode": "voice",                   # 保留舊欄位，避免你舊 code 讀不到
+
+            # ----------------------------
+            # ✅ 推理成熟度（不卡關）
+            # ----------------------------
             "threshold": 3,
-            "reason_mode": "text", # choice/text/voice(=text)
+
+            # ----------------------------
+            # ✅ 嫌疑人（engine 用 id；UI 可用 display）
+            # ----------------------------
             "suspects": {
                 "dongdong": {
+                    "display": "飯糰啵啵（白白吊飾）",  # ✅ 新增：更好記
                     "support": {
                         "dongdong_hug_passport": 2,
-                        "dongdong_wants_seen": 2,
                         "tape_was_pulled": 1,
+                        "dongdong_restless": 1,         # 建議補上（你 expected_evidence 有用到）
                     }
                 },
-                "mei": {"support": {"mei_took_tape": 1}},
-                "ali": {"support": {"ali_frustrated": 1}},
+                "mei": {
+                    "display": "膠帶小黏（手上常黏黏）",
+                    "support": {
+                        "mei_took_tape": 1,
+                        "mei_near_table": 1,
+                        "mei_tense_bag": 1,
+                    }
+                },
+                "ali": {
+                    "display": "鉛筆小刺（一直在找橡皮擦）",
+                    "support": {
+                        "ali_frustrated": 1,
+                    }
+                },
             },
+
+            # ----------------------------
+            # ✅ 第一次互動：輕推理選項（「怪怪的」觀察）
+            # 注意：文字要像孩子、像在故事裡講，不像考題
+            # ----------------------------
             "reason_options": [
                 {
                     "id": "dongdong_hug_passport",
-                    "text": "東東一直把運動護照抱很緊、坐不住",
+                    "text": "他一直把運動護照抱很緊，手都不放開",
                     "expected_evidence": ["dongdong_hug_passport", "dongdong_restless"],
                 },
                 {
                     "id": "mei_took_tape",
-                    "text": "小芽說她拿過膠帶（但也可能只是修封面）",
-                    "expected_evidence": ["mei_tense_bag", "mei_near_table"],
+                    "text": "我看到她拿過膠帶，可是我不確定是不是在修東西",
+                    "expected_evidence": ["mei_took_tape", "mei_near_table", "mei_tense_bag"],
                 },
                 {
                     "id": "tape_was_pulled",
-                    "text": "地上有透明背紙，像被拉過",
+                    "text": "地上有一條透明背紙，像被撕下來的",
                     "expected_evidence": ["tape_was_pulled"],
                 },
+                {
+                    "id": "support_uncertain",
+                    "text": "我還不確定，想先交給老師",
+                    "expected_evidence": [],  # 這個就是安全出口
+                },
             ],
-            "reason_node": "accuse_reason",
+
+            # 第一次互動回傳的 node（你也可以沿用舊的 reason_node）
+            "reason_node": "mid_reason",
+
+            # ----------------------------
+            # ✅ 正解只用於結局揭曉／教育引導，不當卡關
+            # ----------------------------
             "correct_suspect": "dongdong",
-            # ✅ 可選的「偵探回顧」（不是考試）
+
+            # ----------------------------
+            # ✅ 可選偵探回顧（不是考試，可關閉）
+            # ----------------------------
             "confirm_quiz": [
                 {
-                    "q": "你是靠哪個小細節想到的？（選一個就好）",
+                    "q": "你剛剛最在意哪個小細節？（選一個就好）",
                     "options": [
                         "dongdong_hug_passport",
                         "mei_took_tape",
                         "tape_was_pulled",
                     ],
                     "labels": [
-                        "東東一直把運動護照抱很緊、坐不住",
-                        "小芽說她拿過膠帶（但她也可能只是修封面）",
-                        "地上有透明背紙，像被拉過",
+                        "他一直把運動護照抱很緊，手都不放開",
+                        "我看到她拿過膠帶（但也可能只是修東西）",
+                        "地上有透明背紙，像被撕下來的",
                     ],
-                    "after": "霏霏：把你看到的『小細節』說出來，推理就會更清楚喔。",
+                    "after": "霏霏：你把『看到的小細節』說出來，推理就會更清楚喔。",
                 }
             ],
         },

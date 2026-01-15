@@ -1,5 +1,4 @@
 // lib/game/widgets/story_card_v2.dart
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -54,7 +53,7 @@ class StoryCardV2 extends StatefulWidget {
   final VoidCallback? onNext;
   final ValueChanged<int>? onTapParagraph;
 
-  /// Day28-D：phase 控制可不可以滑
+  /// phase 控制可不可以滑
   final bool scrollEnabled;
 
   @override
@@ -72,6 +71,8 @@ class StoryCardV2State extends State<StoryCardV2> {
     super.initState();
     _sc = ScrollController();
     _sc.addListener(_recalcFade);
+
+    _paraKeys = List.generate(widget.paragraphs.length, (_) => GlobalKey());
     WidgetsBinding.instance.addPostFrameCallback((_) => _recalcFade());
   }
 
@@ -93,16 +94,19 @@ class StoryCardV2State extends State<StoryCardV2> {
       });
     }
 
+    // 段落數變了 -> keys 重建
     if (oldWidget.paragraphs.length != widget.paragraphs.length) {
       _paraKeys = List.generate(widget.paragraphs.length, (_) => GlobalKey());
       WidgetsBinding.instance.addPostFrameCallback((_) => _recalcFade());
     }
 
+    // 內容換了 -> 回頂
     if (!_sameParagraphs(oldWidget.paragraphs, widget.paragraphs)) {
       if (_sc.hasClients) _sc.jumpTo(0);
       WidgetsBinding.instance.addPostFrameCallback((_) => _recalcFade());
     }
 
+    // active 變了 -> 定位
     if (oldWidget.activeIndex != widget.activeIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         scrollToParagraph(widget.activeIndex);
@@ -142,6 +146,7 @@ class StoryCardV2State extends State<StoryCardV2> {
   void scrollToParagraph(int index) {
     if (widget.paragraphs.isEmpty) return;
     if (index < 0 || index >= widget.paragraphs.length) return;
+
     if (_paraKeys.isEmpty || _paraKeys.length != widget.paragraphs.length) {
       _paraKeys = List.generate(widget.paragraphs.length, (_) => GlobalKey());
     }

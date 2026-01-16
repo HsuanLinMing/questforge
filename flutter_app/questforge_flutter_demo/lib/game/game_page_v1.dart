@@ -497,18 +497,23 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
         final mq = MediaQuery.of(context);
         final narrationScaled = mq.copyWith(textScaler: TextScaler.linear(_fontScale));
 
-        final active = paragraphs.isEmpty ? 0 : _ttsCtl.activeParagraphIndex.clamp(0, paragraphs.length - 1);
         final isAccuse = _isAccuseNode(view);
 
         return ValueListenableBuilder<TtsPlaybackState>(
           valueListenable: _ttsCtl.vn,
           builder: (context, ttsState, __) {
+            // ✅ 這裡才用 ttsState 重新算 active，UI 才會跟著跳
+            final activeNow = paragraphs.isEmpty
+                ? 0
+                : ttsState.activeParagraphIndex.clamp(0, paragraphs.length - 1);
+
+            // ignore: avoid_print
+            print('[UI] active=${ttsState.activeParagraphIndex} playing=${ttsState.playing}');
+
             // ✅ 只有在「真的播放結束（stop）且播放到最後段」才嘗試 auto continue
-            // （這裡先簡化：如果你要更精準，我可以讓 controller 回呼 onEnd）
             if (!ttsState.playing && paragraphs.isNotEmpty) {
               final atEnd = ttsState.activeParagraphIndex >= paragraphs.length - 1;
               if (atEnd) {
-                // ignore: discarded_futures
                 Future.microtask(() => _tryAutoContinueAfterTtsEnd());
               }
             }
@@ -533,7 +538,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                         rebuildEpoch: _resumeEpoch,
                         chapterLabel: '第 ${_safeChapterNumber(view.nodeId)} 段',
                         paragraphs: paragraphs,
-                        activeIndex: active,
+                        activeIndex: activeNow, // ✅ 用 activeNow
                         isPlaying: ttsState.playing,
                         ttsReady: ttsState.ready,
                         scrollEnabled: phase.allowStoryScroll,

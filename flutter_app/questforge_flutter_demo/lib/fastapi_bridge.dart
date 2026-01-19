@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:questforge_ui_contract/questforge_contract.dart';
 
 /// ----------------------------
 /// Step Response (對齊後端 StepResponse)
@@ -221,6 +222,27 @@ class FastApiBridge {
       },
     );
     return GameStepResp.fromJson(json);
+  }
+
+  // ----------------------------
+  // Option B: Accuse evaluator
+  // ----------------------------
+
+  Future<AccuseEvaluateResponseV2> accuseEvaluate({
+    required String recognizedText,
+    String? nodeId,
+  }) async {
+    final sid = await loadSessionId();
+    if (sid == null) throw ApiException('accuse_evaluate failed: no session_id (call start first)');
+
+    final req = AccuseEvaluateRequestV2(sessionId: sid, recognizedText: recognizedText, nodeId: nodeId);
+
+    final json = await _postJson(
+      '/v1/game/accuse_evaluate',
+      body: req.toJson(),
+      clearSidOnNotFound: false,
+    );
+    return AccuseEvaluateResponseV2.fromJson(json);
   }
 
   Future<GameStepResp> confirmQuiz({

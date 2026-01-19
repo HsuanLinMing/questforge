@@ -437,6 +437,16 @@ class BridgeControllerV2 {
   }
 
   // ------------------------------------------------------------
+  // Option B: Accuse evaluator
+  // ------------------------------------------------------------
+  Future<AccuseEvaluateResponseV2> accuseEvaluate({
+    required String recognizedText,
+    String? nodeId,
+  }) {
+    return _api.accuseEvaluate(recognizedText: recognizedText, nodeId: nodeId);
+  }
+
+  // ------------------------------------------------------------
   // apply API bundle -> BridgeUiStateV2
   // ------------------------------------------------------------
   void _applyApiBundle({

@@ -12,3 +12,4 @@ export 'step_result_parser_v2.dart';
 export 'command_base_v2.dart';
 export 'ask_reason_command_v2.dart';
 export 'confirm_quiz_command_v2.dart';
+export 'accuse_evaluator_v2.dart';

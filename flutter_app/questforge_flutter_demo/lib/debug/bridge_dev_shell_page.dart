@@ -23,7 +23,7 @@ class _BridgeDevShellPageState extends State<BridgeDevShellPage> {
   void initState() {
     super.initState();
 
-    final api = FastApiBridge(baseUrl: 'http://127.0.0.1:8003');
+    final api = FastApiBridge(baseUrl: 'http://127.0.0.1:8000');
 
     _controller = BridgeControllerV2(
       api: api,

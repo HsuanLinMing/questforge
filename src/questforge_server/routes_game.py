@@ -11,6 +11,7 @@ from questforge.engine.actions import PlayerAction
 from questforge.engine.session import GameSession, StepResult
 from questforge_server.session_store import SessionStore
 from questforge.content.cases import CASES
+
 router = APIRouter(prefix="/v1/game", tags=["game"])
 
 # ✅ dev-only in-memory store
@@ -54,6 +55,24 @@ class ConfirmQuizRequest(BaseModel):
 
 class QuitRequest(BaseModel):
     session_id: str
+
+
+class AccuseEvaluateRequest(BaseModel):
+    session_id: str
+    recognized_text: str
+    node_id: Optional[str] = None
+
+
+class AccuseEvaluateResponse(BaseModel):
+    decision: str  # "accuse" | "defer_to_teacher"
+    score: float = 0.0
+    threshold: float = 0.6
+    fifi_reply: str
+    matched_choice_index: Optional[int] = None
+    matched_choice_text: Optional[str] = None
+    defer_choice_index: Optional[int] = None
+    auto_submit: Optional[bool] = None
+    debug: Optional[Dict[str, Any]] = None
 
 
 class BundleResponse(BaseModel):
@@ -186,9 +205,201 @@ def _to_json_dict(obj: Any) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _norm_text(s: str) -> str:
+    s = (s or "").strip().lower()
+    import re
+
+    s = re.sub(r"\s+", "", s)
+    s = re.sub(r"[^\u4e00-\u9fff0-9a-z]+", "", s)
+    return s
+
+
+TEACHER_KEYWORDS = [
+    "交給老師",
+    "老師",
+    "我不確定",
+    "不確定",
+    "不知道",
+    "我不知道",
+    "隨便",
+    "你決定",
+    "想不到",
+    "沒想法",
+    "先交給",
+]
+
+
+def _looks_like_teacher_intent(text: str) -> bool:
+    r = _norm_text(text)
+    if not r:
+        return False
+    for k in TEACHER_KEYWORDS:
+        if _norm_text(k) in r:
+            return True
+    return False
+
+
+def _find_teacher_choice_index(view_json: Dict[str, Any]) -> Optional[int]:
+    choices = (view_json or {}).get("choices") or []
+    for c in choices:
+        t = str((c or {}).get("text") or "").strip()
+        for k in TEACHER_KEYWORDS:
+            if k in t:
+                try:
+                    return int((c or {}).get("index"))
+                except Exception:
+                    pass
+    return None
+
+
+def _best_effort_match_choice(
+    view_json: Dict[str, Any], recognized_text: str
+) -> Tuple[Optional[int], Optional[str], float]:
+    """Simple fuzzy match without AI. Return (idx, text, score)."""
+    r = _norm_text(recognized_text)
+    if not r:
+        return None, None, 0.0
+
+    best_idx: Optional[int] = None
+    best_text: Optional[str] = None
+    best_score = 0.0
+
+    for c in (view_json or {}).get("choices") or []:
+        t = str((c or {}).get("text") or "").strip()
+        idx = (c or {}).get("index")
+
+        # skip teacher option for matching suspects
+        if any(k in t for k in TEACHER_KEYWORDS):
+            continue
+
+        nt = _norm_text(t)
+        if not nt:
+            continue
+
+        score = 0.0
+        if nt in r and len(nt) >= 2:
+            score = 1.0
+        elif r in nt and len(r) >= 2:
+            score = 0.9
+        else:
+            # longest common substring length
+            n = len(r)
+            m = len(nt)
+            dp = [0] * (m + 1)
+            best = 0
+            for i in range(1, n + 1):
+                prev = 0
+                for j in range(1, m + 1):
+                    temp = dp[j]
+                    if r[i - 1] == nt[j - 1]:
+                        dp[j] = prev + 1
+                        best = max(best, dp[j])
+                    else:
+                        dp[j] = 0
+                    prev = temp
+            if best >= 2:
+                base = best / max(1, len(nt))
+                score = base + (0.25 if best >= 3 else 0.12)
+
+        if score > best_score:
+            best_score = score
+            try:
+                best_idx = int(idx)
+            except Exception:
+                best_idx = None
+            best_text = t
+
+    return best_idx, best_text, float(best_score)
+
+
 # ----------------------------
 # Routes
 # ----------------------------
+
+
+@router.post("/accuse_evaluate", response_model=AccuseEvaluateResponse)
+def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
+    threshold = 0.6
+    try:
+        session = _get_session_or_404(req.session_id)
+
+        # 兼容不同 session API
+        if hasattr(session, "get_view"):
+            view = session.get_view()
+        elif hasattr(session, "view"):
+            view = session.view()
+        else:
+            view = None
+
+        view_json = _to_json_dict(view) if view is not None else {}
+        recognized_text = (req.recognized_text or "").strip()
+        teacher_idx = _find_teacher_choice_index(view_json)
+
+        if not recognized_text:
+            return AccuseEvaluateResponse(
+                decision="defer_to_teacher",
+                score=0.0,
+                threshold=threshold,
+                fifi_reply="霏霏：我剛剛沒有聽清楚耶～我們先把看到的交給老師，一起整理。",
+                matched_choice_index=None,
+                matched_choice_text=None,
+                defer_choice_index=teacher_idx,
+                auto_submit=False,
+                debug={"empty": True},
+            )
+
+        if _looks_like_teacher_intent(recognized_text):
+            return AccuseEvaluateResponse(
+                decision="defer_to_teacher",
+                score=0.0,
+                threshold=threshold,
+                fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。沒關係～我們先把看到的交給老師，一起安心整理。",
+                matched_choice_index=None,
+                matched_choice_text=None,
+                defer_choice_index=teacher_idx,
+                auto_submit=False,
+                debug={"teacher_intent": True},
+            )
+
+        idx, text, score = _best_effort_match_choice(view_json, recognized_text)
+        if idx is not None and score >= threshold:
+            return AccuseEvaluateResponse(
+                decision="accuse",
+                score=float(score),
+                threshold=threshold,
+                fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。我先幫你整理：你覺得可能跟「{text}」有關。就算不完全確定也沒關係，我們可以請老師一起看。",
+                matched_choice_index=idx,
+                matched_choice_text=text,
+                defer_choice_index=teacher_idx,
+                auto_submit=False,
+                debug={"matched": True},
+            )
+
+        return AccuseEvaluateResponse(
+            decision="defer_to_teacher",
+            score=float(score),
+            threshold=threshold,
+            fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。你的想法很重要～但我們先不要急著指名，先交給老師一起整理會更安全。",
+            matched_choice_index=None,
+            matched_choice_text=None,
+            defer_choice_index=teacher_idx,
+            auto_submit=False,
+            debug={"matched": False},
+        )
+
+    except Exception as e:
+        # ✅ 保底：永遠回正常 JSON，不讓 Flutter 看到 500
+        return AccuseEvaluateResponse(
+            decision="defer_to_teacher",
+            score=0.0,
+            threshold=threshold,
+            fifi_reply="霏霏：我先接住你的想法～我們把看到的交給老師，一起慢慢整理就好。",
+            matched_choice_index=None,
+            matched_choice_text=None,
+            defer_choice_index=None,
+            auto_submit=False,
+            debug={"error": repr(e)},
+        )
 
 
 @router.post("/start", response_model=StepResponse)
@@ -265,7 +476,9 @@ def api_end_flow(req: EndFlowRequest) -> StepResponse:
         if new_sess is None:
             raise HTTPException(status_code=500, detail="reset failed")
 
-        bundle, events, is_over = _bundle_from_session_and_step(session=new_sess, step=None)
+        bundle, events, is_over = _bundle_from_session_and_step(
+            session=new_sess, step=None
+        )
         return StepResponse(
             session_id=session_id,
             bundle=bundle,
@@ -283,7 +496,9 @@ def api_end_flow(req: EndFlowRequest) -> StepResponse:
         if new_sess is None:
             raise HTTPException(status_code=500, detail="reset failed")
 
-        bundle, events, is_over = _bundle_from_session_and_step(session=new_sess, step=None)
+        bundle, events, is_over = _bundle_from_session_and_step(
+            session=new_sess, step=None
+        )
         return StepResponse(
             session_id=session_id,
             bundle=bundle,

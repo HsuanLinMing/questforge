@@ -78,6 +78,26 @@ class GameSession:
     # ----------------------------
     # Helpers: node ids
     # ----------------------------
+
+    def _coerce_valid_node(self, node_id: str) -> str:
+        """把可能是空字串/不存在的 node id，轉成安全可用的節點。"""
+        nid = (node_id or "").strip()
+        if nid and nid in self.nodes:
+            return nid
+
+        # 優先回到最近調查點
+        inv = (self.last_investigate_node or "").strip()
+        if inv and inv in self.nodes:
+            return inv
+
+        # 再回到 start
+        s = (self._start_node_id or "").strip()
+        if s and s in self.nodes:
+            return s
+
+        # 最後保底：第一個節點
+        return next(iter(self.nodes.keys()))
+
     def _resolve_node_id(self, configured: str, candidates: list[str]) -> str:
         """
         Compatibility resolver:
@@ -111,6 +131,12 @@ class GameSession:
         configured = (self.solve_rule.get("ending_check_node") or "").strip()
         return self._resolve_node_id(configured, ["ending_check"])
 
+    def _fallback_after_accuse(self) -> str:
+        # 沒有 ending_check 時：優先進 epilogue；不然就回到調查/起點（但不要是空字串）
+        if "epilogue" in self.nodes:
+            return "epilogue"
+        return self._coerce_valid_node("")
+
     # ----------------------------
     # Helpers: node tags
     # ----------------------------
@@ -123,25 +149,28 @@ class GameSession:
     def _is_investigate_node(self, node_id: str) -> bool:
         return self._node_tag(node_id) == "investigate"
 
+
+
     def _is_end_screen_node(self, node_id: str) -> bool:
-        # 1) tag-based (old cases)
-        if self._node_tag(node_id) in ("ending_result", "ending_wrong", "epilogue"):
+        # ✅ 新增：若 solve_rule 指定 end_screen_node，優先使用
+        end_screen_node = (self.solve_rule.get("end_screen_node") or "").strip()
+        if end_screen_node:
+            return node_id == end_screen_node
+
+        # -------------------------
+        # ✅ 原本的 fallback 邏輯（保留相容）
+        # -------------------------
+        tag = self._node_tag(node_id)
+        if tag in ("ending_result", "ending_wrong", "epilogue", "quit", "end_screen"):
             return True
 
-        # 2) id-based (new naming)
-        nid = (node_id or "").strip().lower()
-        if nid.startswith("ending") or nid == "quit" or nid == "epilogue":
+        nid = (node_id or "").lower().strip()
+        if nid.startswith("ending_"):
             return True
-
-        # 3) content-based fallback: has lesson list => treat as end-ish
-        try:
-            node = self.nodes.get(node_id, {}) or {}
-            lesson = node.get("lesson")
-            if isinstance(lesson, list) and len(lesson) > 0:
-                return True
-        except Exception:
-            pass
-
+        if nid.startswith("epilogue"):
+            return True
+        if nid == "quit":
+            return True
         return False
 
     # ----------------------------
@@ -204,7 +233,9 @@ class GameSession:
         """
         Day18-D2: reason gate 策略
         - 只要 next 是 accuse_node 且還沒有理由，就先去 reason_node
-        - 即使 choice-mode 缺 reason_options，也要 gate（ask_reason 會自動退化成 text-mode）
+        - 但如果 reason_node == first_interaction_node（你現在的 mid_reason_01），
+        代表它是主線故事節點而不是「整理理由 UI 節點」，
+        這種情況 gate 會把流程拉回去造成循環，所以必須停用 gate。
         """
         accuse_node = (self._accuse_node() or "").strip()
         if not accuse_node:
@@ -215,11 +246,23 @@ class GameSession:
             return False
 
         # 必須存在 reason_node
-        if not self._safe_has_reason_node():
+        rn = (self._reason_node() or "").strip()
+        if not rn or rn not in self.nodes:
             return False
 
-        # ✅ 不再要求 choice-mode 一定要有 options
-        #    （缺 options 時 ask_reason 會 fallback 成 text-mode）
+        # ✅ 關鍵：reason_node 如果是「第一次互動節點」(例如 mid_reason_01)，就不要 gate
+        first_interaction = (
+            self.solve_rule.get("first_interaction_node") or ""
+        ).strip()
+        if first_interaction and rn == first_interaction:
+            return False
+
+        # ✅ 若 reason_node 就是 start，也不要 gate（避免整個流程一直回起點）
+        if (self._start_node_id or "").strip() and rn == (
+            self._start_node_id or ""
+        ).strip():
+            return False
+
         return True
 
     # ----------------------------
@@ -606,6 +649,25 @@ class GameSession:
         }
 
     # ----------------------------
+    # Accuse helper: map choice index -> suspect id
+    # ----------------------------
+    def _apply_accuse_choice_if_needed(
+        self, *, node_id: str, choice_index: int
+    ) -> None:
+        """
+        將 final_accuse/accuse 節點的選項 index，
+        依 solve_rule.accuse_choice_to_suspect 映射成 last_accuse。
+        不碰 STORY_NODES schema。
+        """
+        accuse_node = (self._accuse_node() or "").strip()
+        if not accuse_node or node_id != accuse_node:
+            return
+
+        mapping = self.solve_rule.get("accuse_choice_to_suspect") or {}
+        sid = str(mapping.get(str(choice_index), "")).strip()
+        self.state.last_accuse = sid
+
+    # ----------------------------
     # Internal: apply choice
     # ----------------------------
     def _apply_choice_effects_and_collect_events(
@@ -651,7 +713,10 @@ class GameSession:
             events.append(
                 "霏霏：你先選『不確定』很安全，我們把看到的整理清楚交給老師就好。"
             )
-            return ending_check
+            ending_check = (self._ending_check_node() or "").strip()
+            if ending_check and ending_check in self.nodes:
+                return ending_check
+            return self._fallback_after_accuse()
 
         threshold = int(self.solve_rule.get("threshold", 0) or 0)
         reason_ids = self.state.last_reason_ids or []
@@ -706,7 +771,16 @@ class GameSession:
         ):
             commands.append({"type": "confirm_quiz", "quiz": confirm})
 
-        return ending_check
+        ending_check = (self._ending_check_node() or "").strip()
+        if ending_check and ending_check in self.nodes:
+            return ending_check
+
+        # ✅ 本案沒有 ending_check：直接走 ending_result（符合 STORY_NODES v1.1）
+        if "ending_result" in self.nodes:
+            return "ending_result"
+
+        # 最後保底（避免空字串造成循環）
+        return self._coerce_valid_node("")
 
     # ----------------------------
     # Step
@@ -986,6 +1060,12 @@ class GameSession:
 
         self.state.turn += 1
 
+        # ✅ 若在 accuse/final_accuse 節點，先把 choice_index 映射成 last_accuse
+        self._apply_accuse_choice_if_needed(
+            node_id=self.current,
+            choice_index=idx,
+        )
+
         ending_check_node = (self._ending_check_node() or "").strip()
         if ending_check_node and self.current == ending_check_node:
             picked = view.choices[idx - 1]
@@ -1060,7 +1140,7 @@ class GameSession:
             commands=commands,
         )
 
-        self.current = final_next
+        self.current = self._coerce_valid_node(final_next)
 
         # ✅ Day19-D：進 ending_check 就發 reasoning_feedback command（用 command 顯示，不塞 narration）
         ending_check_node = (self._ending_check_node() or "").strip()

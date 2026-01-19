@@ -36,6 +36,12 @@ class StoryCardV2 extends StatefulWidget {
     required this.onTapParagraph,
     required this.rebuildEpoch,
     required this.scrollEnabled,
+
+    /// ✅ 右上角 menu（之後功能都放這裡）
+    required this.onOpenMenu,
+
+    /// ✅ 顯示目前語速（小字）
+    required this.rate,
   });
 
   final String chapterLabel;
@@ -51,10 +57,17 @@ class StoryCardV2 extends StatefulWidget {
   final VoidCallback? onTogglePlay;
   final VoidCallback? onPrev;
   final VoidCallback? onNext;
+
   final ValueChanged<int>? onTapParagraph;
 
   /// phase 控制可不可以滑
   final bool scrollEnabled;
+
+  /// ✅ 右上角 menu
+  final VoidCallback? onOpenMenu;
+
+  /// ✅ 目前語速顯示（例如 0.45）
+  final double rate;
 
   @override
   State<StoryCardV2> createState() => StoryCardV2State();
@@ -104,13 +117,6 @@ class StoryCardV2State extends State<StoryCardV2> {
     if (!_sameParagraphs(oldWidget.paragraphs, widget.paragraphs)) {
       if (_sc.hasClients) _sc.jumpTo(0);
       WidgetsBinding.instance.addPostFrameCallback((_) => _recalcFade());
-    }
-
-    // active 變了 -> 定位
-    if (oldWidget.activeIndex != widget.activeIndex) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        scrollToParagraph(widget.activeIndex);
-      });
     }
   }
 
@@ -175,9 +181,8 @@ class StoryCardV2State extends State<StoryCardV2> {
     final total = widget.paragraphs.length;
     final active = total == 0 ? 0 : widget.activeIndex.clamp(0, total - 1);
 
-    final scrollPhysics = widget.scrollEnabled
-        ? const BouncingScrollPhysics()
-        : const NeverScrollableScrollPhysics();
+    final scrollPhysics = widget.scrollEnabled ? const BouncingScrollPhysics() : const NeverScrollableScrollPhysics();
+    final rateLabel = widget.rate.toStringAsFixed(2);
 
     return Card(
       elevation: 0,
@@ -202,7 +207,23 @@ class StoryCardV2State extends State<StoryCardV2> {
                     style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-                PlaybackControls(
+
+                if (widget.ttsReady)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Text(
+                      '${rateLabel}x',
+                      style: theme.textTheme.labelSmall?.copyWith(color: cs.outline),
+                    ),
+                  ),
+
+                IconButton(
+                  tooltip: '功能選單',
+                  onPressed: widget.onOpenMenu,
+                  icon: const Icon(Icons.more_vert),
+                ),
+
+                PlaybackControlsCompact(
                   isPlaying: widget.isPlaying,
                   ttsReady: widget.ttsReady,
                   onPrev: widget.onPrev,
@@ -245,9 +266,7 @@ class StoryCardV2State extends State<StoryCardV2> {
                                     text: widget.paragraphs[i].text,
                                     active: i == active,
                                     enabled: widget.onTapParagraph != null && widget.scrollEnabled,
-                                    onTap: (widget.onTapParagraph == null || !widget.scrollEnabled)
-                                        ? null
-                                        : () => widget.onTapParagraph!(i),
+                                    onTap: (widget.onTapParagraph == null || !widget.scrollEnabled) ? null : () => widget.onTapParagraph!(i),
                                   ),
                                   const SizedBox(height: 12),
                                 ],
@@ -322,8 +341,9 @@ class ChapterPill extends StatelessWidget {
   }
 }
 
-class PlaybackControls extends StatelessWidget {
-  const PlaybackControls({
+/// ✅ 只留 3 顆：上一段 / 播放暫停 / 下一段
+class PlaybackControlsCompact extends StatelessWidget {
+  const PlaybackControlsCompact({
     super.key,
     required this.isPlaying,
     required this.ttsReady,
@@ -387,9 +407,7 @@ class ParagraphTile extends StatelessWidget {
     final cs = theme.colorScheme;
 
     final bg = active ? cs.secondaryContainer : cs.surface;
-    final border = active
-        ? Border.all(color: cs.secondary, width: 1.2)
-        : Border.all(color: cs.outlineVariant);
+    final border = active ? Border.all(color: cs.secondary, width: 1.2) : Border.all(color: cs.outlineVariant);
 
     return InkWell(
       onTap: enabled ? onTap : null,

@@ -12,6 +12,7 @@ import 'ui_phase.dart';
 import 'widgets/accuse_panel.dart';
 import 'widgets/choice_card_v2.dart';
 import 'widgets/story_card_v2.dart';
+import 'settings/game_settings_repo.dart';
 
 class GamePageV1 extends StatefulWidget {
   const GamePageV1({
@@ -27,6 +28,14 @@ class GamePageV1 extends StatefulWidget {
 
 class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   final OverlayManagerV2 _overlays = const OverlayManagerV2();
+  final GameSettingsRepo _settingsRepo = GameSettingsRepo();
+
+  static const double _rateMin = 0.35;
+  static const double _rateMax = 0.65;
+  static const double _rateStep = 0.05;
+
+  // ✅ follow 由 GamePage 管（不塞進 TTS state）
+  bool _follow = true;
 
   // ---------------------------
   // UI phase
@@ -123,7 +132,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   }
 
   // ---------------------------
-  // TTS controller (瘦身關鍵)
+  // TTS controller
   // ---------------------------
   late final TtsPlaybackController _ttsCtl = TtsPlaybackController(
     logger: (tag, extra) {
@@ -182,7 +191,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   void _tryAutoContinueAfterTtsEnd() {
     if (!mounted) return;
     if (_appInactive) return;
-
+    if (_handlingViewChange) return; // 正在套用新 view，別自動送
     final s = widget.controller.stateVN.value;
     if (_overlayShowingFromState(s)) return;
     if (widget.controller.chooseLockVN.value) return;
@@ -202,8 +211,138 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    _ttsCtl.onNarrationEnd = () {
+      if (!mounted) return;
+      Future.microtask(_tryAutoContinueAfterTtsEnd);
+    };
+
+    // ✅ init TTS
     // ignore: discarded_futures
     _ttsCtl.init();
+
+    // ✅ 載入記憶語速
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final r = await _settingsRepo.loadTtsRate(fallback: 0.45);
+      await _ttsCtl.setRate(r);
+    });
+  }
+
+  Future<void> _openStoryMenuSheet({
+    required List<StoryParagraph> paragraphs,
+    required String viewFp,
+    required TtsPlaybackState ttsState,
+  }) async {
+    if (!mounted) return;
+
+    final cs = Theme.of(context).colorScheme;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final rate = _ttsCtl.vn.value.rate;
+
+            Future<void> setRate(double next) async {
+              final clamped = next.clamp(_rateMin, _rateMax);
+              await _ttsCtl.setRate(clamped);
+              await _settingsRepo.saveTtsRate(clamped);
+              setSheetState(() {});
+            }
+
+            Future<void> replay() async {
+              if (!_tryLockNav()) return;
+              await _ttsCtl.replayCurrent(
+                paragraphs: paragraphs,
+                viewFp: viewFp,
+                scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
+              );
+              setSheetState(() {});
+            }
+
+            void toggleFollow() {
+              setState(() => _follow = !_follow); // ✅ 影響 StoryCard 自動定位
+              setSheetState(() {});
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: cs.outlineVariant,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Text(
+                        '功能選單',
+                        style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const Spacer(),
+                      IconButton(onPressed: () => Navigator.of(ctx).pop(), icon: const Icon(Icons.close)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // ✅ 重播本段
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.replay),
+                    title: const Text('重播本段'),
+                    subtitle: Text('從段落 ${(_ttsCtl.activeParagraphIndex + 1)} 開始'),
+                    onTap: replay,
+                  ),
+
+                  // ✅ 跟隨段落
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: Icon(_follow ? Icons.my_location : Icons.location_disabled),
+                    title: const Text('跟隨段落'),
+                    subtitle: const Text('播放時自動捲動到目前段落'),
+                    value: _follow,
+                    onChanged: (_) => toggleFollow(),
+                  ),
+
+                  const Divider(),
+
+                  // ✅ 語速
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.speed),
+                    title: const Text('語速'),
+                    subtitle: Text('目前：${rate.toStringAsFixed(2)}x'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: '放慢',
+                          onPressed: () => setRate(rate - _rateStep),
+                          icon: const Icon(Icons.remove_circle_outline),
+                        ),
+                        IconButton(
+                          tooltip: '加快',
+                          onPressed: () => setRate(rate + _rateStep),
+                          icon: const Icon(Icons.add_circle_outline),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -231,7 +370,10 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     if (inactive) {
       _appInactive = true;
       await _ttsCtl.stop(resetToStart: false);
-
+      // ✅ 強制關閉任何 dialog/bottomSheet（避免 macOS 回來卡死）
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
+      }
       _pressedClearTimer?.cancel();
       _pressedClearTimer = null;
       _cancelSendingWatchdog();
@@ -478,7 +620,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           onSubmitReasons: (ids, text) {
             widget.controller.sender.sendSetReasons(reasonIds: ids, text: text);
           },
-          onCloseAsk: () {},
+          onCloseAsk: widget.controller.clearAskOverlayLocal,
           onSubmitQuiz: (answers) {
             widget.controller.sender.sendConfirmQuizAnswerList(answers);
           },
@@ -491,7 +633,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           endLockVN: widget.controller.endActionLockVN,
           pendingEndVN: widget.controller.pendingEndActionIdVN,
           onTapEndAction: (action) => widget.controller.sendEndActionSpec(action),
-          onCloseEnd: widget.controller.unlockEndAction,
+          onCloseEnd: widget.controller.clearEndOverlayLocal,
         );
 
         final mq = MediaQuery.of(context);
@@ -502,21 +644,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
         return ValueListenableBuilder<TtsPlaybackState>(
           valueListenable: _ttsCtl.vn,
           builder: (context, ttsState, __) {
-            // ✅ 這裡才用 ttsState 重新算 active，UI 才會跟著跳
-            final activeNow = paragraphs.isEmpty
-                ? 0
-                : ttsState.activeParagraphIndex.clamp(0, paragraphs.length - 1);
-
-            // ignore: avoid_print
-            print('[UI] active=${ttsState.activeParagraphIndex} playing=${ttsState.playing}');
-
-            // ✅ 只有在「真的播放結束（stop）且播放到最後段」才嘗試 auto continue
-            if (!ttsState.playing && paragraphs.isNotEmpty) {
-              final atEnd = ttsState.activeParagraphIndex >= paragraphs.length - 1;
-              if (atEnd) {
-                Future.microtask(() => _tryAutoContinueAfterTtsEnd());
-              }
-            }
+            final activeNow = paragraphs.isEmpty ? 0 : ttsState.activeParagraphIndex.clamp(0, paragraphs.length - 1);
 
             return Stack(
               children: [
@@ -538,10 +666,18 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                         rebuildEpoch: _resumeEpoch,
                         chapterLabel: '第 ${_safeChapterNumber(view.nodeId)} 段',
                         paragraphs: paragraphs,
-                        activeIndex: activeNow, // ✅ 用 activeNow
+                        activeIndex: activeNow,
                         isPlaying: ttsState.playing,
                         ttsReady: ttsState.ready,
                         scrollEnabled: phase.allowStoryScroll,
+                        rate: ttsState.rate,
+                        onOpenMenu: phase.allowTopActions
+                            ? () => _openStoryMenuSheet(
+                                  paragraphs: paragraphs,
+                                  viewFp: viewFp,
+                                  ttsState: ttsState,
+                                )
+                            : null,
                         onTogglePlay: phase.allowTopActions
                             ? () => _ttsCtl.togglePlay(
                                   paragraphs: paragraphs,

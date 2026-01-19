@@ -36,6 +36,12 @@ class OverlayManagerV2 {
     required VoidCallback onCloseEnd,
   }) {
     if (end != null) {
+      final raw = end.toJson();
+      final actions = raw['actions'];
+      final hasActions = actions is List && actions.isNotEmpty;
+
+      // ✅ 沒有 actions 就不要蓋 EndScreen，讓 view 正常顯示 choices
+      if (!hasActions) return null;
       return EndScreenOverlayV2(
         cmd: end,
         lockVN: endLockVN,

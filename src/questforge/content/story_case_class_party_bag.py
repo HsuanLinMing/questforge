@@ -4,9 +4,8 @@ STORY_NODES = {
     # - scene_XX_*：主線自動播放節點（choices 固定 1 個「繼續聽故事」）
     # - mid_reason_01：中段一次互動（choices 3 個，不自動跳）
     # - accuse：結尾指認（4 個：3 嫌疑人 + 我還不確定）
-    # - ending_result / quit：結局/離開
+    # - ending_check / ending_wrong / ending_result / epilogue / quit：結尾流程
     # ------------------------------------------------------------
-
     "scene_01_start": {
         "title": "中午前的教室",
         "narration": (
@@ -25,11 +24,8 @@ STORY_NODES = {
             "霏霏哼了一聲。\n"
             "「那次是因為我把它放在桌子下面。」"
         ),
-        "choices": [
-            {"text": "繼續聽故事", "next": "mid_reason_01"}
-        ],
+        "choices": [{"text": "繼續聽故事", "next": "mid_reason_01"}],
     },
-
     # ✅ 第 1 次互動（中段輕推理）
     "mid_reason_01": {
         "title": "便當打開了",
@@ -70,7 +66,6 @@ STORY_NODES = {
             },
         ],
     },
-
     "scene_02_people": {
         "title": "教室裡的人",
         "narration": (
@@ -90,11 +85,8 @@ STORY_NODES = {
             "他低頭看著自己的便當。\n"
             "又抬頭看看他們。"
         ),
-        "choices": [
-            {"text": "繼續聽故事", "next": "scene_03_teacher"}
-        ],
+        "choices": [{"text": "繼續聽故事", "next": "scene_03_teacher"}],
     },
-
     "scene_03_teacher": {
         "title": "老師走過來了",
         "narration": (
@@ -110,11 +102,8 @@ STORY_NODES = {
             "「我們慢慢來。」\n"
             "「先不用急著說是誰。」"
         ),
-        "choices": [
-            {"text": "繼續聽故事", "next": "scene_04_cooldown"}
-        ],
+        "choices": [{"text": "繼續聽故事", "next": "scene_04_cooldown"}],
     },
-
     "scene_04_cooldown": {
         "title": "先停一下",
         "narration": (
@@ -126,11 +115,8 @@ STORY_NODES = {
             "老師點點頭。\n"
             "「不確定的時候，交給大人處理，是很好的選擇。」"
         ),
-        "choices": [
-            {"text": "繼續聽故事", "next": "accuse"}
-        ],
+        "choices": [{"text": "繼續聽故事", "next": "accuse"}],
     },
-
     # ✅ 第 2 次互動（結尾指認）
     "accuse": {
         "title": "你現在的想法",
@@ -142,13 +128,67 @@ STORY_NODES = {
             "「或者，你也可以說你還不確定。」"
         ),
         "choices": [
-            {"text": "飯糰啵啵（白色吊飾）", "next": "ending_result"},
-            {"text": "甜甜圈阿咚（餅乾放旁邊）", "next": "ending_result"},
-            {"text": "鉛筆小刺（一直在找橡皮擦）", "next": "ending_result"},
-            {"text": "我還不確定，交給老師", "next": "ending_result"},
+            {
+                "text": "飯糰啵啵（白色吊飾）",
+                "accuse": "dongdong",
+                "next": "ending_check",
+            },
+            {
+                "text": "甜甜圈阿咚（餅乾放旁邊）",
+                "accuse": "mei",
+                "next": "ending_check",
+            },
+            {
+                "text": "鉛筆小刺（一直在找橡皮擦）",
+                "accuse": "ali",
+                "next": "ending_check",
+            },
+            {"text": "我還不確定，交給老師", "accuse": "", "next": "ending_check"},
         ],
     },
-
+    # ✅ 指認後：先把「看到的」說清楚（安全結案）
+    "ending_check": {
+        "title": "把看到的說清楚",
+        "narration": (
+            "老師沒有立刻問名字。\n"
+            "她先把手掌放在桌面上，讓大家都安靜一點。\n\n"
+            "「謝謝你說出你的想法。」\n"
+            "老師看著樂樂說。\n"
+            "「現在，我只想聽一件事：你看到什麼？」\n\n"
+            "霏霏也小聲提醒：\n"
+            "「我們只說看到的，不用猜誰做的。」\n\n"
+            "樂樂吸一口氣。\n"
+            "他慢慢說：\n"
+            "「我看到便當好像少一口。」\n"
+            "「我也看到有人一直在翻便當、有人一直敲筷子、有人一直找橡皮擦。」\n\n"
+            "老師點點頭。\n"
+            "「很好。這些都是你『看到的』。」\n"
+            "「接下來我會用安全的方式確認。」"
+        ),
+        "choices": [
+            {"text": "交給老師確認（安全處理）", "next": "ending_result"},
+            {"text": "我突然覺得我指錯了（先停一下）", "next": "ending_wrong"},
+        ],
+    },
+    # ✅ 錯誤分支：教孩子「不確定就停一下」
+    "ending_wrong": {
+        "title": "先停一下，不急著指人",
+        "narration": (
+            "樂樂的臉有點紅。\n"
+            "他小聲說：\n"
+            "「我其實也不確定……我只是覺得怪怪的。」\n\n"
+            "老師沒有罵他。\n"
+            "老師說：\n"
+            "「你願意說『我不確定』，很勇敢。」\n"
+            "「不確定的時候，我們可以做兩件事：」\n"
+            "「第一，先把看到的說清楚。」\n"
+            "「第二，交給大人用安全的方法確認。」\n\n"
+            "霏霏也點點頭：\n"
+            "「嗯，我們先讓事情變安全。」"
+        ),
+        "choices": [{"text": "好，我們交給老師確認", "next": "ending_result"}],
+    },
+    # ✅ 結局：被接住（可留教育收束）
     "ending_result": {
         "title": "事情被接住了",
         "narration": (
@@ -168,11 +208,28 @@ STORY_NODES = {
             "不確定的時候，找老師是安全的。",
             "我們只說看到的，不急著指人。",
         ],
-        "choices": [
-            {"text": "結束故事", "next": "quit"}
-        ],
+        "choices": [{"text": "聽完尾聲", "next": "epilogue"}],
     },
-
+    # ✅ 尾聲：收束情緒 + 下一步
+    "epilogue": {
+        "title": "尾聲：午餐繼續了",
+        "narration": (
+            "過了一會兒，教室又慢慢有了聲音。\n\n"
+            "樂樂把湯匙放回手心，像把心也放回原位。\n"
+            "他小聲說：\n"
+            "「剛剛我差點就想大叫。」\n\n"
+            "霏霏笑了一下：\n"
+            "「但你有停下來，這很厲害。」\n\n"
+            "老師從講桌那邊回頭看了他們一眼。\n"
+            "她沒有讓任何人被指著、被推來推去。\n\n"
+            "「午餐先好好吃完。」老師說。\n"
+            "「需要處理的事，我會處理。」\n\n"
+            "樂樂點點頭。\n"
+            "午餐繼續了。\n"
+            "心裡也比較不那麼卡了。"
+        ),
+        "choices": [{"text": "結束故事", "next": "quit"}],
+    },
     "quit": {
         "title": "故事結束",
         "narration": "你聽完了一個故事。",

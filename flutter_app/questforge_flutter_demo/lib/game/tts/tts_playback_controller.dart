@@ -17,6 +17,7 @@ class TtsPlaybackState {
     required this.activeParagraphIndex,
     required this.activeChunkIndex,
     required this.viewFp,
+    required this.rate,
   });
 
   final bool ready;
@@ -26,6 +27,9 @@ class TtsPlaybackState {
   final int activeChunkIndex;
   final String viewFp;
 
+  /// ✅ 語速（FlutterTts speechRate）
+  final double rate;
+
   TtsPlaybackState copyWith({
     bool? ready,
     bool? enabled,
@@ -33,6 +37,7 @@ class TtsPlaybackState {
     int? activeParagraphIndex,
     int? activeChunkIndex,
     String? viewFp,
+    double? rate,
   }) {
     return TtsPlaybackState(
       ready: ready ?? this.ready,
@@ -41,6 +46,7 @@ class TtsPlaybackState {
       activeParagraphIndex: activeParagraphIndex ?? this.activeParagraphIndex,
       activeChunkIndex: activeChunkIndex ?? this.activeChunkIndex,
       viewFp: viewFp ?? this.viewFp,
+      rate: rate ?? this.rate,
     );
   }
 }
@@ -58,6 +64,9 @@ class TtsPlaybackController {
   })  : _tts = tts ?? FlutterTts(),
         _logFn = logger;
 
+  /// narration 播到「本 view 最後一段最後一 chunk」才觸發
+  VoidCallback? onNarrationEnd;
+
   // ---------------------------
   // public
   // ---------------------------
@@ -69,6 +78,7 @@ class TtsPlaybackController {
       activeParagraphIndex: 0,
       activeChunkIndex: 0,
       viewFp: '',
+      rate: 0.45,
     ),
   );
 
@@ -76,8 +86,18 @@ class TtsPlaybackController {
   bool get enabled => vn.value.enabled;
   bool get playing => vn.value.playing;
   int get activeParagraphIndex => vn.value.activeParagraphIndex;
+  double get rate => vn.value.rate;
 
   void setEnabled(bool on) => vn.value = vn.value.copyWith(enabled: on);
+
+  /// ✅ 外部設定語速（會立即套用到 TTS）
+  Future<void> setRate(double r) async {
+    final next = r.clamp(0.1, 1.0);
+    vn.value = vn.value.copyWith(rate: next);
+    try {
+      await _tts.setSpeechRate(next);
+    } catch (_) {}
+  }
 
   // init once
   Future<void> init({
@@ -85,16 +105,18 @@ class TtsPlaybackController {
     double speechRate = 0.45,
     double pitch = 1.0,
   }) async {
+    // 以目前 state.rate 為主（讓外部可先 setRate 再 init 也行）
+    final initRate = vn.value.rate;
+
     try {
       await _tts.setLanguage(language);
     } catch (_) {}
     try {
-      await _tts.setSpeechRate(speechRate);
+      await _tts.setSpeechRate(initRate == 0 ? speechRate : initRate);
       await _tts.setPitch(pitch);
     } catch (_) {}
 
     _tts.setProgressHandler((text, start, end, word) {
-      // Only accept current token + same text + same session
       if (_tokenSession != _playSession) return;
       if (text != _currentText) return;
       _currentProgressEnd = end;
@@ -106,12 +128,10 @@ class TtsPlaybackController {
 
     _tts.setCompletionHandler(() {
       _log('TTS_COMPLETE', {});
-      // completion 只當 log/備援，不推進（避免 macOS 不可靠）
     });
 
     _tts.setCancelHandler(() {
       _log('TTS_CANCEL', {});
-      // stop() 造成 cancel 不做事，交給 session/token guard
     });
 
     _tts.setErrorHandler((msg) {
@@ -131,7 +151,6 @@ class TtsPlaybackController {
     vn.dispose();
   }
 
-  /// view change：會 stop + resetToStart +（可選）autoplay 第一段
   Future<void> handleViewChanged({
     required NodeView view,
     required List<StoryParagraph> paragraphs,
@@ -139,6 +158,8 @@ class TtsPlaybackController {
     required bool autoPlay,
     required ScrollToParagraphFn scrollTo,
   }) async {
+    _scrollTo = scrollTo;
+
     _playSession++; // cut callbacks
     await stop(resetToStart: true);
 
@@ -149,11 +170,9 @@ class TtsPlaybackController {
     if (!enabled || !ready) return;
     if (paragraphs.isEmpty) return;
 
-    // 避免同 fp 重複 autoplay
     if (_lastAutoPlayedFp == viewFp) return;
     _lastAutoPlayedFp = viewFp;
 
-    // 小延遲一拍，讓 UI 穩定
     await Future<void>.delayed(const Duration(milliseconds: 20));
     await playParagraph(
       index: 0,
@@ -170,6 +189,8 @@ class TtsPlaybackController {
     required String viewFp,
     required ScrollToParagraphFn scrollTo,
   }) async {
+    _scrollTo = scrollTo;
+
     if (!enabled) return;
     if (paragraphs.isEmpty) return;
 
@@ -215,12 +236,46 @@ class TtsPlaybackController {
     );
   }
 
+  /// ✅ 重播目前段落（從頭播放）
+  Future<void> replayCurrent({
+    required List<StoryParagraph> paragraphs,
+    required String viewFp,
+    required ScrollToParagraphFn scrollTo,
+  }) async {
+    _scrollTo = scrollTo;
+
+    if (!enabled) return;
+    if (paragraphs.isEmpty) return;
+
+    final idx = activeParagraphIndex.clamp(0, paragraphs.length - 1);
+
+    _playSession++; // cut callbacks
+    await stop(resetToStart: false);
+
+    vn.value = vn.value.copyWith(
+      activeParagraphIndex: idx,
+      activeChunkIndex: 0,
+    );
+    scrollTo(idx);
+
+    await playParagraph(
+      index: idx,
+      paragraphs: paragraphs,
+      viewFp: viewFp,
+      stopBeforeFirstChunk: true,
+      deferUiUntilSpeak: false,
+      scrollTo: scrollTo,
+    );
+  }
+
   Future<void> seekTo({
     required int index,
     required List<StoryParagraph> paragraphs,
     required String viewFp,
     required ScrollToParagraphFn scrollTo,
   }) async {
+    _scrollTo = scrollTo;
+
     if (!enabled) return;
     if (paragraphs.isEmpty) return;
 
@@ -254,7 +309,6 @@ class TtsPlaybackController {
 
     _speakBusy = false;
 
-    // cut callbacks
     _speakToken++;
     _handledToken = -1;
 
@@ -282,21 +336,18 @@ class TtsPlaybackController {
   final FlutterTts _tts;
   final LogFn? _logFn;
 
-  // chunk config
   static const int _chunkMinChars = 12;
   static const int _chunkMaxChars = 28;
 
-  // playback snapshot
   List<StoryParagraph> _playParagraphs = const <StoryParagraph>[];
   String _playViewFp = '';
 
-  // view autoplay guard
+  ScrollToParagraphFn? _scrollTo;
+
   String _lastAutoPlayedFp = '';
 
-  // session guard
   int _playSession = 0;
 
-  // token guard
   int _speakToken = 0;
   int _handledToken = -1;
   int _tokenSession = 0;
@@ -308,7 +359,6 @@ class TtsPlaybackController {
 
   List<String> _ttsChunks = const <String>[];
 
-  // progress + fallback
   String _currentText = '';
   String _currentSpeakText = '';
   int _currentLen = 0;
@@ -325,6 +375,7 @@ class TtsPlaybackController {
       'token': _speakToken,
       'handled': _handledToken,
       'viewFp': _playViewFp,
+      'rate': vn.value.rate,
       ...extra,
     });
   }
@@ -343,17 +394,20 @@ class TtsPlaybackController {
     final t = text.trim();
     if (t.isEmpty) return 900;
 
-    // 保守估算（中文 + 0.45 rate）
+    // 粗估：rate 越快，時間越短
+    final r = vn.value.rate.clamp(0.2, 0.9);
+    final rateFactor = (0.45 / r).clamp(0.6, 1.8);
+
     const int perChar = 190;
 
     final strong = RegExp(r'[。！？!?]').allMatches(t).length;
     final mid = RegExp(r'[，,、；;：:]').allMatches(t).length;
     final ellipsis = RegExp(r'…+').allMatches(t).length;
 
-    var ms = t.length * perChar;
-    ms += strong * 420;
-    ms += mid * 220;
-    ms += ellipsis * 320;
+    var ms = (t.length * perChar * rateFactor).round();
+    ms += (strong * 420 * rateFactor).round();
+    ms += (mid * 220 * rateFactor).round();
+    ms += (ellipsis * 320 * rateFactor).round();
 
     if (ms < 900) ms = 900;
     if (ms > 12000) ms = 12000;
@@ -505,7 +559,6 @@ class TtsPlaybackController {
 
     flush();
 
-    // merge tiny tail like 「。」 「！」 into previous
     final merged = <String>[];
     for (final c in out) {
       if (merged.isNotEmpty && c.length <= 4) {
@@ -528,6 +581,8 @@ class TtsPlaybackController {
     if (!ready || !enabled) return;
     if (paragraphs.isEmpty) return;
     if (index < 0 || index >= paragraphs.length) return;
+
+    _scrollTo = scrollTo;
 
     final text = paragraphs[index].text.trim();
     if (text.isEmpty) return;
@@ -576,7 +631,6 @@ class TtsPlaybackController {
       return;
     }
 
-    // token+session binding
     _speakToken++;
     final token = _speakToken;
     _handledToken = -1;
@@ -602,7 +656,6 @@ class TtsPlaybackController {
         await _tts.stop();
       }
 
-      // defer UI jump until first chunk actually speaks
       final pending = _pendingActiveParagraphIndex;
       if (pending != null && ci == 0) {
         vn.value = vn.value.copyWith(activeParagraphIndex: pending);
@@ -623,7 +676,8 @@ class TtsPlaybackController {
   Future<void> _advanceAfterChunkEnd() async {
     if (!vn.value.playing) return;
 
-    // gap after chunk
+    final scroll = _scrollTo ?? (_) {};
+
     final ci = vn.value.activeChunkIndex;
     if (_ttsChunks.isNotEmpty && ci >= 0 && ci < _ttsChunks.length) {
       final gap = _gapAfterChunk(_ttsChunks[ci]);
@@ -632,15 +686,13 @@ class TtsPlaybackController {
       }
     }
 
-    // 1) next chunk
     final nextChunk = vn.value.activeChunkIndex + 1;
     if (_ttsChunks.isNotEmpty && nextChunk < _ttsChunks.length) {
       vn.value = vn.value.copyWith(activeChunkIndex: nextChunk);
-      await _speakCurrentChunk(stopBeforeSpeak: false, scrollTo: (_) {});
+      await _speakCurrentChunk(stopBeforeSpeak: false, scrollTo: scroll);
       return;
     }
 
-    // 2) next paragraph
     if (_playParagraphs.isEmpty) {
       await stop(resetToStart: false);
       return;
@@ -652,18 +704,22 @@ class TtsPlaybackController {
     }
 
     if (nextPara >= _playParagraphs.length) {
+      final endSession = _playSession;
       await stop(resetToStart: false);
+
+      if (endSession == _playSession) {
+        onNarrationEnd?.call();
+      }
       return;
     }
 
-    // 連播下一段（不 stop；且 defer UI until speak）
     await playParagraph(
       index: nextPara,
       paragraphs: _playParagraphs,
       viewFp: _playViewFp,
       stopBeforeFirstChunk: false,
       deferUiUntilSpeak: true,
-      scrollTo: (_) {},
+      scrollTo: scroll,
     );
   }
 }

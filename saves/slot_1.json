@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "state": {
+    "turn": 1,
+    "clues": [
+      "dongdong_stares_gold",
+      "mei_near_table",
+      "tape_was_pulled"
+    ],
+    "clue_labels": {
+      "tape_was_pulled": "貼紙桌邊的透明膠帶背紙翹起來，像被拉過",
+      "mei_near_table": "小芽站得很近又退後，手藏在身後、臉有點紅",
+      "dongdong_stares_gold": "東東站比較遠，但一直盯著金色貼紙"
+    },
+    "notes": [
+      "【線索】貼紙桌邊的透明膠帶背紙翹起來，像被拉過",
+      "【線索】小芽站得很近又退後，手藏在身後、臉有點紅",
+      "【線索】東東站比較遠，但一直盯著金色貼紙"
+    ],
+    "flags": [],
+    "vars": {},
+    "last_accuse": "",
+    "last_reason_id": "",
+    "last_reason_text": "",
+    "last_reason_ids": []
+  },
+  "session": {
+    "current": "scene_sticker_table"
+  },
+  "case": {
+    "id": "2",
+    "title": "校園案：運動會貼紙日"
+  },
+  "config": {
+    "enable_quiz": false,
+    "quiz_can_skip": true
+  },
+  "saved_at": "2026-01-09T08:04:51.173680+00:00"
+}

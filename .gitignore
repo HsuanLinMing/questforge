@@ -1,9 +1,18 @@
-.venv/
-__pycache__/
-*.pyc
+
+# macOS
 .DS_Store
-.pytest_cache/
-.ruff_cache/
-saves/
-*.save.json
-autosave.json
+__MACOSX/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Flutter/Dart
+.dart_tool/
+build/
+**/.dart_tool/
+**/build/
+
+# Optional: for Dart packages (not apps)
+**/pubspec.lock

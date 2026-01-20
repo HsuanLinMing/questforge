@@ -18,7 +18,7 @@ from questforge.core.models import (
 )
 from questforge.engine.actions import PlayerAction
 from questforge.engine.effects import apply_effects
-from questforge.engine.reasoning import evaluate_accuse, score_reasons_with_evidence
+from questforge.engine.reasoning import evaluate_accuse
 from questforge.engine.solve_rule_adapter import solve_rule_to_accuse_config
 from questforge.engine.views import ChoiceView, NodeView
 
@@ -38,13 +38,7 @@ class StepResult:
 
 
 class GameSession:
-    """純邏輯遊戲流程控制器（不做 print/input）。
-
-    Day16-C：
-    - ending_result / ending_wrong / epilogue：不再用 NodeView choices
-    - 改用 commands: show_end_screen，由 UI/CLI 自己顯示 EndScreen
-    - UI/CLI 選完回傳 PlayerAction(type=end_flow, end_action=...)
-    """
+    """純邏輯遊戲流程控制器（不做 print/input）。"""
 
     def __init__(
         self,
@@ -58,11 +52,12 @@ class GameSession:
     ) -> None:
         self.state = state
         self.nodes = nodes
-        # ✅ 防呆：start_node 不存在就 fallback 到第一個節點
+
         s = (start_node or "").strip()
         if (not s) or (s not in self.nodes):
             s = next(iter(self.nodes.keys()))
         self.current = s
+
         self.config = config
         self.solve_rule = solve_rule or {}
         self._last_view_cache = None
@@ -78,33 +73,22 @@ class GameSession:
     # ----------------------------
     # Helpers: node ids
     # ----------------------------
-
     def _coerce_valid_node(self, node_id: str) -> str:
-        """把可能是空字串/不存在的 node id，轉成安全可用的節點。"""
         nid = (node_id or "").strip()
         if nid and nid in self.nodes:
             return nid
 
-        # 優先回到最近調查點
         inv = (self.last_investigate_node or "").strip()
         if inv and inv in self.nodes:
             return inv
 
-        # 再回到 start
         s = (self._start_node_id or "").strip()
         if s and s in self.nodes:
             return s
 
-        # 最後保底：第一個節點
         return next(iter(self.nodes.keys()))
 
     def _resolve_node_id(self, configured: str, candidates: list[str]) -> str:
-        """
-        Compatibility resolver:
-        - if configured exists and present in nodes -> use it
-        - else try candidates in order -> first that exists in nodes
-        - else return "" (meaning disabled)
-        """
         cid = (configured or "").strip()
         if cid and cid in self.nodes:
             return cid
@@ -115,26 +99,35 @@ class GameSession:
         return ""
 
     def _reason_node(self) -> str:
-        # old: solve_rule.reason_node (e.g. "reason")
-        # new: "mid_reason"
         configured = (self.solve_rule.get("reason_node") or "").strip()
         return self._resolve_node_id(configured, ["mid_reason", "reason"])
 
     def _accuse_node(self) -> str:
-        # old: "accuse"
-        # new: "final_accuse"
         configured = (self.solve_rule.get("accuse_node") or "").strip()
         return self._resolve_node_id(configured, ["final_accuse", "accuse"])
 
     def _ending_check_node(self) -> str:
-        # 有些新模板根本不需要 ending_check，所以找不到就回 "" 代表停用
         configured = (self.solve_rule.get("ending_check_node") or "").strip()
         return self._resolve_node_id(configured, ["ending_check"])
 
+    # ✅ tri endings（版本S）
+    def _ending_clear_node(self) -> str:
+        configured = (self.solve_rule.get("ending_clear_node") or "").strip()
+        return self._resolve_node_id(configured, ["scene_10_ending_clear", "ending_result"])
+
+    def _ending_nudge_node(self) -> str:
+        configured = (self.solve_rule.get("ending_nudge_node") or "").strip()
+        return self._resolve_node_id(configured, ["scene_10_ending_nudge"])
+
+    def _ending_defer_node(self) -> str:
+        configured = (self.solve_rule.get("ending_defer_node") or "").strip()
+        return self._resolve_node_id(configured, ["scene_10_ending_defer", "epilogue", "quit"])
+
     def _fallback_after_accuse(self) -> str:
-        # 沒有 ending_check 時：優先進 epilogue；不然就回到調查/起點（但不要是空字串）
         if "epilogue" in self.nodes:
             return "epilogue"
+        if "quit" in self.nodes:
+            return "quit"
         return self._coerce_valid_node("")
 
     # ----------------------------
@@ -149,17 +142,11 @@ class GameSession:
     def _is_investigate_node(self, node_id: str) -> bool:
         return self._node_tag(node_id) == "investigate"
 
-
-
     def _is_end_screen_node(self, node_id: str) -> bool:
-        # ✅ 新增：若 solve_rule 指定 end_screen_node，優先使用
         end_screen_node = (self.solve_rule.get("end_screen_node") or "").strip()
         if end_screen_node:
             return node_id == end_screen_node
 
-        # -------------------------
-        # ✅ 原本的 fallback 邏輯（保留相容）
-        # -------------------------
         tag = self._node_tag(node_id)
         if tag in ("ending_result", "ending_wrong", "epilogue", "quit", "end_screen"):
             return True
@@ -177,12 +164,6 @@ class GameSession:
     # Helpers: reason mode + config validation
     # ----------------------------
     def _reason_mode(self) -> str:
-        """
-        Day18-D1: 每案 solve_rule 可覆蓋輸入模式
-          1) solve_rule.reason_mode
-          2) config.reason_input_mode
-          3) default: "choice"
-        """
         mode = (
             self.solve_rule.get("reason_mode")
             or getattr(self.config, "reason_input_mode", None)
@@ -191,7 +172,6 @@ class GameSession:
         mode = str(mode).strip().lower()
         if mode not in ("choice", "text", "voice"):
             mode = "choice"
-        # voice 先保留 enum，但 engine 目前先當作 text（未來接語音再改）
         if mode == "voice":
             mode = "text"
         return mode
@@ -207,36 +187,7 @@ class GameSession:
             (self.state.last_reason_text or "").strip()
         )
 
-    def _safe_has_choice_options(self) -> bool:
-        """
-        choice-mode 必須要有 reason_options 才能問。
-        沒有就視為不可問（避免卡住）。
-        """
-        if self._reason_mode() != "choice":
-            return True
-        return len(self._reason_options()) > 0
-
-    def _safe_has_reason_node(self) -> bool:
-        rn = (self._reason_node() or "").strip()
-        return bool(rn) and rn in self.nodes
-
-    def _safe_has_accuse_node(self) -> bool:
-        an = (self._accuse_node() or "").strip()
-        return bool(an) and an in self.nodes
-
-    def _should_gate_to_reason(
-        self,
-        *,
-        current_node: str,
-        next_id: str,
-    ) -> bool:
-        """
-        Day18-D2: reason gate 策略
-        - 只要 next 是 accuse_node 且還沒有理由，就先去 reason_node
-        - 但如果 reason_node == first_interaction_node（你現在的 mid_reason_01），
-        代表它是主線故事節點而不是「整理理由 UI 節點」，
-        這種情況 gate 會把流程拉回去造成循環，所以必須停用 gate。
-        """
+    def _should_gate_to_reason(self, *, current_node: str, next_id: str) -> bool:
         accuse_node = (self._accuse_node() or "").strip()
         if not accuse_node:
             return False
@@ -245,25 +196,76 @@ class GameSession:
         if self._has_reason_input():
             return False
 
-        # 必須存在 reason_node
         rn = (self._reason_node() or "").strip()
         if not rn or rn not in self.nodes:
             return False
 
-        # ✅ 關鍵：reason_node 如果是「第一次互動節點」(例如 mid_reason_01)，就不要 gate
-        first_interaction = (
-            self.solve_rule.get("first_interaction_node") or ""
-        ).strip()
+        first_interaction = (self.solve_rule.get("first_interaction_node") or "").strip()
         if first_interaction and rn == first_interaction:
             return False
 
-        # ✅ 若 reason_node 就是 start，也不要 gate（避免整個流程一直回起點）
-        if (self._start_node_id or "").strip() and rn == (
-            self._start_node_id or ""
-        ).strip():
+        if (self._start_node_id or "").strip() and rn == (self._start_node_id or "").strip():
             return False
 
         return True
+
+    # ----------------------------
+    # Helpers: tri-ending availability
+    # ----------------------------
+    def _has_tri_endings(self) -> bool:
+        a = (self._ending_clear_node() or "").strip()
+        b = (self._ending_nudge_node() or "").strip()
+        c = (self._ending_defer_node() or "").strip()
+        return bool(a and b and c and a in self.nodes and b in self.nodes and c in self.nodes)
+
+    @staticmethod
+    def _to_float(x: Any, default: float = 0.0) -> float:
+        try:
+            return float(x)
+        except Exception:
+            return default
+
+    def _tri_threshold(self, accuse_config: AccuseConfig) -> float:
+        # solve_rule.threshold 優先，否則用 accuse_config.min_good_score
+        t = self.solve_rule.get("threshold", None)
+        if t is None or t == "":
+            t = getattr(accuse_config, "min_good_score", 0)
+        return self._to_float(t, 0.0)
+
+    def _tri_margin(self, threshold: float) -> float:
+        # 你可用 solve_rule.ending_nudge_margin 覆蓋
+        m = self.solve_rule.get("ending_nudge_margin", None)
+        if m is None or m == "":
+            return 0.15 if threshold <= 1.0 else 1.0
+        return self._to_float(m, 0.0)
+
+    def _tri_pick_ending(self, score: float, threshold: float, margin: float) -> str:
+        clear_node = (self._ending_clear_node() or "").strip()
+        nudge_node = (self._ending_nudge_node() or "").strip()
+        defer_node = (self._ending_defer_node() or "").strip()
+
+        if threshold <= 0:
+            return clear_node or defer_node or self._fallback_after_accuse()
+
+        if score >= threshold:
+            return clear_node or self._fallback_after_accuse()
+
+        if margin > 0 and score >= (threshold - margin):
+            return nudge_node or defer_node or self._fallback_after_accuse()
+
+        return defer_node or self._fallback_after_accuse()
+
+    def _accuse_score_fallback_when_no_reasons(self, *, target: str, threshold: float) -> float:
+        """
+        版本S常見情況：沒有 reason input / support_map 為空。
+        你仍希望可以分流 ending：用「是否指到正解」做保守分數。
+        """
+        correct = str(self.solve_rule.get("correct_suspect") or "").strip()
+        if not correct:
+            return 0.0
+        if not target:
+            return 0.0
+        return threshold if target == correct else 0.0
 
     # ----------------------------
     # AI
@@ -274,9 +276,7 @@ class GameSession:
     def say(self, req: ResponseRequest) -> ResponsePackage:
         try:
             if not getattr(req, "scene_title", ""):
-                req.scene_title = (
-                    self.nodes.get(self.current, {}).get("title") or ""
-                ).strip()
+                req.scene_title = (self.nodes.get(self.current, {}).get("title") or "").strip()
             if not getattr(req, "node_id", ""):
                 req.node_id = (self.current or "").strip()
             if not getattr(req, "turn", 0):
@@ -318,70 +318,34 @@ class GameSession:
         return pkg
 
     # ----------------------------
-    # Accuse (optional)
-    # ----------------------------
-    def accuse(
-        self,
-        accuse_config: AccuseConfig,
-        target: str,
-        reason_ids: List[str] | None = None,
-        reason_text: str = "",
-    ) -> ReasoningFeedback:
-        result = AccuseResult(
-            target=target,
-            reason_ids=list(reason_ids or []),
-            reason_id=(self.state.last_reason_id or ""),
-            reason_text=reason_text,
-        )
-        return evaluate_accuse(accuse_config, result, self.state.clues)
-
-    # ----------------------------
     # View
     # ----------------------------
+    @staticmethod
+    def _beats_to_narration(beats: Any) -> str:
+        if not isinstance(beats, list):
+            return ""
+        lines: List[str] = []
+        for b in beats:
+            if not isinstance(b, dict):
+                continue
+            sp = (b.get("speaker") or "").strip()
+            tx = (b.get("text") or "").strip()
+            if not tx:
+                continue
+            if sp:
+                lines.append(f"{sp}：{tx}")
+            else:
+                lines.append(tx)
+        return "\n\n".join(lines)
+
     def get_view(self):
         node = self.nodes[self.current]
         title = (node.get("title") or "").strip()
+
         narration = (node.get("narration") or "").strip()
+        if not narration:
+            narration = self._beats_to_narration(node.get("beats"))
 
-        # ending_check：追加推理回饋 + 回到調查
-        ending_check = (self._ending_check_node() or "").strip()
-        if ending_check and self.current == ending_check:
-            narration = self._normalize_duo_narration(narration)
-
-            choices_raw = node.get("choices") or []
-            choices: List[ChoiceView] = []
-            for i, c in enumerate(choices_raw, start=1):
-                choices.append(
-                    ChoiceView(
-                        index=i,
-                        text=(c.get("text") or "").strip(),
-                        enabled=True,
-                        reason=(c.get("after") or "").strip() or None,
-                        tag="",
-                    )
-                )
-
-            inv = (self.last_investigate_node or "").strip()
-            if inv and inv in self.nodes and inv != self._ending_check_node():
-                choices.append(
-                    ChoiceView(
-                        index=len(choices) + 1,
-                        text="回到調查（再看看現場）",
-                        enabled=True,
-                        reason=None,
-                        tag="back_to_investigate",
-                    )
-                )
-
-            self._last_view_cache = NodeView(
-                node_id=self.current,
-                title=title,
-                narration=narration,
-                choices=choices,
-            )
-            return self._last_view_cache
-
-        # Normal node view
         choices_raw = node.get("choices") or []
         choices: List[ChoiceView] = []
         for i, c in enumerate(choices_raw, start=1):
@@ -395,17 +359,19 @@ class GameSession:
                 )
             )
 
-        # accuse 節點加「回去改理由」
+        # ✅ accuse 節點加「回去改理由」：只有在 reason_node 存在時才加
         if (self._accuse_node() or "").strip() == self.current:
-            choices.append(
-                ChoiceView(
-                    index=len(choices) + 1,
-                    text="我想回去改一下我的理由（先整理再說）",
-                    enabled=True,
-                    reason=None,
-                    tag="edit_reasons",
+            rn = (self._reason_node() or "").strip()
+            if rn and rn in self.nodes:
+                choices.append(
+                    ChoiceView(
+                        index=len(choices) + 1,
+                        text="我想回去改一下我的理由（先整理再說）",
+                        enabled=True,
+                        reason=None,
+                        tag="edit_reasons",
+                    )
                 )
-            )
 
         self._last_view_cache = NodeView(
             node_id=self.current,
@@ -415,132 +381,10 @@ class GameSession:
         )
         return self._last_view_cache
 
-    @staticmethod
-    def _normalize_duo_narration(text: str) -> str:
-        pairs = [
-            ("我慢慢說：", "我們慢慢說："),
-            ("我補一句：", "我們補一句："),
-            ("我看到", "我們看到"),
-            ("我也看到", "我們也看到"),
-            ("我覺得", "我們覺得"),
-            ("我不確定", "我們不確定"),
-        ]
-        out = text or ""
-        for a, b in pairs:
-            out = out.replace(a, b)
-        return out
-
-    @staticmethod
-    def _build_reason_summary(selected_obs: List[str], reason_text: str) -> str:
-        obs = [x.strip() for x in (selected_obs or []) if x and x.strip()]
-        rt = (reason_text or "").strip()
-
-        if obs and rt:
-            return "、".join(obs[:3]) + f"（補充：{rt}）"
-        if obs:
-            return "、".join(obs[:3])
-        if rt:
-            return rt
-        return "我還不太確定，想交給老師一起確認。"
-
     # ----------------------------
-    # Commands: ask reason / end screen
+    # Commands: ask_reason / end screen
     # ----------------------------
-
-    def _make_reasoning_feedback_command(
-        self, *, node_id: str, scene_title: str
-    ) -> Dict[str, Any]:
-        accuse_config = solve_rule_to_accuse_config(self.solve_rule)
-
-        accused = (self.state.last_accuse or "").strip()
-        reason_ids = list(self.state.last_reason_ids or [])
-        reason_opts = self.solve_rule.get("reason_options", []) or []
-
-        selected_reason_texts = [
-            (opt.get("text") or "").strip()
-            for opt in reason_opts
-            if (opt.get("id") or "").strip()
-            in set([str(x).strip() for x in reason_ids])
-        ]
-        selected_reason_texts = [t for t in selected_reason_texts if t]
-
-        result = AccuseResult(
-            target=accused,
-            reason_ids=reason_ids,
-            reason_id=self.state.last_reason_id,
-            reason_text=self.state.last_reason_text,
-        )
-        fb = evaluate_accuse(accuse_config, result, set(self.state.clues))
-
-        matched_labels = [
-            self.state.clue_labels.get(k, k) for k in (fb.matched_evidence or [])
-        ]
-        missing_labels = [
-            self.state.clue_labels.get(k, k) for k in (fb.missing_key_evidence or [])
-        ]
-
-        threshold = accuse_config.min_good_score
-
-        # AI（短句）
-        ai_resp = self.say_once(
-            ResponseRequest(
-                intent="ending_feedback",
-                role="teacher",
-                scene_title=(scene_title or "").strip(),
-                node_id=(node_id or "").strip(),
-                turn=self.state.turn,
-                clues_preview=[
-                    self.state.clue_labels.get(k, k)
-                    for k in sorted(list(self.state.clues))[:6]
-                ],
-                meta={
-                    "level": fb.level,
-                    "score": fb.score,
-                    "threshold": threshold,
-                    "matched_evidence": matched_labels,
-                    "missing_key_evidence": missing_labels[:6],
-                    "engine_message": (fb.message or "").strip(),
-                },
-            )
-        )
-        feedback_text = (
-            ai_resp.text.strip() if ai_resp.text.strip() else "我們慢慢來就好。"
-        )
-
-        raw_meta = {
-            "case_title": (self.solve_rule.get("title") or "").strip(),
-            "node_id": (node_id or "").strip(),
-            "tag": "ending_check",
-            "turn": int(getattr(self.state, "turn", 0) or 0),
-            "accused": accused,
-            "reason_mode": self._reason_mode(),
-            "reason_ids": reason_ids,
-            "selected_observations": selected_reason_texts,
-            "reason_text": (self.state.last_reason_text or "").strip(),
-            "reason_summary": self._build_reason_summary(
-                selected_reason_texts, (self.state.last_reason_text or "").strip()
-            ),
-            "clues_preview": [
-                self.state.clue_labels.get(k, k) for k in sorted(self.state.clues)
-            ][:8],
-            "level": fb.level,
-            "score": fb.score,
-            "threshold": threshold,
-            "engine_message": (fb.message or "").strip(),
-            "matched_evidence": matched_labels,
-            "missing_key_evidence": missing_labels[:6],
-        }
-
-        return {
-            "type": "show_reasoning_feedback",
-            "text": feedback_text,
-            "meta": ensure_reasoning_contract_v1(raw_meta),
-        }
-
     def _make_ask_reason_command(self) -> Dict[str, Any]:
-        """
-        Day18-D4: ask_reason payload 正式化（Flutter/CLI 都能直接畫 UI）
-        """
         mode = self._reason_mode()
         opts = self._reason_options()
 
@@ -555,14 +399,13 @@ class GameSession:
         if max_len > 200:
             max_len = 200
 
-        # choice-mode 沒 options：退化成 text-mode（避免卡住）
         if mode == "choice" and not opts:
             mode = "text"
 
         return {
             "type": "ask_reason",
-            "mode": mode,  # "choice" | "text" (voice 目前會被轉成 text)
-            "options": opts,  # choice-mode 才用得到
+            "mode": mode,
+            "options": opts,
             "title": title,
             "hint": hint,
             "max_len": max_len,
@@ -571,9 +414,12 @@ class GameSession:
     def _make_end_screen_command(self, *, node_id: str) -> Dict[str, Any]:
         node = self.nodes.get(node_id, {}) or {}
         title = (node.get("title") or "").strip()
-        narration = (node.get("narration") or "").strip()
-        lesson = node.get("lesson") or []
 
+        narration = (node.get("narration") or "").strip()
+        if not narration:
+            narration = self._beats_to_narration(node.get("beats"))
+
+        lesson = node.get("lesson") or []
         tag = self._node_tag(node_id)
 
         accused = (self.state.last_accuse or "").strip()
@@ -587,22 +433,6 @@ class GameSession:
             reason_text=self.state.last_reason_text,
         )
         fb = evaluate_accuse(accuse_config, result, set(self.state.clues))
-
-        matched_labels = [
-            self.state.clue_labels.get(k, k) for k in (fb.matched_evidence or [])
-        ]
-        missing_labels = [
-            self.state.clue_labels.get(k, k) for k in (fb.missing_key_evidence or [])
-        ]
-
-        reason_opts = self.solve_rule.get("reason_options", []) or []
-        selected_reason_texts = [
-            (opt.get("text") or "").strip()
-            for opt in reason_opts
-            if (opt.get("id") or "").strip()
-            in set([str(x).strip() for x in reason_ids])
-        ]
-        selected_reason_texts = [t for t in selected_reason_texts if t]
 
         if tag in ("ending_result", "ending_wrong"):
             options = [{"id": "go_epilogue", "text": "進入尾聲"}]
@@ -620,21 +450,12 @@ class GameSession:
             "accused": accused,
             "reason_mode": self._reason_mode(),
             "reason_ids": reason_ids,
-            "selected_observations": selected_reason_texts,
             "turn": int(getattr(self.state, "turn", 0) or 0),
-            "clues_preview": [
-                self.state.clue_labels.get(k, k) for k in sorted(self.state.clues)
-            ][:8],
             "level": fb.level,
             "score": fb.score,
-            "threshold": accuse_config.min_good_score,
+            "threshold": getattr(accuse_config, "min_good_score", 0),
             "engine_message": (fb.message or "").strip(),
-            "matched_evidence": matched_labels,
-            "missing_key_evidence": missing_labels[:6],
             "reason_text": (self.state.last_reason_text or "").strip(),
-            "reason_summary": self._build_reason_summary(
-                selected_reason_texts, (self.state.last_reason_text or "").strip()
-            ),
         }
 
         return {
@@ -651,48 +472,49 @@ class GameSession:
     # ----------------------------
     # Accuse helper: map choice index -> suspect id
     # ----------------------------
-    def _apply_accuse_choice_if_needed(
-        self, *, node_id: str, choice_index: int
-    ) -> None:
-        """
-        將 final_accuse/accuse 節點的選項 index，
-        依 solve_rule.accuse_choice_to_suspect 映射成 last_accuse。
-        不碰 STORY_NODES schema。
-        """
+    def _apply_accuse_choice_if_needed(self, *, node_id: str, choice_index: int) -> None:
         accuse_node = (self._accuse_node() or "").strip()
         if not accuse_node or node_id != accuse_node:
             return
 
         mapping = self.solve_rule.get("accuse_choice_to_suspect") or {}
+
         sid = str(mapping.get(str(choice_index), "")).strip()
+        if not sid:
+            # fallback：至少塞選項文字（避免空）
+            try:
+                node = self.nodes.get(node_id, {}) or {}
+                choices = node.get("choices") or []
+                if 0 < choice_index <= len(choices):
+                    sid = str((choices[choice_index - 1].get("text") or "")).strip()
+            except Exception:
+                sid = ""
+
         self.state.last_accuse = sid
 
     # ----------------------------
-    # Internal: apply choice
+    # Internal: apply choice effects
     # ----------------------------
-    def _apply_choice_effects_and_collect_events(
-        self, choice: Dict[str, Any], events: List[str]
-    ) -> None:
-        before_clues = set(self.state.clues)
-
+    def _apply_choice_effects_and_collect_events(self, choice: Dict[str, Any], events: List[str]) -> None:
         apply_effects(self.state, choice.get("effects"))
 
+        # ✅ 線索收集照做，但不要在 events 裡提示
         for ev in choice.get("evidence") or []:
-            self.state.add_clue_with_label(ev.get("key", ""), ev.get("label"))
-
-        gained = sorted(set(self.state.clues) - before_clues)
-        for k in gained:
-            events.append(f"獲得線索：{self.state.clue_labels.get(k, k)}")
+            try:
+                self.state.add_clue_with_label(ev.get("key", ""), ev.get("label"))
+            except Exception:
+                pass
 
         after = (choice.get("after") or "").strip()
         if after:
-            events.append(f"推理短對話：{after}")
+            events.append(after)
 
+        # 若故事 choice 直接指定 accuse
         if "accuse" in choice:
             self.state.last_accuse = (choice.get("accuse") or "").strip()
 
     # ----------------------------
-    # Internal: accuse feedback
+    # Internal: accuse -> decide next node
     # ----------------------------
     def _handle_accuse_if_needed(
         self,
@@ -702,85 +524,48 @@ class GameSession:
         events: List[str],
         commands: List[Dict[str, Any]],
     ) -> str:
-        accuse_node = self._accuse_node()
+        accuse_node = (self._accuse_node() or "").strip()
         if not accuse_node or current_node != accuse_node:
             return next_id
 
-        ending_check = self._ending_check_node()
-        chosen_suspect = (self.state.last_accuse or "").strip()
+        # ✅ tri-endings（版本S）優先
+        if self._has_tri_endings():
+            chosen = (self.state.last_accuse or "").strip()
 
-        if not chosen_suspect:
-            events.append(
-                "霏霏：你先選『不確定』很安全，我們把看到的整理清楚交給老師就好。"
-            )
-            ending_check = (self._ending_check_node() or "").strip()
-            if ending_check and ending_check in self.nodes:
-                return ending_check
-            return self._fallback_after_accuse()
+            # ✅ 你說「就走 defer」：不確定/空 → defer
+            if not chosen:
+                return (self._ending_defer_node() or "").strip() or self._fallback_after_accuse()
 
-        threshold = int(self.solve_rule.get("threshold", 0) or 0)
-        reason_ids = self.state.last_reason_ids or []
+            accuse_config = solve_rule_to_accuse_config(self.solve_rule)
+            threshold = self._tri_threshold(accuse_config)
+            margin = self._tri_margin(threshold)
 
-        suspects = self.solve_rule.get("suspects", {}) or {}
-        profile = suspects.get(chosen_suspect, {}) or {}
-        support = profile.get("support", {}) or {}
+            # 若有理由/線索系統，就用 evaluate_accuse；否則用 fallback（正確才給分）
+            score: float
+            if self._has_reason_input():
+                result = AccuseResult(
+                    target=chosen,
+                    reason_ids=list(self.state.last_reason_ids or []),
+                    reason_id=self.state.last_reason_id,
+                    reason_text=self.state.last_reason_text,
+                )
+                fb: ReasoningFeedback = evaluate_accuse(accuse_config, result, set(self.state.clues))
+                score = self._to_float(getattr(fb, "score", 0.0), 0.0)
+            else:
+                score = self._accuse_score_fallback_when_no_reasons(
+                    target=chosen, threshold=threshold
+                )
 
-        total_score, matched, missing = score_reasons_with_evidence(
-            reason_ids=reason_ids,
-            reason_options=self.solve_rule.get("reason_options", []),
-            clues=set(self.state.clues),
-            support_map=support,
-        )
+            return self._tri_pick_ending(score, threshold, margin)
 
-        resp = self.say_once(
-            ResponseRequest(
-                intent="safe_redirect_after_accuse",
-                role="feifei",
-                accused_name=chosen_suspect,
-                selected_observations=[
-                    (opt.get("text") or "").strip()
-                    for opt in (self.solve_rule.get("reason_options") or [])
-                    if (opt.get("id") or "").strip() in (reason_ids or [])
-                ],
-                node_id=self.current,
-                turn=self.state.turn,
-                scene_title=(
-                    self.nodes.get(self.current, {}).get("title") or ""
-                ).strip(),
-                clues_preview=[
-                    self.state.clue_labels.get(k, k) for k in sorted(self.state.clues)
-                ][:6],
-            )
-        )
-        if resp.text.strip():
-            events.append(resp.text.strip())
-
-        if matched:
-            labels = [self.state.clue_labels.get(k, k) for k in matched]
-            events.append("你有用到的線索：" + "、".join(labels))
-
-        if missing:
-            labels = [self.state.clue_labels.get(k, k) for k in missing[:2]]
-            events.append("可以再留意看看：" + "、".join(labels))
-
-        confirm = self.solve_rule.get("confirm_quiz", []) or []
-        if (
-            getattr(self.config, "enable_quiz", False)
-            and confirm
-            and (threshold <= 0 or total_score >= max(1, threshold // 2))
-        ):
-            commands.append({"type": "confirm_quiz", "quiz": confirm})
-
+        # -----------------------
+        # ✅ 舊流程（運動會貼紙日）：有 ending_check 就走它
+        # -----------------------
         ending_check = (self._ending_check_node() or "").strip()
         if ending_check and ending_check in self.nodes:
             return ending_check
 
-        # ✅ 本案沒有 ending_check：直接走 ending_result（符合 STORY_NODES v1.1）
-        if "ending_result" in self.nodes:
-            return "ending_result"
-
-        # 最後保底（避免空字串造成循環）
-        return self._coerce_valid_node("")
+        return next_id
 
     # ----------------------------
     # Step
@@ -789,9 +574,7 @@ class GameSession:
         events: List[str] = []
         commands: List[Dict[str, Any]] = []
 
-        # ----------------------------
-        # Day16-C: end_flow
-        # ----------------------------
+        # end_flow
         if action.type == "end_flow":
             act = (action.end_action or "").strip()
 
@@ -799,11 +582,7 @@ class GameSession:
                 if "epilogue" in self.nodes:
                     self.current = "epilogue"
                     commands.append(self._make_end_screen_command(node_id="epilogue"))
-                    return StepResult(
-                        view=None, events=events, is_over=True, commands=commands
-                    )
-
-                # 保底：沒有 epilogue 就結束（讓 bridge 決定怎麼做）
+                    return StepResult(view=None, events=events, is_over=True, commands=commands)
                 return StepResult(
                     view=None,
                     events=events + ["沒有 epilogue 節點"],
@@ -811,16 +590,12 @@ class GameSession:
                     commands=[],
                 )
 
-            # ✅ Day22: restart/switch/quit 不再由 engine 送 flow command
             if act in ("restart_case", "switch_case", "quit"):
-                # 交給 json_bridge dispatcher（跨 session/跨 case）
                 return StepResult(view=None, events=events, is_over=True, commands=[])
 
             return StepResult(view=None, events=["未知 end_action"], is_over=True)
 
-        # ----------------------------
         # set_reasons
-        # ----------------------------
         if action.type == "set_reasons":
             reason_ids = action.reason_ids or []
             reason_text = (action.reason_text or "").strip()
@@ -829,206 +604,50 @@ class GameSession:
             self.state.last_reason_id = ""
             self.state.last_reason_text = reason_text
 
-            reason_opts = self.solve_rule.get("reason_options") or []
-
-            events = []
-            seen_any = False
-            missing_hints: List[str] = []
-
-            # 1) choice-mode：逐個理由 ack + evidence hints
-            for rid in reason_ids:
-                opt = next(
-                    (
-                        o
-                        for o in reason_opts
-                        if (o.get("id") or "").strip() == str(rid).strip()
-                    ),
-                    None,
-                )
-                if not opt:
-                    continue
-
-                text = (opt.get("text") or "").strip()
-                if not text:
-                    continue
-
+            # ✅ 不做提示型回饋（避免複習線索），最多只回一句「收到」
+            try:
                 resp = self.say_once(
                     ResponseRequest(
-                        intent="acknowledge_observation",
+                        intent="ack_reasons_simple",
                         role="feifei",
-                        selected_observations=[text],
                         node_id=self.current,
                         turn=self.state.turn,
-                        scene_title=(
-                            self.nodes.get(self.current, {}).get("title") or ""
-                        ).strip(),
-                        clues_preview=[
-                            self.state.clue_labels.get(k, k)
-                            for k in sorted(self.state.clues)
-                        ][:6],
+                        scene_title=(self.nodes.get(self.current, {}).get("title") or "").strip(),
+                        meta={"has_choice": bool(reason_ids), "has_text": bool(reason_text)},
                     )
                 )
                 if resp.text.strip():
                     events.append(resp.text.strip())
+            except Exception:
+                pass
 
-                expected = [
-                    str(x).strip()
-                    for x in (opt.get("expected_evidence") or [])
-                    if str(x).strip()
-                ]
-                got = [k for k in expected if k in self.state.clues]
-                miss = [k for k in expected if k not in self.state.clues]
-
-                if got:
-                    seen_any = True
-                    labels = [self.state.clue_labels.get(k, k) for k in got]
-                    events.append("霏霏：這個想法有線索支持：" + "、".join(labels))
-
-                if miss:
-                    missing_hints.append(self.state.clue_labels.get(miss[0], miss[0]))
-
-            # 2) text-mode：一句話理由
-            if reason_text:
-                resp = self.say_once(
-                    ResponseRequest(
-                        intent="acknowledge_reason_text",
-                        role="feifei",
-                        player_text=reason_text,
-                        node_id=self.current,
-                        turn=self.state.turn,
-                        scene_title=(
-                            self.nodes.get(self.current, {}).get("title") or ""
-                        ).strip(),
-                        clues_preview=[
-                            self.state.clue_labels.get(k, k)
-                            for k in sorted(self.state.clues)
-                        ][:6],
-                    )
-                )
-                if resp.text.strip():
-                    events.append(resp.text.strip())
-
-            # 3) 都沒有（不確定）
-            if (not reason_ids) and (not reason_text):
-                resp = self.say_once(
-                    ResponseRequest(
-                        intent="support_uncertain",
-                        role="feifei",
-                        player_text="我不確定",
-                        node_id=self.current,
-                        turn=self.state.turn,
-                        scene_title=(
-                            self.nodes.get(self.current, {}).get("title") or ""
-                        ).strip(),
-                        clues_preview=[
-                            self.state.clue_labels.get(k, k)
-                            for k in sorted(self.state.clues)
-                        ][:6],
-                    )
-                )
-                if resp.text.strip():
-                    events.append(resp.text.strip())
-            elif (not seen_any) and (reason_ids):
-                resp = self.say_once(
-                    ResponseRequest(
-                        intent="reflect_reasoning",
-                        role="feifei",
-                        selected_observations=[
-                            (opt.get("text") or "").strip()
-                            for opt in reason_opts
-                            if (opt.get("id") or "").strip()
-                            in [str(x).strip() for x in reason_ids]
-                        ],
-                        node_id=self.current,
-                        turn=self.state.turn,
-                        scene_title=(
-                            self.nodes.get(self.current, {}).get("title") or ""
-                        ).strip(),
-                        clues_preview=[
-                            self.state.clue_labels.get(k, k)
-                            for k in sorted(self.state.clues)
-                        ][:6],
-                    )
-                )
-                if resp.text.strip():
-                    events.append(resp.text.strip())
-                if missing_hints:
-                    labels = "、".join(missing_hints[:2])
-                    events.append(f"霏霏：之後可以再留意看看：{labels}")
-
-                # 5) 不確定：直接去 ending_check（不再逼指認）
-                if (not reason_ids) and (not reason_text):
-                    events.append("霏霏：好，我們先交給老師。你已經做得很棒了。")
-                    self.current = self._ending_check_node()
-
-                    # ✅ Day19-D：即使是 set_reasons 導向 ending_check，也要發 feedback command
-                    ending_check_node = (self._ending_check_node() or "").strip()
-                    if ending_check_node and self.current == ending_check_node:
-                        scene_title = (
-                            self.nodes.get(self.current, {}).get("title") or ""
-                        ).strip()
-                        commands.append(
-                            self._make_reasoning_feedback_command(
-                                node_id=self.current, scene_title=scene_title
-                            )
-                        )
-
-                    return StepResult(
-                        view=self.get_view(),
-                        events=events,
-                        is_over=False,
-                        commands=commands,
-                    )
-
-            # 6) 有理由：回 accuse
             accuse_node = (self._accuse_node() or "accuse").strip()
-
-            # Day18-C：整理理由後，清掉上一次指認（避免 stale）
             self.state.last_accuse = ""
+            self.current = accuse_node if accuse_node in self.nodes else next(iter(self.nodes.keys()))
+            return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
 
-            self.current = (
-                accuse_node
-                if accuse_node in self.nodes
-                else next(iter(self.nodes.keys()))
-            )
-            return StepResult(
-                view=self.get_view(), events=events, is_over=False, commands=commands
-            )
-        # ----------------------------
-        # confirm_quiz_answer (NEW)
-        # ----------------------------
+        # confirm_quiz_answer
         if action.type == "confirm_quiz_answer":
             answers = action.answers or []
             skipped = bool(getattr(action, "skipped", False))
 
-            # 存 state（可選）
             try:
                 self.state.last_confirm_quiz_answers = list(answers)
                 self.state.last_confirm_quiz_skipped = bool(skipped)
             except Exception:
                 pass
 
-            if skipped:
-                events.append("霏霏：沒關係喔，我們先往下走。")
-            else:
-                events.append("霏霏：好，我知道你是怎麼想的了，我們往下看看。")
+            events.append("霏霏：好，我們往下看看。")
 
-            # ✅ 直接進尾聲（等同 UI 點「進入尾聲」）
-            act = "go_epilogue"
             if "epilogue" in self.nodes:
                 self.current = "epilogue"
                 commands.append(self._make_end_screen_command(node_id="epilogue"))
-                return StepResult(
-                    view=None, events=events, is_over=True, commands=commands
-                )
+                return StepResult(view=None, events=events, is_over=True, commands=commands)
 
-            # 沒有 epilogue 就回 flow restart（保底）
             commands.append({"type": "flow", "action": "restart_case"})
             return StepResult(view=None, events=events, is_over=True, commands=commands)
 
-        # ----------------------------
         # basic actions
-        # ----------------------------
         if action.type == "quit":
             return StepResult(view=None, events=["玩家選擇離開"], is_over=True)
 
@@ -1037,15 +656,9 @@ class GameSession:
                 ResponseRequest(
                     intent="replay_context",
                     role="feifei",
-                    scene_title=(
-                        self.nodes.get(self.current, {}).get("title") or ""
-                    ).strip(),
+                    scene_title=(self.nodes.get(self.current, {}).get("title") or "").strip(),
                     node_id=self.current,
                     turn=self.state.turn,
-                    clues_preview=[
-                        self.state.clue_labels.get(k, k)
-                        for k in sorted(self.state.clues)
-                    ][:6],
                 )
             )
             return StepResult(view=self.get_view(), events=[resp.text], is_over=False)
@@ -1060,43 +673,14 @@ class GameSession:
 
         self.state.turn += 1
 
-        # ✅ 若在 accuse/final_accuse 節點，先把 choice_index 映射成 last_accuse
-        self._apply_accuse_choice_if_needed(
-            node_id=self.current,
-            choice_index=idx,
-        )
-
-        ending_check_node = (self._ending_check_node() or "").strip()
-        if ending_check_node and self.current == ending_check_node:
-            picked = view.choices[idx - 1]
-            if (picked.tag or "").strip() == "back_to_investigate":
-                events.append(
-                    "霏霏：好，我們先不急著收尾。再回去看看現場，找一個更清楚的小細節。"
-                )
-                events.append("樂樂：嗯！我們慢慢找，不用急著說名字。")
-
-                target = (self.last_investigate_node or "").strip()
-                if target and target in self.nodes:
-                    self.current = target
-                else:
-                    self.current = (
-                        self._start_node_id
-                        if self._start_node_id in self.nodes
-                        else next(iter(self.nodes.keys()))
-                    )
-
-                return StepResult(
-                    view=self.get_view(),
-                    events=events,
-                    is_over=False,
-                    commands=commands,
-                )
+        # accuse node: map choice -> last_accuse
+        self._apply_accuse_choice_if_needed(node_id=self.current, choice_index=idx)
 
         # 記錄最後調查點
         if self._is_investigate_node(self.current):
             self.last_investigate_node = self.current
 
-        # accuse 節點的「回去改理由」
+        # accuse node: edit reasons（只有 reason_node 存在才會出現）
         if self.current == (self._accuse_node() or "").strip():
             picked = view.choices[idx - 1]
             if (picked.tag or "").strip() == "edit_reasons":
@@ -1104,13 +688,8 @@ class GameSession:
                 reason_node = (self._reason_node() or "").strip()
                 if reason_node and reason_node in self.nodes:
                     self.current = reason_node
-                commands.append(self._make_ask_reason_command())
-                return StepResult(
-                    view=self.get_view(),
-                    events=events,
-                    is_over=False,
-                    commands=commands,
-                )
+                    commands.append(self._make_ask_reason_command())
+                    return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
 
         # story choice
         node = self.nodes[self.current]
@@ -1122,17 +701,14 @@ class GameSession:
         if not next_id:
             return StepResult(view=None, events=events + ["故事結束"], is_over=True)
 
-        # Day18-D2: gate（只有在配置完整時才 gate）
+        # gate to reason（版本S reason_node 是空，這裡會自然不 gate）
         if self._should_gate_to_reason(current_node=self.current, next_id=next_id):
-            # 進入 reason 前先清 accuse（避免殘留）
             self.state.last_accuse = ""
             self.current = self._reason_node()
             commands.append(self._make_ask_reason_command())
-            return StepResult(
-                view=self.get_view(), events=events, is_over=False, commands=commands
-            )
+            return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
 
-        # accuse feedback（進 ending_check）
+        # accuse feedback -> tri endings / old ending_check
         final_next = self._handle_accuse_if_needed(
             current_node=self.current,
             next_id=next_id,
@@ -1142,39 +718,18 @@ class GameSession:
 
         self.current = self._coerce_valid_node(final_next)
 
-        # ✅ Day19-D：進 ending_check 就發 reasoning_feedback command（用 command 顯示，不塞 narration）
-        ending_check_node = (self._ending_check_node() or "").strip()
-        if ending_check_node and self.current == ending_check_node:
-            scene_title = (self.nodes.get(self.current, {}).get("title") or "").strip()
-            commands.append(
-                self._make_reasoning_feedback_command(
-                    node_id=self.current, scene_title=scene_title
-                )
-            )
-            return StepResult(
-                view=self.get_view(),
-                events=events,
-                is_over=False,
-                commands=commands,
-            )
-
-        # Day18-D2（補強）：如果「走到 reason_node」且需要理由，才出 ask_reason
-        # 但要避免缺配置卡住：choice-mode 沒 options 會自動退化成 text-mode
+        # reason node: if need ask_reason
         rn = (self._reason_node() or "").strip()
         if rn and self.current == rn and (not self._has_reason_input()):
             commands.append(self._make_ask_reason_command())
-            return StepResult(
-                view=self.get_view(), events=events, is_over=False, commands=commands
-            )
+            return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
 
-        # EndScreen command-only
+        # end screen command-only nodes
         if self._is_end_screen_node(self.current):
             commands.append(self._make_end_screen_command(node_id=self.current))
             return StepResult(view=None, events=events, is_over=True, commands=commands)
 
-        return StepResult(
-            view=self.get_view(), events=events, is_over=False, commands=commands
-        )
+        return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
 
     # ----------------------------
     # Save / Load

@@ -1,16 +1,17 @@
 # src/questforge_server/routes_game.py
 from __future__ import annotations
-import traceback
+
 import random
+import traceback
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from questforge.content.cases import CASES
 from questforge.engine.actions import PlayerAction
 from questforge.engine.session import GameSession, StepResult
 from questforge_server.session_store import SessionStore
-from questforge.content.cases import CASES
 
 router = APIRouter(prefix="/v1/game", tags=["game"])
 
@@ -71,12 +72,13 @@ class AccuseEvaluateResponse(BaseModel):
     matched_choice_index: Optional[int] = None
     matched_choice_text: Optional[str] = None
     defer_choice_index: Optional[int] = None
+    ending_kind: Optional[str] = None  # "clear" | "nudge" | "defer"
     auto_submit: Optional[bool] = None
     debug: Optional[Dict[str, Any]] = None
 
 
 class BundleResponse(BaseModel):
-    # 你現在 Flutter 端用的是 bundle.view/ask/quiz/end，所以固定保持這四個 key
+    # Flutter 端用的是 bundle.view/ask/quiz/end，所以固定保持這四個 key
     view: Optional[Dict[str, Any]] = None
     ask: Optional[Dict[str, Any]] = None
     quiz: Optional[Dict[str, Any]] = None
@@ -150,8 +152,7 @@ def _bundle_from_session_and_step(
         elif t == "show_end_screen":
             end = cmd
         elif t == "show_reasoning_feedback":
-            # 目前 OverlayManagerV2 沒有這個 overlay 類型時，你可以先把它當 end 用（或之後擴充 overlay）
-            # 先放 end，至少 Flutter 可以顯示出來（你之後可改成獨立 overlay）
+            # 目前 OverlayManagerV2 沒有這個 overlay 類型時，先放 end
             end = cmd
 
     return (
@@ -214,18 +215,21 @@ def _norm_text(s: str) -> str:
     return s
 
 
-TEACHER_KEYWORDS = [
-    "交給老師",
-    "老師",
+# --- 2) 把 TEACHER_KEYWORDS 改成「交給大人/去確認」語氣（你不想突然老師登場） ---
+
+ADULT_FALLBACK_KEYWORDS = [
+    "交給大人",
+    "交給會長",
+    "會長",
+    "警衛",
     "我不確定",
     "不確定",
     "不知道",
     "我不知道",
-    "隨便",
-    "你決定",
-    "想不到",
-    "沒想法",
-    "先交給",
+    "先去確認",
+    "先問一下",
+    "等一下問",
+    "我想再想一下",
 ]
 
 
@@ -233,43 +237,132 @@ def _looks_like_teacher_intent(text: str) -> bool:
     r = _norm_text(text)
     if not r:
         return False
-    for k in TEACHER_KEYWORDS:
+    for k in ADULT_FALLBACK_KEYWORDS:
         if _norm_text(k) in r:
             return True
     return False
 
 
-def _find_teacher_choice_index(view_json: Dict[str, Any]) -> Optional[int]:
-    choices = (view_json or {}).get("choices") or []
-    for c in choices:
-        t = str((c or {}).get("text") or "").strip()
-        for k in TEACHER_KEYWORDS:
+def _iter_choices(view_obj_or_json: Any) -> List[Tuple[Optional[int], str]]:
+    """
+    兼容：
+    - view_json: {"choices":[{"index":0,"text":"..."}]}
+    - view_obj: NodeView.choices = [ChoiceView(...)]
+    回傳 list of (index:int|None, text:str)
+    """
+    if view_obj_or_json is None:
+        return []
+
+    out: List[Tuple[Optional[int], str]] = []
+
+    # dict json
+    if isinstance(view_obj_or_json, dict):
+        raw_choices = view_obj_or_json.get("choices") or []
+        for c in raw_choices:
+            if c is None:
+                continue
+            if isinstance(c, dict):
+                idx = c.get("index")
+                txt = c.get("text")
+            else:
+                idx = getattr(c, "index", None)
+                txt = getattr(c, "text", None)
+            try:
+                idx_int = int(idx) if idx is not None else None
+            except Exception:
+                idx_int = None
+            out.append((idx_int, str(txt or "").strip()))
+        return out
+
+    # object view
+    raw_choices = getattr(view_obj_or_json, "choices", None) or []
+    for c in raw_choices:
+        if c is None:
+            continue
+        idx = getattr(c, "index", None)
+        txt = getattr(c, "text", None)
+        try:
+            idx_int = int(idx) if idx is not None else None
+        except Exception:
+            idx_int = None
+        out.append((idx_int, str(txt or "").strip()))
+    return out
+
+
+def _find_teacher_choice_index(view_obj_or_json: Any) -> Optional[int]:
+    for idx, t in _iter_choices(view_obj_or_json):
+        if idx is None:
+            continue
+        for k in ADULT_FALLBACK_KEYWORDS:
             if k in t:
-                try:
-                    return int((c or {}).get("index"))
-                except Exception:
-                    pass
+                return idx
     return None
 
 
+def _tokenize_choice_text(text: str) -> List[str]:
+    """
+    從 choice 文案切出候選 token（>=2字），讓孩子只講「飯糰/波波」也能命中。
+    例：'飯糰啵啵（白色吊飾）' -> ['飯糰', '啵啵', '白色', '吊飾', '飯糰啵啵', ...ngram]
+    """
+    import re
+
+    raw = (text or "").strip()
+    if not raw:
+        return []
+
+    # 先取括號前的主名 + 全名
+    main = re.split(r"[（(]", raw)[0].strip()
+    candidates = [raw, main]
+
+    # 去符號後切詞：中文/英文/數字連段
+    cleaned = re.sub(r"[^\u4e00-\u9fff0-9a-zA-Z]+", " ", raw)
+    parts = [p.strip() for p in cleaned.split() if p.strip()]
+
+    out: List[str] = []
+    for s in candidates + parts:
+        ns = _norm_text(s)
+        if len(ns) >= 2:
+            out.append(ns)
+
+    # 再補：中文連續片段的 2~4 字 ngram（提升片段命中）
+    chinese_runs = re.findall(r"[\u4e00-\u9fff]{2,}", raw)
+    for run in chinese_runs:
+        run = run.strip()
+        for L in (2, 3, 4):
+            if len(run) >= L:
+                for i in range(0, len(run) - L + 1):
+                    ng = _norm_text(run[i : i + L])
+                    if len(ng) >= 2:
+                        out.append(ng)
+
+    # 去重但保留順序
+    seen = set()
+    uniq: List[str] = []
+    for t in out:
+        if t not in seen:
+            seen.add(t)
+            uniq.append(t)
+    return uniq
+
+
 def _best_effort_match_choice(
-    view_json: Dict[str, Any], recognized_text: str
-) -> Tuple[Optional[int], Optional[str], float]:
-    """Simple fuzzy match without AI. Return (idx, text, score)."""
+    view_obj_or_json: Any, recognized_text: str
+) -> Tuple[Optional[int], Optional[str], float, Optional[Dict[str, Any]]]:
     r = _norm_text(recognized_text)
     if not r:
-        return None, None, 0.0
+        return None, None, 0.0, {"reason": "empty_recognized"}
 
     best_idx: Optional[int] = None
     best_text: Optional[str] = None
     best_score = 0.0
+    best_dbg: Optional[Dict[str, Any]] = None
 
-    for c in (view_json or {}).get("choices") or []:
-        t = str((c or {}).get("text") or "").strip()
-        idx = (c or {}).get("index")
+    for idx, t in _iter_choices(view_obj_or_json):
+        if idx is None:
+            continue
 
-        # skip teacher option for matching suspects
-        if any(k in t for k in TEACHER_KEYWORDS):
+        # skip adult fallback option for matching suspects
+        if any(k in t for k in ADULT_FALLBACK_KEYWORDS):
             continue
 
         nt = _norm_text(t)
@@ -277,39 +370,50 @@ def _best_effort_match_choice(
             continue
 
         score = 0.0
+        why = "none"
+
         if nt in r and len(nt) >= 2:
             score = 1.0
+            why = "choice_in_recognized"
         elif r in nt and len(r) >= 2:
-            score = 0.9
+            score = 0.92
+            why = "recognized_in_choice"
         else:
-            # longest common substring length
-            n = len(r)
-            m = len(nt)
-            dp = [0] * (m + 1)
-            best = 0
-            for i in range(1, n + 1):
-                prev = 0
-                for j in range(1, m + 1):
-                    temp = dp[j]
-                    if r[i - 1] == nt[j - 1]:
-                        dp[j] = prev + 1
-                        best = max(best, dp[j])
-                    else:
-                        dp[j] = 0
-                    prev = temp
-            if best >= 2:
-                base = best / max(1, len(nt))
-                score = base + (0.25 if best >= 3 else 0.12)
+            tokens = _tokenize_choice_text(t)
+            for tok in tokens:
+                if len(tok) >= 2 and (tok in r or r in tok):
+                    score = max(score, 0.86 if len(tok) >= 3 else 0.78)
+                    why = f"token_hit:{tok}"
+                    break
+
+            if score <= 0.0:
+                n = len(r)
+                m = len(nt)
+                dp = [0] * (m + 1)
+                best = 0
+                for i in range(1, n + 1):
+                    prev = 0
+                    for j in range(1, m + 1):
+                        temp = dp[j]
+                        if r[i - 1] == nt[j - 1]:
+                            dp[j] = prev + 1
+                            best = max(best, dp[j])
+                        else:
+                            dp[j] = 0
+                        prev = temp
+
+                if best >= 2:
+                    base = best / max(1, len(nt))
+                    score = base + (0.25 if best >= 3 else 0.12)
+                    why = f"lcs:{best}"
 
         if score > best_score:
-            best_score = score
-            try:
-                best_idx = int(idx)
-            except Exception:
-                best_idx = None
+            best_score = float(score)
+            best_idx = idx
             best_text = t
+            best_dbg = {"why": why, "choice": t, "recognized": recognized_text}
 
-    return best_idx, best_text, float(best_score)
+    return best_idx, best_text, float(best_score), best_dbg
 
 
 # ----------------------------
@@ -317,13 +421,18 @@ def _best_effort_match_choice(
 # ----------------------------
 
 
+# --- 3) api_accuse_evaluate：把 ending_kind + score 存進 session.state.vars，讓 engine 用它導結局 ---
+
+
 @router.post("/accuse_evaluate", response_model=AccuseEvaluateResponse)
 def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
     threshold = 0.6
+    nudge_margin = 0.12  # ✅ 差一點點：0.48~0.59 -> nudge
+    auto_submit_delta = 0.15  # ✅ clear：>= 0.75 才建議直接自動送（可自行調）
+
     try:
         session = _get_session_or_404(req.session_id)
 
-        # 兼容不同 session API
         if hasattr(session, "get_view"):
             view = session.get_view()
         elif hasattr(session, "view"):
@@ -331,74 +440,148 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
         else:
             view = None
 
-        view_json = _to_json_dict(view) if view is not None else {}
         recognized_text = (req.recognized_text or "").strip()
-        teacher_idx = _find_teacher_choice_index(view_json)
+        teacher_idx = _find_teacher_choice_index(view)
+
+        # 先清掉舊值避免殘留
+        session.state.vars.pop("accuse_bucket", None)
+        session.state.vars.pop("accuse_score", None)
+        session.state.vars.pop("accuse_text", None)
 
         if not recognized_text:
+            # 空字串：不自動送
+            session.state.vars["accuse_bucket"] = "defer"
+            session.state.vars["accuse_score"] = 0.0
+            session.state.vars["accuse_text"] = ""
             return AccuseEvaluateResponse(
                 decision="defer_to_teacher",
                 score=0.0,
                 threshold=threshold,
-                fifi_reply="霏霏：我剛剛沒有聽清楚耶～我們先把看到的交給老師，一起整理。",
-                matched_choice_index=None,
-                matched_choice_text=None,
+                fifi_reply="霏霏：欸…我剛剛沒聽清楚耶。你可以再說一次，或直接點下面也可以～",
                 defer_choice_index=teacher_idx,
                 auto_submit=False,
-                debug={"empty": True},
+                ending_kind="defer",
+                debug={"case": "empty_text", "teacher_idx": teacher_idx},
             )
 
+        # 明確「先去確認/交給大人」
         if _looks_like_teacher_intent(recognized_text):
+            session.state.vars["accuse_bucket"] = "defer"
+            session.state.vars["accuse_score"] = 0.0
+            session.state.vars["accuse_text"] = recognized_text
+
+            defer_auto_submit = (teacher_idx is not None) and (
+                len(_norm_text(recognized_text)) >= 4
+            )
             return AccuseEvaluateResponse(
                 decision="defer_to_teacher",
                 score=0.0,
                 threshold=threshold,
-                fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。沒關係～我們先把看到的交給老師，一起安心整理。",
-                matched_choice_index=None,
-                matched_choice_text=None,
+                fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。好～那我們先去問清楚，免得越講越亂。",
                 defer_choice_index=teacher_idx,
-                auto_submit=False,
-                debug={"teacher_intent": True},
+                auto_submit=defer_auto_submit,
+                ending_kind="defer",
+                debug={
+                    "case": "adult_intent",
+                    "teacher_idx": teacher_idx,
+                    "defer_auto_submit": defer_auto_submit,
+                },
             )
 
-        idx, text, score = _best_effort_match_choice(view_json, recognized_text)
+        # 做 fuzzy match（用來找「你是指誰」）
+        idx, text, score, mdbg = _best_effort_match_choice(view, recognized_text)
+
+        # ✅ bucket 決策（3 段）
         if idx is not None and score >= threshold:
+            bucket = "clear"
+        elif idx is not None and score >= (threshold - nudge_margin):
+            bucket = "nudge"
+        else:
+            bucket = "defer"
+
+        session.state.vars["accuse_bucket"] = bucket
+        session.state.vars["accuse_score"] = float(score or 0.0)
+        session.state.vars["accuse_text"] = recognized_text
+        if idx is not None:
+            session.state.vars["accuse_choice_index"] = int(idx)
+
+        # auto_submit 規則：
+        # - clear：高於 threshold+delta 才直接送
+        # - nudge：不直接送（避免誤送），由孩子按「送出」即可
+        # - defer：若有 fallback 且字夠長，允許直接送
+        if bucket == "clear":
+            accuse_auto_submit = bool(float(score) >= (threshold + auto_submit_delta))
+        else:
+            accuse_auto_submit = False
+
+        if bucket == "defer":
+            defer_auto_submit = (teacher_idx is not None) and (
+                len(_norm_text(recognized_text)) >= 4
+            )
+        else:
+            defer_auto_submit = False
+
+        # ✅ fifi_reply：不要「線索口吻」，只接住 + 不說教
+        if bucket == "clear":
+            fifi = (
+                f"霏霏：我聽到你說「{recognized_text}」。好～我們就照你說的方向講清楚。"
+            )
+        elif bucket == "nudge":
+            fifi = f"霏霏：我聽到你說「{recognized_text}」。我懂～我再幫你補一句：有些話前後不太一樣，我們等等一起對一對。"
+        else:
+            fifi = f"霏霏：我聽到你說「{recognized_text}」。我們先不要急著喊名字，先去確認一下比較安心。"
+
+        if bucket in ("clear", "nudge") and idx is not None:
             return AccuseEvaluateResponse(
                 decision="accuse",
                 score=float(score),
                 threshold=threshold,
-                fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。我先幫你整理：你覺得可能跟「{text}」有關。就算不完全確定也沒關係，我們可以請老師一起看。",
+                fifi_reply=fifi,
                 matched_choice_index=idx,
                 matched_choice_text=text,
                 defer_choice_index=teacher_idx,
-                auto_submit=False,
-                debug={"matched": True},
+                auto_submit=accuse_auto_submit,
+                ending_kind=bucket,
+                debug={
+                    "case": "accuse_bucket",
+                    "bucket": bucket,
+                    "match": mdbg,
+                    "teacher_idx": teacher_idx,
+                },
             )
 
         return AccuseEvaluateResponse(
             decision="defer_to_teacher",
-            score=float(score),
+            score=float(score or 0.0),
             threshold=threshold,
-            fifi_reply=f"霏霏：我聽到你說「{recognized_text}」。你的想法很重要～但我們先不要急著指名，先交給老師一起整理會更安全。",
+            fifi_reply=fifi,
             matched_choice_index=None,
             matched_choice_text=None,
             defer_choice_index=teacher_idx,
-            auto_submit=False,
-            debug={"matched": False},
+            auto_submit=defer_auto_submit,
+            ending_kind="defer",
+            debug={
+                "case": "defer_bucket",
+                "bucket": bucket,
+                "match": mdbg,
+                "teacher_idx": teacher_idx,
+            },
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        # ✅ 保底：永遠回正常 JSON，不讓 Flutter 看到 500
         return AccuseEvaluateResponse(
             decision="defer_to_teacher",
             score=0.0,
             threshold=threshold,
-            fifi_reply="霏霏：我先接住你的想法～我們把看到的交給老師，一起慢慢整理就好。",
+            fifi_reply="霏霏：欸…剛剛好像卡一下。我們先慢慢講也沒關係～",
             matched_choice_index=None,
             matched_choice_text=None,
             defer_choice_index=None,
             auto_submit=False,
-            debug={"error": repr(e)},
+            ending_kind="defer",
+            debug={"case": "exception", "error": repr(e)},
         )
 
 
@@ -418,7 +601,6 @@ def api_choose(req: ChooseRequest) -> StepResponse:
         return _step_and_build_response(req.session_id, session, action)
 
     except AssertionError as e:
-        # ✅ 這個最可能：assert 沒帶訊息時 str(e)==''，所以你才會看到 engine_error: ''
         raise HTTPException(
             status_code=400,
             detail=f"assertion_failed: {repr(e)}",
@@ -429,11 +611,8 @@ def api_choose(req: ChooseRequest) -> StepResponse:
 
     except Exception as e:
         tb = traceback.format_exc()
-        # ✅ 直接在 server console 印出完整 traceback（最重要）
         print("[routes_game] engine error:", type(e).__name__, repr(e))
         print(tb)
-
-        # ✅ 回傳帶型別與 repr，避免空字串
         raise HTTPException(
             status_code=500,
             detail=f"engine_error: {type(e).__name__} {repr(e)}",
@@ -447,7 +626,6 @@ def api_replay(req: ReplayRequest) -> StepResponse:
     return _step_and_build_response(req.session_id, session, action)
 
 
-# src/questforge_server/routes_game.py
 @router.post("/end_flow", response_model=StepResponse)
 def api_end_flow(req: EndFlowRequest) -> StepResponse:
     session_id = (req.session_id or "").strip()
@@ -460,8 +638,6 @@ def api_end_flow(req: EndFlowRequest) -> StepResponse:
 
     session = _get_session_or_404(session_id)
 
-    # ✅ 先讓 engine 收到 end_flow（保留事件/紀錄）
-    # 你目前 PlayerAction 用 type=... 的風格，所以沿用
     step = session.step(
         PlayerAction(
             type="end_flow",
@@ -469,7 +645,6 @@ def api_end_flow(req: EndFlowRequest) -> StepResponse:
         )
     )
 
-    # ✅ FastAPI 模式：補上 CLI 那段「外層處理 restart/switch/quit」
     if action == "restart_case":
         case_id = store.get_case_id(session_id) or "2"
         new_sess = store.reset(session_id=session_id, case_id=case_id, seed=None)
@@ -515,7 +690,6 @@ def api_end_flow(req: EndFlowRequest) -> StepResponse:
             is_over=True,
         )
 
-    # 其他 end_action：照 step 結果回去
     bundle, events, is_over = _bundle_from_session_and_step(session=session, step=step)
     return StepResponse(
         session_id=session_id,
@@ -553,6 +727,5 @@ def api_quit(req: QuitRequest) -> StepResponse:
     action = PlayerAction(type="quit")
     resp = _step_and_build_response(req.session_id, session, action)
 
-    # quit 後把 session 刪掉（dev store）
     store.delete(req.session_id)
     return resp

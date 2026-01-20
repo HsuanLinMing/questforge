@@ -10,9 +10,7 @@ class SttState {
   final String recognizedText; // 最新辨識到的字
   final String status; // listening/notListening/done 等（plugin 回傳）
   final String error; // 錯誤訊息（若有）
-
-  /// 最後一次「final」結果（更適合拿來送出）
-  final String finalText;
+  final String finalText; // 最後一次 final 結果（適合送出）
 
   const SttState({
     required this.available,
@@ -56,31 +54,25 @@ class SttController {
 
   bool _inited = false;
 
-  /// 使用者偏好 locale（若找不到會 fallback）
   String _preferredLocaleId = 'zh_TW';
-
-  /// initialize 後選到的實際 locale（保證存在於 locales）
   String? _activeLocaleId;
 
-  /// 避免同時多次 start/stop 的競態
   int _epoch = 0;
 
-  /// partial 會一直抖動：做個小 debounce / 去重
   String _lastEmitted = '';
   DateTime _lastEmitAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// 有些平台 onStatus 會先來 notListening 再來 done
-  bool _sawDoneOrNotListening = false;
-
-  /// ✅ (B) 把 speech_timeout 當「沒聽到」，不要當錯誤
+  // ✅ 把「沒聽到」視為非錯誤
   static const String _speechTimeoutMsg = 'error_speech_timeout';
-
-  /// ✅ (C) 把 no_match 當「沒聽到」，不要當錯誤
   static const String _noMatchMsg = 'error_no_match';
 
-  /// ✅ (PTT) push-to-talk 預設：很長，避免停頓就自動停止
+  // ✅ Push-to-talk：給很長，避免 pause 自動停
   static const Duration _pttListenFor = Duration(minutes: 10);
   static const Duration _pttPauseFor = Duration(minutes: 10);
+
+  // ✅ tap-to-talk（非按住）預設
+  static const Duration _onceListenFor = Duration(seconds: 12);
+  static const Duration _oncePauseFor = Duration(seconds: 2);
 
   Future<void> init({String preferredLocaleId = 'zh_TW'}) async {
     _preferredLocaleId = preferredLocaleId;
@@ -93,22 +85,20 @@ class SttController {
         onError: (e) {
           final msg = (e.errorMsg).toLowerCase();
 
-          // ✅ timeout 不算錯誤
+          // ✅ timeout / no_match 都當作「沒聽到」
           if (msg == _speechTimeoutMsg) {
             vn.value = vn.value.copyWith(
               error: '',
               status: 'timeout',
-              listening: false,
+              listening: false, // ✅ 統一收斂（避免 UI 卡在 listening）
             );
             return;
           }
-
-          // ✅ no_match 不算錯誤（沒聽到就算了）
           if (msg == _noMatchMsg) {
             vn.value = vn.value.copyWith(
               error: '',
               status: 'no_match',
-              // 不強制把 listening=false，交給 onStatus/stop 統一收斂
+              listening: false, // ✅ 統一收斂
             );
             return;
           }
@@ -120,7 +110,6 @@ class SttController {
       vn.value = vn.value.copyWith(available: ok);
       if (!ok) return;
 
-      // ✅ C: 盡量選到「真的存在」的 locale，否則 fallback
       try {
         final locales = await _stt.locales();
         _activeLocaleId = _pickLocale(locales, preferredLocaleId);
@@ -132,11 +121,10 @@ class SttController {
     }
   }
 
-  /// 最適合你的 accuse：按一下開始聽，等 final/done 自動停，回傳最後文字
+  /// ✅ 點一下錄一段：等 final/done 自動停，回傳最後文字
   Future<String?> listenOnce({
-    // ✅ A: 預設拉長（孩子開口比較慢）
-    Duration listenFor = _pttListenFor,
-    Duration pauseFor = _pttPauseFor,
+    Duration listenFor = _onceListenFor,
+    Duration pauseFor = _oncePauseFor,
     bool partialResults = true,
   }) async {
     final ok = await start(
@@ -147,7 +135,6 @@ class SttController {
     );
     if (!ok) return null;
 
-    // 等到 listening 結束（status done / notListening / stop 被呼叫）
     final myEpoch = _epoch;
     final completer = Completer<String?>();
 
@@ -155,7 +142,6 @@ class SttController {
     sub = () {
       final s = vn.value;
       if (_epoch != myEpoch) {
-        // 被下一次 start 覆蓋
         vn.removeListener(sub);
         if (!completer.isCompleted) completer.complete(null);
         return;
@@ -171,10 +157,19 @@ class SttController {
     return completer.future;
   }
 
+  /// ✅ 按住說話（push-to-talk）：你 UI 按下時呼叫 startHoldToTalk，放開呼叫 stop()
+  Future<bool> startHoldToTalk({bool partialResults = true}) {
+    return start(
+      listenFor: _pttListenFor,
+      pauseFor: _pttPauseFor,
+      partialResults: partialResults,
+      autoStopOnFinal: false,
+    );
+  }
+
   Future<bool> start({
-    // ✅ A: 預設拉長，避免一按就 timeout
-    Duration listenFor = const Duration(seconds: 12),
-    Duration pauseFor = const Duration(seconds: 2),
+    Duration listenFor = _onceListenFor,
+    Duration pauseFor = _oncePauseFor,
     bool partialResults = true,
     bool autoStopOnFinal = false,
   }) async {
@@ -184,7 +179,6 @@ class SttController {
     _epoch++;
     final myEpoch = _epoch;
 
-    _sawDoneOrNotListening = false;
     _lastEmitted = '';
     _lastEmitAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -202,23 +196,20 @@ class SttController {
         listenFor: listenFor,
         pauseFor: pauseFor,
         partialResults: partialResults,
-
-        // ✅ A: dictation 模式更適合講一句話
         listenMode: stt.ListenMode.dictation,
-
-        // ✅ A: 避免一個小 error 就直接把流程炸掉（仍會走 onError）
         cancelOnError: false,
-
         onResult: (r) {
           if (_epoch != myEpoch) return;
 
-          final text = (r.recognizedWords).trim();
+          // ✅ stop 後 plugin 偶爾還會回來，直接忽略
+          if (!vn.value.listening) return;
 
-          // partial 抖動很頻繁，做去重 + 最小間隔
+          final text = (r.recognizedWords).trim();
+          if (text.isEmpty) return;
+
           final now = DateTime.now();
           final dt = now.difference(_lastEmitAt);
-          final shouldEmit = text.isNotEmpty && (text != _lastEmitted) && (dt.inMilliseconds >= 120 || r.finalResult);
-
+          final shouldEmit = (text != _lastEmitted) && (dt.inMilliseconds >= 120 || r.finalResult);
           if (!shouldEmit) return;
 
           _lastEmitted = text;
@@ -230,7 +221,6 @@ class SttController {
           );
 
           if (autoStopOnFinal && r.finalResult) {
-            // 有些平台 finalResult 出來後不一定立刻 onStatus done
             unawaited(stop());
           }
         },
@@ -242,19 +232,12 @@ class SttController {
     }
   }
 
-  /// ✅ Push-to-talk 專用：只要按住開始就呼叫這個
-  Future<bool> startHoldToTalk({bool partialResults = true}) {
-    return start(
-      listenFor: _pttListenFor,
-      pauseFor: _pttPauseFor,
-      partialResults: partialResults,
-      autoStopOnFinal: false, // ✅ 不因 final 自停
-    );
-  }
-
   Future<void> stop() async {
     if (!vn.value.listening) return;
     final myEpoch = _epoch;
+
+    // ✅ 先收斂 UI（避免放開後還顯示 listening）
+    vn.value = vn.value.copyWith(listening: false, status: 'stopping');
 
     try {
       await _stt.stop();
@@ -270,6 +253,8 @@ class SttController {
     if (!vn.value.listening) return;
     final myEpoch = _epoch;
 
+    vn.value = vn.value.copyWith(listening: false, status: 'cancel');
+
     try {
       await _stt.cancel();
     } catch (_) {}
@@ -282,15 +267,8 @@ class SttController {
   void _onStatus(String s) {
     vn.value = vn.value.copyWith(status: s);
 
-    // plugin 的 status 很多種：
-    // - listening
-    // - notListening
-    // - done
-    // 我們只要看到 notListening/done，就把 listening 收斂掉
     final lower = s.toLowerCase();
     final done = lower.contains('done') || lower.contains('notlistening');
-
-    if (done) _sawDoneOrNotListening = true;
 
     if (vn.value.listening && done) {
       vn.value = vn.value.copyWith(listening: false);
@@ -298,27 +276,24 @@ class SttController {
   }
 
   String _pickLocale(List<stt.LocaleName> locales, String preferred) {
-    // 1) 完全 match
     for (final l in locales) {
       if (l.localeId == preferred) return l.localeId;
     }
 
-    // 2) match 語系前綴（zh / zh_TW / zh-Hant 類）
     final prefLower = preferred.toLowerCase();
     final prefPrefix = prefLower.split(RegExp(r'[_-]')).first;
+
     for (final l in locales) {
       final id = l.localeId.toLowerCase();
       if (id == prefLower) return l.localeId;
       if (id.startsWith(prefPrefix)) return l.localeId;
     }
 
-    // 3) 嘗試找繁中
     for (final l in locales) {
       final id = l.localeId.toLowerCase();
       if (id.contains('zh') && (id.contains('tw') || id.contains('hant'))) return l.localeId;
     }
 
-    // 4) fallback 第一個（或 preferred）
     return locales.isNotEmpty ? locales.first.localeId : preferred;
   }
 

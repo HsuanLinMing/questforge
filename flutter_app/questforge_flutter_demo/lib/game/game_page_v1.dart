@@ -272,6 +272,37 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           _accuseEvalLoading = false;
           _accuseEvalError = '';
         });
+
+        // ✅ Auto-submit (Option B)
+        // evaluator 決定 accuse / defer，且 auto_submit=true 時，直接送出
+        if (!mounted) return;
+        final stillView = widget.controller.stateVN.value.view;
+        if (stillView == null || !_isAccuseNode(stillView)) return;
+
+        final auto = (resp.autoSubmit ?? false);
+        if (!auto) return;
+        if (_accuseSending) return;
+
+        int? idx;
+        if (resp.decision == AccuseDecisionV2.accuse) {
+          idx = resp.matchedChoiceIndex;
+        } else {
+          idx = resp.deferChoiceIndex;
+        }
+
+        if (idx == null) return;
+
+        // 重要：送出前停止麥克風，避免背景還在聽
+        await _stt.stop();
+
+        // 清掉 UI 的 pending 狀態避免看起來卡住
+        if (mounted) {
+          setState(() {
+            _pressedChoiceIndex = idx;
+          });
+        }
+
+        await _sendAccuseIndexDirect(view: stillView, idx: idx);
       } catch (e) {
         if (!mounted) return;
         if (seq != _accuseEvalSeq) return;
@@ -478,14 +509,27 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     await _stt.startHoldToTalk();
   }
 
-  Future<void> _pttStop() async {
-    if (!_pttHolding) return;
-    if (!mounted) return;
+Future<void> _pttStop() async {
+  if (!_pttHolding) return;
+  if (!mounted) return;
 
-    setState(() => _pttHolding = false);
-    await _stt.stop();
-    // finalText 會在 ValueListenableBuilder 裡被套用（下面第 3 點已改成「只吃 finalText」）
-  }
+  // ✅ 先把 holding 關掉，避免下面 listener/狀態又觸發其他事
+  setState(() => _pttHolding = false);
+
+  await _stt.stop();
+
+  // ✅ 很重要：Android 常常 stop 之後才補 finalResult
+  await Future.delayed(const Duration(milliseconds: 90));
+  if (!mounted) return;
+
+  final v = widget.controller.stateVN.value.view;
+  if (v == null || !_isAccuseNode(v)) return;
+
+  final incomingFinal = _stt.vn.value.finalText.trim();
+  if (incomingFinal.isEmpty) return;
+
+  _applyAccuseHeardText(v, incomingFinal);
+}
 
   void _applyAccuseHeardText(NodeView view, String recognized) {
     final raw = recognized.trim();
@@ -557,6 +601,19 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _sendAccuseIndexDirect({
+    required NodeView view,
+    required int idx,
+  }) async {
+    if (_accuseSending) return;
+    setState(() => _accuseSending = true);
+    try {
+      widget.controller.sendChoose(idx);
+    } finally {
+      if (mounted) setState(() => _accuseSending = false);
+    }
+  }
+
   // ---------------------------
   // lifecycle
   // ---------------------------
@@ -584,6 +641,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
       await _ttsCtl.setRate(r);
     });
   }
+
+
 
   Future<void> _openStoryMenuSheet({
     required List<StoryParagraph> paragraphs,
@@ -1087,29 +1146,15 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                           final listening = sttState.listening;
                           final available = sttState.available;
                           final userErr = _sttUserError(sttState.error);
-                          // ✅ Push-to-talk：只在「finalText 出來」才套用（放開停止後）
-                          final incomingFinal = sttState.finalText.trim();
-
-                          final shouldApply = incomingFinal.isNotEmpty && incomingFinal != _heardText;
-
-                          if (shouldApply) {
-                            Future.microtask(() {
-                              if (!mounted) return;
-                              final v = widget.controller.stateVN.value.view;
-                              if (v == null) return;
-                              if (!_isAccuseNode(v)) return;
-                              _applyAccuseHeardText(v, incomingFinal);
-                            });
-                          }
 
                           final teacherIdx = _findTeacherFallbackIndex(view);
 
-// ------------------------------------------------------------
-// Option B: evaluator-driven
-// - Always "catch" child's speech.
-// - Evaluator decides accuse vs defer_to_teacher.
-// - If evaluator fails, fallback to local best-effort match.
-// ------------------------------------------------------------
+                          // ------------------------------------------------------------
+                          // Option B: evaluator-driven
+                          // - Always "catch" child's speech.
+                          // - Evaluator decides accuse vs defer_to_teacher.
+                          // - If evaluator fails, fallback to local best-effort match.
+                          // ------------------------------------------------------------
                           int? resolvedIdx;
                           final eval = _accuseEval;
 

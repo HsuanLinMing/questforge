@@ -1,69 +1,85 @@
-# QuestForge Story Case Template v1 (Hard Skeleton)
+# QuestForge Story Case Template v2 (Narration-only, Scene Audio Friendly)
 
 你要輸出「可直接執行的 Python dict」：
+
+```py
 STORY_NODES = { ... }
+```
 
-【硬性骨架（不得增減互動次數）】
-- 故事採用「方案A：2次互動法」
-- 恰好兩個互動節點：
-  1) mid_reason（第1次互動：輕推理，孩子像主角插一句）
-  2) final_accuse（第2次互動：指認/交給老師）
-- 其他節點都要是「自動播放主線」節點（auto-continue）
-  - 這類節點 choices 必須只有 1 個，且 text 固定為「繼續聽故事」
+本模板以 `story_case_class_party_bag.py` 的結構為準：  
+- 單一 narration 版本（不使用 beats）
+- narration 統一使用「角色：內容」換行，段落之間用 `\n\n`
+- 每個 scene 對應一段可生成語音的 narration（適合「每 scene 產生一個語音檔」的強快取流程）
 
-【節點命名約定（必遵守）】
-- start：開頭（一定是 auto-continue）
-- scene_01 / scene_02 / scene_03 / scene_04：主線（全部 auto-continue）
-- mid_reason：第一次互動（3 個選項，必有「我還不確定/先看看」類）
-- scene_05 / scene_06：互動後繼續演（auto-continue，不可直接進結尾）
-- final_accuse：第二次互動（4 個選項=3嫌疑人+「我還不確定交給老師」）
-- ending_result：結局（必有 lesson:list[str]，choices 1個「結束故事」）
-- quit：結束（choices 空）
+---
 
-【auto-continue 規則】
-- start / scene_xx / teacher_notice / cool_down 等「非互動」節點：
-  - choices = [{"text":"繼續聽故事","next":"..."}] 只能 1 個
-- mid_reason / final_accuse / ending_xxx 不屬於 auto-continue
+## 0) 必守原則
+- 兒童友善、小一友善：不血腥、不恐嚇、不羞辱，不把推理做成對錯題
+- 強調「觀察/證據/確認」；永遠保留「交給老師」為安全正確選擇
+- 線索與 evidence 用中文
+- 不用「線索數量」卡關；指認永遠可進
 
-【人物/口吻】
-- 固定主角：霏霏（常忘東忘西但有主見）、樂樂（調皮搞蛋但暖心）
-- 敘事主要用對話推進，不要霏霏變旁白老師
-- 不要出現「如果你在這裡你會怎麼說？」
-- 第一次互動：孩子要像「插一句」，彷彿替主角說一句話（不是第三人稱旁白）
+---
 
-【案件填空（由你自行生成）】
-- 場景：校園/教室/午餐
-- 事件：便當被動過（不描述暴力/恐嚇/犯罪）
-- 嫌疑人：3 位（名字有記憶點 + 特徵）
-- 老師：要在中段就出現（scene_04 或 scene_05 起）
+## 1) 硬性輸出骨架（節點結構）
+### 1.1 helper
+檔案內必須有：
 
-【必備節奏】
-- 開頭要夠長：至少 2~4 段自然對話/小互動，再進事件
-- mid_reason 之後至少再有 2 個 scene 節點繼續演，才進 final_accuse
-- final_accuse 前必有「降溫對話」節點（cool_down 類 scene）
+```py
+def _n(*lines: str) -> str:
+    return "\n\n".join([x for x in lines if (x or "").strip()])
+```
 
-【你必須輸出以下節點（key 必須存在，不能少）】
-start
-scene_01
-scene_02
-mid_reason
-scene_03
-scene_04
-final_accuse
-ending_result
-quit
-ending_wrong (可選，但建議加：指認錯誤/證據不足)
+### 1.2 節點命名（建議序）
+- `scene_01_start`：開場（較長，鋪陳後才進事件）
+- `scene_02_incident`：事件爆點（失物/誤會/衝突）
+- `scene_03_investigate_room`：進入調查場景/空間
+- `scene_04_xxx`：關係人說法
+- `scene_05_xxx`：小線索/小發現
+- `scene_06_xxx`：第二個關係人/更多資訊
+- `scene_07_before_accuse`：收束、提醒只講觀察
+- `final_accuse`：指認（一定要有「我還不確定，先去問清楚再說」）
+- `scene_10_ending_clear`：推理分足夠的結尾
+- `scene_10_ending_nudge`：差一點（AI/霏霏補一句）
+- `scene_10_ending_defer`：交給老師/先確認再結論的結尾
+- `quit`：故事結束（固定）
 
-【mid_reason choices（固定數量=3）】
-- 選項都是「我覺得…」的插話口吻（像主角講一句）
-- 必須包含一個「我還不確定/先看看」類選項
-- 每個選項可有 after，after 必須是短短一段對話/動作（不標示“線索”）
+> 注意：結尾三種不一定都會被跑到；引擎會依評分把 `final_accuse` 後導向不同 ending。  
+> 但你仍要輸出三種 ending，供引擎選用。
 
-【final_accuse choices（固定數量=4）】
-- 3嫌疑人 + 1「我還不確定，交給老師」
+---
 
-【ending_result】
-- lesson: list[str] 必須存在（3 條即可）
-- choices 只能 1 個：{"text":"結束故事","next":"quit"}
+## 2) choices 規則（非常重要）
+### 2.1 自動播放節點（scene_*）
+- 除了 `final_accuse` 與 `quit` 以外，所有 `scene_*` 都必須只有 **1 個 choice**：
+  - `{"text": "繼續聽故事", "next": "<下一節點>"}`
+- `text` 建議固定用「繼續聽故事」（可接受「繼續」但避免混用太多）
 
-開始輸出 STORY_NODES。
+### 2.2 指認節點（final_accuse）
+- `final_accuse` 必須有 4 個選項（可依案件調整嫌疑人名單），其中一定包含：
+  - 「我還不確定，先去問清楚再說」→ `next: "quit"`
+- 其他三個為嫌疑人 → `next: "quit"`
+- 不在 `final_accuse` 幫孩子複習線索、不提示正解（由引擎評分 + ending 分流呈現回饋）
+
+### 2.3 quit
+- `quit` 節點 `choices: []`
+- 建議保留：
+  - `can_replay: True`
+  - `can_quit: True`
+
+---
+
+## 3) narration 寫法規範
+- 一次 narration 內可包含多句對話，但必須保持：
+  - 「角色：內容」格式
+  - 用 `_n(...)` 分段（每段不宜太長，方便 TTS/快取）
+- 每次玩家做出選擇後（尤其是 investigation/accuse 流程），可加入 1~2 句自然對話，解釋「為什麼找到這個線索」（不裁決、不下結論）
+
+---
+
+## 4) （可選）世界觀模組：理念型反派／老對手
+- 此角色屬於全域世界觀模組：不必每案出現
+- 若此案啟用：
+  - 只能以「引導者/對峙者/留痕者」方式呈現
+  - 不可把違法行為浪漫化
+  - 不可讓主角直接抓到他（一般案件）

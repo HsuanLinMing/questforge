@@ -1,0 +1,34 @@
+{
+    // 使用 IntelliSense 以得知可用的屬性。
+    // 暫留以檢視現有屬性的描述。
+    // 如需詳細資訊，請瀏覽: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "questforge_flutter_demo",
+            "cwd": "flutter_app/questforge_flutter_demo",
+            "request": "launch",
+            "type": "dart"
+        },
+        {
+            "name": "questforge_flutter_demo (profile mode)",
+            "cwd": "flutter_app/questforge_flutter_demo",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "questforge_flutter_demo (release mode)",
+            "cwd": "flutter_app/questforge_flutter_demo",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        },
+        {
+            "name": "questforge_ui_contract",
+            "cwd": "packages/questforge_ui_contract",
+            "request": "launch",
+            "type": "dart"
+        }
+    ]
+}

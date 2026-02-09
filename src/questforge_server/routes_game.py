@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import os
-
+import threading
+import shutil
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -145,6 +146,8 @@ def _to_json_dict(obj: Any) -> Optional[Dict[str, Any]]:
 def _bundle_from_session_and_step(
     *,
     request: Request,
+    session_id: str,
+    run_id: str,
     session: GameSession,
     step: Optional[StepResult],
 ) -> Tuple[BundleResponse, List[str], bool]:
@@ -171,13 +174,29 @@ def _bundle_from_session_and_step(
             s = (p or "").strip()
             if not s:
                 return ("旁白", "")
-            if "：" in s:
-                role, rest = s.split("：", 1)
+
+            # ✅ 只看「第一行」是否為 角色：內容
+            first_line, *rest_lines = s.splitlines()
+            first_line = first_line.strip()
+            rest_text = "\n".join([x.strip() for x in rest_lines]).strip()
+            full_text = s  # 保留原段
+
+            if "：" in first_line:
+                role, rest = first_line.split("：", 1)
                 role = role.strip()
-                text = rest.strip()
-                if role and text:
+                text0 = rest.strip()
+
+                # ✅ 角色白名單（避免「規則是：」被當角色）
+                allowed_roles = {"旁白", "霏霏", "樂樂", "老師", "narrator", "teacher", "child_female", "child_male"}
+                if role in allowed_roles and text0:
+                    text = text0
+                    if rest_text:
+                        text = text0 + "\n" + rest_text
                     return (role, text)
-            return ("旁白", s)
+
+            # ✅ default：旁白整段
+            return ("旁白", full_text)
+
 
         raw_paras = [x.strip() for x in narration.split("\n\n") if x.strip()]
         if not raw_paras:
@@ -188,7 +207,7 @@ def _bundle_from_session_and_step(
 
         # ✅ 每個故事包一個資料夾：避免不同故事互相污染，也方便只保留兩個完整故事
         runs_root = Path(".qf_cache/tts_runs").resolve()
-        out_dir = runs_root / view_fp
+        out_dir = runs_root / session_id / run_id / view_fp
         out_dir.mkdir(parents=True, exist_ok=True)
 
         base = str(request.base_url).rstrip("/")
@@ -228,7 +247,7 @@ def _bundle_from_session_and_step(
             # ✅ 靜態路由如果是 /static/tts/{filename} 只對 .qf_cache/tts，
             #    你現在改成 tts_runs/<view_fp>/xxx.wav，所以 URL 也要帶上 view_fp。
             #    下面用 /static/tts_runs/{view_fp}/{filename} 這個路徑（你需要對應 static mount 一次）
-            url = f"{base}/static/tts_runs/{view_fp}/{r.filename}"
+            url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{r.filename}"
             print(
                 f"[TTS] view={view_fp[:8]} i={i}/{len(raw_paras)} role={role} ...",
                 flush=True,
@@ -257,8 +276,22 @@ def _bundle_from_session_and_step(
                 dirs = [p for p in root.iterdir() if p.is_dir()]
                 if len(dirs) <= keep:
                     return
+
                 # newest first
-                dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                def _dir_latest_mtime(d: Path) -> float:
+                    try:
+                        times = [d.stat().st_mtime]
+                        for f in d.glob("**/*"):
+                            try:
+                                times.append(f.stat().st_mtime)
+                            except Exception:
+                                pass
+                        return max(times)
+                    except Exception:
+                        return 0.0
+
+                dirs.sort(key=_dir_latest_mtime, reverse=True)
+
                 for d in dirs[keep:]:
                     try:
                         for f in d.glob("*"):
@@ -357,8 +390,13 @@ def _step_and_build_response(
     action: PlayerAction,
 ) -> StepResponse:
     step = session.step(action)
+    run_id = store.get_current_run_id(session_id) or ""
     bundle, events, is_over = _bundle_from_session_and_step(
-        request=request, session=session, step=step
+        request=request,
+        session_id=session_id,
+        run_id=run_id,
+        session=session,
+        step=step,
     )
     return StepResponse(
         session_id=session_id, bundle=bundle, events=events, is_over=is_over
@@ -368,6 +406,58 @@ def _step_and_build_response(
 # ----------------------------
 # Accuse evaluator helpers (你原本那套保留)
 # ----------------------------
+
+
+def _bundle_to_raw_dict(bundle: BundleResponse) -> Dict[str, Any]:
+    try:
+        return bundle.model_dump()  # pydantic v2
+    except Exception:
+        try:
+            return bundle.dict()  # pydantic v1
+        except Exception:
+            return {
+                "view": bundle.view,
+                "ask": bundle.ask,
+                "quiz": bundle.quiz,
+                "end": bundle.end,
+                "commands": bundle.commands,
+            }
+
+
+def _safe_rmtree(p: Path) -> None:
+    try:
+        if p.exists():
+            shutil.rmtree(p, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _prefetch_next_bundle_in_background(request: Request, session_id: str) -> None:
+    def _job() -> None:
+        try:
+            # ✅ 1) 先把 next 變成 AI 案件（nodes）
+            store.materialize_next_ai_case(session_id)
+
+            # ✅ 2) 再用 next session 產第一頁 bundle + TTS
+            next_sess = store.get_next(session_id)
+            next_run_id = store.get_next_run_id(session_id) or ""
+            if next_sess is None or not next_run_id:
+                return
+
+            bundle, _, _ = _bundle_from_session_and_step(
+                request=request,
+                session_id=session_id,
+                run_id=next_run_id,
+                session=next_sess,
+                step=None,
+            )
+            store.set_next_prefetched_bundle(session_id, _bundle_to_raw_dict(bundle))
+
+            print(f"[PREFETCH] ok sid={session_id[:6]} run={next_run_id[:6]}", flush=True)
+        except Exception as e:
+            print(f"[PREFETCH] fail sid={session_id[:6]} err={e!r}", flush=True)
+
+    threading.Thread(target=_job, daemon=True).start()
 
 
 def _norm_text(s: str) -> str:
@@ -547,9 +637,19 @@ def _best_effort_match_choice(
 def api_start(req: StartRequest, request: Request) -> StepResponse:
     try:
         sid, session = store.create(seed=req.seed)
+
+        run_id = store.get_current_run_id(sid) or ""
         bundle, events, is_over = _bundle_from_session_and_step(
-            request=request, session=session, step=None
+            request=request,
+            session_id=sid,
+            run_id=run_id,
+            session=session,
+            step=None,
         )
+
+        # ✅ 背景預生成 next（B）
+        _prefetch_next_bundle_in_background(request, sid)
+
         return StepResponse(
             session_id=sid, bundle=bundle, events=events, is_over=is_over
         )
@@ -607,27 +707,51 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
         )
 
     if action == "switch_case":
-        current = store.get_case_id(session_id)
-        all_ids = list(CASES.keys())
-        candidates = [cid for cid in all_ids if cid != current] or all_ids
-        next_case_id = random.choice(candidates)
+        # ✅ 1) 先拿 B 的預生成 bundle（如果有，就能秒回）
+        prefetched = store.get_next_prefetched_bundle(session_id)
 
-        new_sess = store.reset(session_id=session_id, case_id=next_case_id, seed=None)
-        if new_sess is None:
-            raise HTTPException(status_code=500, detail="reset failed")
+        # ✅ 2) swap: B -> current, 同時生成新的 next=C
+        new_current, old_run = store.swap_to_next_and_prefetch(session_id=session_id, seed=None)
+        if new_current is None:
+            raise HTTPException(status_code=500, detail="swap_to_next failed")
 
+        # ✅ 3) 刪掉 A 的音檔包（整個 run 資料夾）
+        if old_run:
+            runs_root = Path(".qf_cache/tts_runs").resolve()
+            _safe_rmtree(runs_root / session_id / old_run)
+
+        # ✅ 4) 回 B 的預生成（最快路徑）
+        if prefetched:
+            bundle_obj = BundleResponse(**prefetched)
+            _prefetch_next_bundle_in_background(request, session_id)  # 背景生 C
+            return StepResponse(
+                session_id=session_id,
+                bundle=bundle_obj,
+                events=["switch_case", "swap_to_next_prefetched"],
+                is_over=False,
+            )
+
+        # ✅ 5) fallback：如果 B 還沒預生成完，就現算一次
+        run_id = store.get_current_run_id(session_id) or ""
         bundle, events, is_over = _bundle_from_session_and_step(
-            request=request, session=new_sess, step=None
+            request=request,
+            session_id=session_id,
+            run_id=run_id,
+            session=new_current,
+            step=None,
         )
+        _prefetch_next_bundle_in_background(request, session_id)
         return StepResponse(
             session_id=session_id,
             bundle=bundle,
-            events=["switch_case", f"case:{next_case_id}"],
+            events=["switch_case", "swap_to_next_fallback"],
             is_over=False,
         )
 
     if action == "quit":
         store.delete(session_id)
+        runs_root = Path(".qf_cache/tts_runs").resolve()
+        _safe_rmtree(runs_root / session_id)
         return StepResponse(
             session_id=session_id,
             bundle=BundleResponse(

@@ -157,7 +157,9 @@ def _bundle_from_session_and_step(
     """
 
     # routes_game.py 內：_make_tts_cmd_from_view_json
-    def _make_tts_cmd_from_view_json(view_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def _make_tts_cmd_from_view_json(
+        view_json: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
         if not view_json:
             return None
 
@@ -181,10 +183,18 @@ def _bundle_from_session_and_step(
         if not raw_paras:
             return None
 
-        out_dir = Path(".qf_cache/tts").resolve()
+        # ✅ 用 view_fp 當「故事包」id：同一個 narration（同一頁/同一故事）會落同一資料夾
+        view_fp = hashlib.sha1(("v2|" + narration).encode("utf-8")).hexdigest()
+
+        # ✅ 每個故事包一個資料夾：避免不同故事互相污染，也方便只保留兩個完整故事
+        runs_root = Path(".qf_cache/tts_runs").resolve()
+        out_dir = runs_root / view_fp
+        out_dir.mkdir(parents=True, exist_ok=True)
+
         base = str(request.base_url).rstrip("/")
 
         items: List[Dict[str, Any]] = []
+
         for i, p in enumerate(raw_paras):
             role, text = _parse_paragraph(p)
 
@@ -192,7 +202,7 @@ def _bundle_from_session_and_step(
             if not spoken_text:
                 continue
 
-            # ✅ 你要的 speed 規則
+            # ✅ speed 規則
             speed = 1.0
             if role in ("旁白", "narrator"):
                 speed = 0.95
@@ -204,9 +214,10 @@ def _bundle_from_session_and_step(
                 speed = 0.98
 
             profile = voice_for_role(role)
+
             r = synthesize_to_wav(
                 text=spoken_text,
-                out_dir=out_dir,
+                out_dir=out_dir,  # ✅ 注意：改成故事包資料夾
                 voice=profile.voice,
                 instructions=profile.instructions,
                 speed=speed,
@@ -214,14 +225,22 @@ def _bundle_from_session_and_step(
             if r is None:
                 continue
 
-            url = f"{base}/static/tts/{r.filename}"
+            # ✅ 靜態路由如果是 /static/tts/{filename} 只對 .qf_cache/tts，
+            #    你現在改成 tts_runs/<view_fp>/xxx.wav，所以 URL 也要帶上 view_fp。
+            #    下面用 /static/tts_runs/{view_fp}/{filename} 這個路徑（你需要對應 static mount 一次）
+            url = f"{base}/static/tts_runs/{view_fp}/{r.filename}"
+            print(
+                f"[TTS] view={view_fp[:8]} i={i}/{len(raw_paras)} role={role} ...",
+                flush=True,
+            )
+
             items.append(
                 {
                     "index": i,
-                    "text": spoken_text,     # debug
-                    "role": role,            # debug
+                    "text": spoken_text,  # debug
+                    "role": role,  # debug
                     "voice": profile.voice,  # debug
-                    "speed": speed,          # debug
+                    "speed": speed,  # debug
                     "format": "wav",
                     "path": url,
                 }
@@ -230,12 +249,39 @@ def _bundle_from_session_and_step(
         if not items:
             return None
 
-        fp = hashlib.sha1(("v2|" + narration).encode("utf-8")).hexdigest()
+        # ✅ 只保留最新兩個故事包資料夾（current + next）
+        def _cleanup_keep_latest_story_runs(root: Path, keep: int = 2) -> None:
+            try:
+                if not root.exists():
+                    return
+                dirs = [p for p in root.iterdir() if p.is_dir()]
+                if len(dirs) <= keep:
+                    return
+                # newest first
+                dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                for d in dirs[keep:]:
+                    try:
+                        for f in d.glob("*"):
+                            try:
+                                f.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        try:
+                            d.rmdir()
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+            except Exception:
+                return
+
+        _cleanup_keep_latest_story_runs(runs_root, keep=2)
+
         return {
             "type": "tts_playlist_v1",
             "scope": "view",
             "status": "ok",
-            "view_fp": fp,
+            "view_fp": view_fp,
             "items": items,
         }
 

@@ -10,6 +10,9 @@ from typing import Optional, Dict, Any
 from openai import OpenAI
 import hashlib
 import os
+from pathlib import Path
+from typing import Iterable
+
 
 def _key_fingerprint(k: str) -> str:
     k = (k or "")
@@ -46,6 +49,8 @@ def _hash_key(*parts: str) -> str:
         h.update((p or "").encode("utf-8"))
         h.update(b"|")
     return h.hexdigest()
+
+
 
 
 def synthesize_to_wav(
@@ -127,6 +132,7 @@ def synthesize_to_wav(
         if not file_path.exists() or file_path.stat().st_size <= 512:
             print("[tts_service] wrote empty/small wav:", str(file_path), flush=True)
             return None
+
 
         return TtsResult(filename=filename, file_path=file_path, cache_hit=False)
 

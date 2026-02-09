@@ -15,6 +15,9 @@ class DebugSnapshotV2 {
   /// e.g. {"kind":"end_flow","id":"quit","status":"received"}
   final Map<String, dynamic>? lastAck;
 
+final bool chooseLocked;
+  final int? pendingChoiceIndex;
+
   const DebugSnapshotV2({
     required this.nodeId,
     required this.isOver,
@@ -22,6 +25,8 @@ class DebugSnapshotV2 {
     required this.endActionLocked,
     required this.pendingEndActionId,
     required this.lastRawClip,
+    required this.chooseLocked,
+    required this.pendingChoiceIndex,
     required this.lastAck,
   });
 
@@ -33,6 +38,8 @@ class DebugSnapshotV2 {
     String? pendingEndActionId,
     Map<String, dynamic>? lastRawClip,
     Map<String, dynamic>? lastAck,
+    bool? chooseLocked,
+    int? pendingChoiceIndex,
   }) {
     return DebugSnapshotV2(
       nodeId: nodeId ?? this.nodeId,
@@ -42,6 +49,8 @@ class DebugSnapshotV2 {
       pendingEndActionId: pendingEndActionId ?? this.pendingEndActionId,
       lastRawClip: lastRawClip ?? this.lastRawClip,
       lastAck: lastAck ?? this.lastAck,
+      chooseLocked: chooseLocked ?? this.chooseLocked,
+      pendingChoiceIndex: pendingChoiceIndex ?? this.pendingChoiceIndex,
     );
   }
 
@@ -53,5 +62,8 @@ class DebugSnapshotV2 {
         'pending_end_action': pendingEndActionId,
         'last_ack': lastAck,
         'last_raw_clip': lastRawClip,
+        'chooseLocked': chooseLocked,
+        'pendingChoiceIndex': pendingChoiceIndex
+
       };
 }

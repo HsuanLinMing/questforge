@@ -49,6 +49,8 @@ class BridgeUiStateV2 {
       cmdTypes: const <String>[],
       endActionLocked: false,
       pendingEndActionId: null,
+      chooseLocked: false,
+      pendingChoiceIndex: null,
       lastRawClip: null,
       lastAck: null,
     );
@@ -62,8 +64,7 @@ class BridgeUiStateV2 {
   }
 }
 
-/// 用來把後端 raw command map 包成 CommandV2
-///（因為你目前的 CommandV2 是 abstract，沒有 fromJson）
+/// raw command map 包成 CommandV2
 class WireCommandV2 implements CommandV2 {
   WireCommandV2(this._raw);
   final Map<String, dynamic> _raw;
@@ -89,7 +90,6 @@ class BridgeControllerV2 {
         _chooseTimeoutDur = chooseActionTimeout {
     stateVN.value = BridgeUiStateV2.empty();
 
-    // ✅ sender：OverlayManagerV2 照舊用，但會真的打後端＋回寫 state
     sender = BridgeSenderApi(
       api,
       onStep: _handleSenderStep,
@@ -103,7 +103,8 @@ class BridgeControllerV2 {
 
   late final BridgeSenderApi sender;
 
-  final ValueNotifier<BridgeUiStateV2> stateVN = ValueNotifier<BridgeUiStateV2>(BridgeUiStateV2.empty());
+  final ValueNotifier<BridgeUiStateV2> stateVN =
+      ValueNotifier<BridgeUiStateV2>(BridgeUiStateV2.empty());
 
   bool _started = false;
 
@@ -131,7 +132,6 @@ class BridgeControllerV2 {
 
   bool get isUiBlocked {
     final b = stateVN.value.bundle;
-    // ✅ 有 ask/quiz/end overlay 正在顯示時，阻擋 choose（避免重入）
     return b.end != null || b.ask != null || b.quiz != null;
   }
 
@@ -191,7 +191,7 @@ class BridgeControllerV2 {
   // ------------------------------------------------------------
   void lockEndAction(String actionId, {String? pendingLabel}) {
     pendingEndActionIdVN.value = pendingLabel ?? actionId;
-    if (!endActionLockVN.value) endActionLockVN.value = true;
+    endActionLockVN.value = true;
 
     _endActionTimeoutTimer?.cancel();
     _endActionTimeoutTimer = Timer(_endActionTimeoutDur, unlockEndAction);
@@ -203,8 +203,8 @@ class BridgeControllerV2 {
     _endActionTimeoutTimer?.cancel();
     _endActionTimeoutTimer = null;
 
-    if (pendingEndActionIdVN.value != null) pendingEndActionIdVN.value = null;
-    if (endActionLockVN.value) endActionLockVN.value = false;
+    pendingEndActionIdVN.value = null;
+    endActionLockVN.value = false;
 
     _refreshSnapshotOnly();
   }
@@ -212,22 +212,9 @@ class BridgeControllerV2 {
   // ------------------------------------------------------------
   // choose lock/unlock
   // ------------------------------------------------------------
-  void clearAskOverlayLocal() {
-    final old = stateVN.value;
-    if (old.bundle.ask == null) return;
-    stateVN.value = old.copyWith(bundle: old.bundle.copyWith(ask: null));
-  }
-
-  void clearEndOverlayLocal() {
-    final old = stateVN.value;
-    if (old.bundle.end == null) return;
-    stateVN.value = old.copyWith(bundle: old.bundle.copyWith(end: null));
-    _refreshSnapshotOnly();
-  }
-
   void lockChoose(int index) {
     pendingChoiceIndexVN.value = index;
-    if (!chooseLockVN.value) chooseLockVN.value = true;
+    chooseLockVN.value = true;
 
     _chooseTimeoutTimer?.cancel();
     _chooseTimeoutTimer = Timer(_chooseTimeoutDur, unlockChoose);
@@ -239,9 +226,23 @@ class BridgeControllerV2 {
     _chooseTimeoutTimer?.cancel();
     _chooseTimeoutTimer = null;
 
-    if (pendingChoiceIndexVN.value != null) pendingChoiceIndexVN.value = null;
-    if (chooseLockVN.value) chooseLockVN.value = false;
+    pendingChoiceIndexVN.value = null;
+    chooseLockVN.value = false;
 
+    _refreshSnapshotOnly();
+  }
+
+  void clearAskOverlayLocal() {
+    final old = stateVN.value;
+    if (old.bundle.ask == null) return;
+    stateVN.value = old.copyWith(bundle: old.bundle.copyWith(ask: null));
+    _refreshSnapshotOnly();
+  }
+
+  void clearEndOverlayLocal() {
+    final old = stateVN.value;
+    if (old.bundle.end == null) return;
+    stateVN.value = old.copyWith(bundle: old.bundle.copyWith(end: null));
     _refreshSnapshotOnly();
   }
 
@@ -250,12 +251,14 @@ class BridgeControllerV2 {
     final snap = old.snapshot.copyWith(
       endActionLocked: endActionLockVN.value,
       pendingEndActionId: pendingEndActionIdVN.value,
+      chooseLocked: chooseLockVN.value,
+      pendingChoiceIndex: pendingChoiceIndexVN.value,
     );
     stateVN.value = old.copyWith(snapshot: snap);
   }
 
   // ------------------------------------------------------------
-  // Public send APIs (Game UI / DebugPage 直接呼叫)
+  // Public send APIs
   // ------------------------------------------------------------
   bool sendChoose(int index) {
     if (chooseLockVN.value) return false;
@@ -331,15 +334,16 @@ class BridgeControllerV2 {
     return true;
   }
 
-  /// EndScreen 點按（Overlay 也可能走 sender.sendUiAction）
   bool sendEndActionSpec(UiActionSpecV2 action) {
     if (endActionLockVN.value) return false;
-    clearEndOverlayLocal(); // ✅ 先收起
 
-    final id = (action.id ?? '').toString();
-    debugPrint('[end_flow] tap: kind=${action.kind} id=${action.id} text=${action.text}');
-    // ✅ kind 可能是 null（後端 options 只有 id/text），視為 end_flow
-    final wireKind = (_kindToWire(action.kind).trim().isEmpty) ? 'end_flow' : _kindToWire(action.kind).trim();
+    clearEndOverlayLocal();
+
+    final id = (action.id ?? '').toString().trim();
+    final wireKind = _kindToWire(action.kind).trim().isEmpty
+        ? 'end_flow'
+        : _kindToWire(action.kind).trim();
+
     if (wireKind != 'end_flow') {
       debugPrint('[BridgeControllerV2] end action ignored: wireKind=$wireKind id=$id');
       return false;
@@ -380,7 +384,6 @@ class BridgeControllerV2 {
     return true;
   }
 
-  /// ✅ 給 BridgeDebugPage 用
   bool sendSetReasons({required List<String> reasonIds, String text = ''}) {
     if (chooseLockVN.value) return false;
     lockChoose(-2);
@@ -388,7 +391,6 @@ class BridgeControllerV2 {
     return true;
   }
 
-  /// ✅ 給 BridgeDebugPage 用
   bool sendConfirmQuiz(List<Object?> answers, {bool skipped = false}) {
     if (chooseLockVN.value) return false;
     lockChoose(-3);
@@ -397,7 +399,7 @@ class BridgeControllerV2 {
   }
 
   // ------------------------------------------------------------
-  // sender callbacks (OverlayManagerV2 走 sender)
+  // sender callbacks
   // ------------------------------------------------------------
   void _handleSenderStep(
     GameStepResp r, {
@@ -455,22 +457,22 @@ class BridgeControllerV2 {
     bool? isOver,
   }) {
     final viewJson = bundle['view'];
-    final NodeView? view = (viewJson is Map) ? NodeView.fromJson(Map<String, dynamic>.from(viewJson)) : null;
+    final NodeView? view = (viewJson is Map)
+        ? NodeView.fromJson(Map<String, dynamic>.from(viewJson.cast()))
+        : null;
 
-    // ✅ 重要：commands 就算 view == null 也要解析（EndScreen/Quiz/AskReason 都靠它）
     final commands = _commandsFromBundle(bundle);
     final parsedBundle = _router.parse(commands);
-
-    // ✅ view 可能為 null（例如 show_end_screen command-only）
-    //    這時 snapshot.nodeId 也不要空，從 command meta/node_id 推出來（避免 debug/overlay 依賴空值）
     final inferredNodeId = _inferNodeIdFromCommands(commands);
 
     final snap = DebugSnapshotV2(
       nodeId: view?.nodeId ?? inferredNodeId,
       isOver: isOver ?? false,
-      cmdTypes: parsedBundle.types,
+      cmdTypes: commands.map((e) => e.type).toList(),
       endActionLocked: endActionLockVN.value,
       pendingEndActionId: pendingEndActionIdVN.value,
+      chooseLocked: chooseLockVN.value,
+      pendingChoiceIndex: pendingChoiceIndexVN.value,
       lastRawClip: _clipRaw(raw),
       lastAck: stateVN.value.snapshot.lastAck,
     );
@@ -486,13 +488,13 @@ class BridgeControllerV2 {
 
   void _updateStateRawOnly(Map<String, dynamic> raw) {
     final old = stateVN.value;
-
     final snap = old.snapshot.copyWith(
       endActionLocked: endActionLockVN.value,
       pendingEndActionId: pendingEndActionIdVN.value,
+      chooseLocked: chooseLockVN.value,
+      pendingChoiceIndex: pendingChoiceIndexVN.value,
       lastRawClip: _clipRaw(raw),
     );
-
     stateVN.value = old.copyWith(lastRaw: raw, snapshot: snap);
   }
 
@@ -505,25 +507,26 @@ class BridgeControllerV2 {
 
     final b = raw['bundle'];
     if (b is Map) {
-      final bm = Map<String, dynamic>.from(b);
+      final bm = Map<String, dynamic>.from(b.cast<String, dynamic>());
+
+      final cmds0 = bm['commands'];
+      if (cmds0 is List) out['bundle_commands_count'] = cmds0.length;
 
       final v = bm['view'];
       if (v is Map) {
-        final vm = Map<String, dynamic>.from(v);
+        final vm = Map<String, dynamic>.from(v.cast<String, dynamic>());
         out['view'] = <String, dynamic>{
           'nodeId': vm['nodeId'],
           'title': vm['title'],
           'choices_count': (vm['choices'] is List) ? (vm['choices'] as List).length : null,
         };
+        final vcmds = vm['commands'];
+        if (vcmds is List) out['view_commands_count'] = vcmds.length;
       }
 
-      // ✅ 同時觀測兩種協定
       out['hasAsk'] = bm['ask'] != null;
       out['hasQuiz'] = bm['quiz'] != null;
       out['hasEnd'] = bm['end'] != null;
-
-      final cmds = bm['commands'];
-      if (cmds is List) out['commands_count'] = cmds.length;
     }
 
     final ev = raw['events'];
@@ -537,26 +540,34 @@ class BridgeControllerV2 {
   }
 
   // ------------------------------------------------------------
-  // Commands decode (兼容：bundle.commands / bundle.ask|quiz|end)
+  // Commands decode (bundle.commands + view.commands + ask/quiz/end)
   // ------------------------------------------------------------
   List<CommandV2> _commandsFromBundle(Map<String, dynamic> bundle) {
     final out = <CommandV2>[];
 
     void addIfMap(dynamic v) {
-      if (v is Map) out.add(WireCommandV2(Map<String, dynamic>.from(v)));
+      if (v is Map) out.add(WireCommandV2(Map<String, dynamic>.from(v.cast<String, dynamic>())));
     }
 
     void addIfMapList(dynamic v) {
       if (v is! List) return;
       for (final it in v) {
-        if (it is Map) out.add(WireCommandV2(Map<String, dynamic>.from(it)));
+        if (it is Map) {
+          out.add(WireCommandV2(Map<String, dynamic>.from(it.cast<String, dynamic>())));
+        }
       }
     }
 
-    // ✅ 新版（最常見）：後端直接回 commands: [{type:...}, ...]
+    // 1) bundle.commands（新版）
     addIfMapList(bundle['commands']);
 
-    // ✅ 舊版（你原本 router 用的）：ask/quiz/end 三段
+    // 2) view.commands（也吃，方便兼容/除錯）
+    final view = bundle['view'];
+    if (view is Map) {
+      addIfMapList(view['commands']);
+    }
+
+    // 3) 舊版 ask/quiz/end
     addIfMap(bundle['ask']);
     addIfMap(bundle['quiz']);
     addIfMap(bundle['end']);
@@ -567,8 +578,9 @@ class BridgeControllerV2 {
   String _inferNodeIdFromCommands(List<CommandV2> commands) {
     for (final c in commands) {
       final raw = c.toJson();
-      // show_end_screen: {node_id: "..."} or {nodeId: "..."}
-      final nid = (raw['node_id'] ?? raw['nodeId'] ?? raw['meta']?['node_id'])?.toString().trim();
+      final nid = (raw['node_id'] ?? raw['nodeId'] ?? raw['meta']?['node_id'])
+          ?.toString()
+          .trim();
       if (nid != null && nid.isNotEmpty) return nid;
     }
     return '';

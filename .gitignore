@@ -16,3 +16,9 @@ build/
 
 # Optional: for Dart packages (not apps)
 **/pubspec.lock
+.env
+
+# QuestForge runtime caches
+.qf_cache/
+**/.qf_cache/
+

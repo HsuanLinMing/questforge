@@ -57,8 +57,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   Timer? _accuseEvalDebounce;
   int _accuseEvalSeq = 0; // guard stale responses
 
-  static const double _rateMin = 0.35;
-  static const double _rateMax = 0.65;
+  static const double _rateMin = 0.85;
+  static const double _rateMax = 1.15;
   static const double _rateStep = 0.05;
 
   // ✅ follow 由 GamePage 管（不塞進 TTS state）
@@ -116,6 +116,60 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   void _onChoiceTapHook(ChoiceView choice) {
     // future hook
     // HapticFeedback.selectionClick();
+  }
+
+  // ---------------------------
+  // TTS playlist (from python)
+  // ---------------------------
+  Map<String, dynamic>? _extractViewPlaylistCmd(BridgeUiStateV2 state) {
+    for (final c in state.commands) {
+      final t = c.type.trim();
+      final isPlaylist = (t == 'tts_playlist_v1' || t == 'tts_playlist' || t == 'tts_playlist_v2');
+      if (!isPlaylist) continue;
+
+      final raw = c.toJson();
+      final scope = '${raw['scope'] ?? 'view'}';
+      if (scope == 'view') return raw;
+
+      // 有些後端可能沒給 scope，或 scope 不是字串
+      if (raw['scope'] == null) return raw;
+    }
+    return null;
+  }
+
+  // 舊 flutter_tts rate (0.35~0.65) → audio speed (0.85~1.15)
+  double _mapLegacyTtsRateToAudioSpeed(double legacy) {
+    final x = legacy.clamp(0.35, 0.65);
+    final t = (x - 0.35) / (0.65 - 0.35); // 0..1
+    return (0.85 + t * (1.15 - 0.85)).clamp(0.6, 1.4);
+  }
+
+  String _lastDumpFp = '';
+
+  void _debugDumpTtsIfMissing(BridgeUiStateV2 state, NodeView view, String fp, Map<String, dynamic>? playlistCmd) {
+    if (playlistCmd != null) return;
+    if (_lastDumpFp == fp) return; // 同一個 view 只印一次
+    _lastDumpFp = fp;
+
+    final cmdTypes = state.commands.map((e) => e.type).toList();
+
+    // 嘗試直接從 lastRaw 裡看 bundle.view.commands（因為有時 parse 會漏掉）
+    final raw = state.lastRaw;
+    final bundle = (raw?['bundle'] is Map) ? raw!['bundle'] as Map : null;
+    final viewRaw = (bundle?['view'] is Map) ? bundle!['view'] as Map : null;
+    final viewCmds = viewRaw?['commands'];
+
+    // ignore: avoid_print
+    print('[GamePageV1][TTS_DUMP] fp=$fp node=${view.nodeId}');
+    // ignore: avoid_print
+    print('[GamePageV1][TTS_DUMP] state.commands types=$cmdTypes');
+    // ignore: avoid_print
+    final rawBundle = (raw?['bundle'] as Map?)?.cast<String, dynamic>();
+
+    print('[GamePageV1][TTS_DUMP] raw.bundle.view.commands=${(rawBundle?['view'] as Map?)?['commands']}');
+
+    // ✅ 加這行：看 bundle.commands
+    print('[GamePageV1][TTS_DUMP] raw.bundle.commands=${rawBundle?['commands']}');
   }
 
   // ---------------------------
@@ -509,27 +563,27 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     await _stt.startHoldToTalk();
   }
 
-Future<void> _pttStop() async {
-  if (!_pttHolding) return;
-  if (!mounted) return;
+  Future<void> _pttStop() async {
+    if (!_pttHolding) return;
+    if (!mounted) return;
 
-  // ✅ 先把 holding 關掉，避免下面 listener/狀態又觸發其他事
-  setState(() => _pttHolding = false);
+    // ✅ 先把 holding 關掉，避免下面 listener/狀態又觸發其他事
+    setState(() => _pttHolding = false);
 
-  await _stt.stop();
+    await _stt.stop();
 
-  // ✅ 很重要：Android 常常 stop 之後才補 finalResult
-  await Future.delayed(const Duration(milliseconds: 90));
-  if (!mounted) return;
+    // ✅ 很重要：Android 常常 stop 之後才補 finalResult
+    await Future.delayed(const Duration(milliseconds: 90));
+    if (!mounted) return;
 
-  final v = widget.controller.stateVN.value.view;
-  if (v == null || !_isAccuseNode(v)) return;
+    final v = widget.controller.stateVN.value.view;
+    if (v == null || !_isAccuseNode(v)) return;
 
-  final incomingFinal = _stt.vn.value.finalText.trim();
-  if (incomingFinal.isEmpty) return;
+    final incomingFinal = _stt.vn.value.finalText.trim();
+    if (incomingFinal.isEmpty) return;
 
-  _applyAccuseHeardText(v, incomingFinal);
-}
+    _applyAccuseHeardText(v, incomingFinal);
+  }
 
   void _applyAccuseHeardText(NodeView view, String recognized) {
     final raw = recognized.trim();
@@ -637,12 +691,11 @@ Future<void> _pttStop() async {
 
     // ✅ 載入記憶語速
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final r = await _settingsRepo.loadTtsRate(fallback: 0.45);
-      await _ttsCtl.setRate(r);
+      final legacy = await _settingsRepo.loadTtsRate(fallback: 0.45);
+      final speed = _mapLegacyTtsRateToAudioSpeed(legacy);
+      await _ttsCtl.setRate(speed);
     });
   }
-
-
 
   Future<void> _openStoryMenuSheet({
     required List<StoryParagraph> paragraphs,
@@ -893,7 +946,7 @@ Future<void> _pttStop() async {
   // ---------------------------
   String _fingerprint(NodeView v) => '${v.nodeId}|${v.title}|${v.narration.length}|${v.choices.length}';
 
-  void _scheduleHandleViewChanged(NodeView view, List<StoryParagraph> paragraphs) {
+  void _scheduleHandleViewChanged(NodeView view, List<StoryParagraph> paragraphs, {required Map<String, dynamic>? playlistCmd}) {
     final fp = _fingerprint(view);
     if (fp == _lastViewFingerprint) return;
     _lastViewFingerprint = fp;
@@ -922,6 +975,7 @@ Future<void> _pttStop() async {
           viewFp: fp2,
           autoPlay: doAutoPlay,
           scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
+          playlistCmd: playlistCmd,
         );
       } finally {
         _handlingViewChange = false;
@@ -1011,7 +1065,11 @@ Future<void> _pttStop() async {
         final viewFp = _fingerprint(view);
         final paragraphs = parseParagraphs(view.narration);
 
-        _scheduleHandleViewChanged(view, paragraphs);
+        // ✅ 從 commands 拿 tts_playlist_v1 (scope=view)
+        final playlistCmd = _extractViewPlaylistCmd(state);
+        _debugDumpTtsIfMissing(state, view, viewFp, playlistCmd);
+
+        _scheduleHandleViewChanged(view, paragraphs, playlistCmd: playlistCmd);
 
         if ((phase.blockAllTap) && _ttsCtl.playing) {
           // ignore: discarded_futures

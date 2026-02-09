@@ -10,11 +10,7 @@ class StoryParagraph {
 }
 
 List<StoryParagraph> parseParagraphs(String narration) {
-  final parts = narration
-      .split(RegExp(r'\n\s*\n'))
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList();
+  final parts = narration.split(RegExp(r'\n\s*\n')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
 
   return [
     for (int i = 0; i < parts.length; i++) StoryParagraph(parts[i], index: i),
@@ -118,6 +114,14 @@ class StoryCardV2State extends State<StoryCardV2> {
       if (_sc.hasClients) _sc.jumpTo(0);
       WidgetsBinding.instance.addPostFrameCallback((_) => _recalcFade());
     }
+
+    // ✅ 播放中：activeIndex 改變就自動捲到該段
+    if (oldWidget.activeIndex != widget.activeIndex && widget.isPlaying) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        scrollToParagraph(widget.activeIndex);
+      });
+    }
   }
 
   bool _sameParagraphs(List<StoryParagraph> a, List<StoryParagraph> b) {
@@ -207,7 +211,6 @@ class StoryCardV2State extends State<StoryCardV2> {
                     style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-
                 if (widget.ttsReady)
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
@@ -216,13 +219,11 @@ class StoryCardV2State extends State<StoryCardV2> {
                       style: theme.textTheme.labelSmall?.copyWith(color: cs.outline),
                     ),
                   ),
-
                 IconButton(
                   tooltip: '功能選單',
                   onPressed: widget.onOpenMenu,
                   icon: const Icon(Icons.more_vert),
                 ),
-
                 PlaybackControlsCompact(
                   isPlaying: widget.isPlaying,
                   ttsReady: widget.ttsReady,

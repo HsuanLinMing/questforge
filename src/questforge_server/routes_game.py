@@ -3,21 +3,26 @@ from __future__ import annotations
 
 import random
 import traceback
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from questforge.content.cases import CASES
 from questforge.engine.actions import PlayerAction
 from questforge.engine.session import GameSession, StepResult
 from questforge_server.session_store import SessionStore
+from questforge_server.tts_service import synthesize_to_wav
+from questforge.ai.tts.voice_map import voice_for_role
 
 router = APIRouter(prefix="/v1/game", tags=["game"])
 
 # ✅ dev-only in-memory store
 store = SessionStore()
-
 
 # ----------------------------
 # Pydantic Schemas
@@ -83,6 +88,7 @@ class BundleResponse(BaseModel):
     ask: Optional[Dict[str, Any]] = None
     quiz: Optional[Dict[str, Any]] = None
     end: Optional[Dict[str, Any]] = None
+    commands: Optional[List[Dict[str, Any]]] = None  # ✅ playlist 放這
 
 
 class StepResponse(BaseModel):
@@ -108,102 +114,214 @@ def _get_session_or_404(session_id: str) -> GameSession:
     return sess
 
 
-def _bundle_from_session_and_step(
-    *,
-    session: GameSession,
-    step: Optional[StepResult],
-) -> Tuple[BundleResponse, List[str], bool]:
-    """
-    將 engine 的 StepResult(commands/events/view/is_over) 轉成
-    Flutter 端需要的 bundle(view/ask/quiz/end)
-    """
-    events: List[str] = []
-    is_over = False
-
-    if step is None:
-        # start: 只拿 view
-        view_obj = session.get_view()
-        return (
-            BundleResponse(view=_to_json_dict(view_obj), ask=None, quiz=None, end=None),
-            [],
-            False,
-        )
-
-    events = list(step.events or [])
-    is_over = bool(step.is_over)
-
-    # view：StepResult.view 可能是 NodeView 或 None
-    view_json: Optional[Dict[str, Any]] = _to_json_dict(step.view)
-
-    ask = None
-    quiz = None
-    end = None
-
-    # commands：把 ask_reason/confirm_quiz/show_end_screen/show_reasoning_feedback 映射到 bundle
-    for cmd in step.commands or []:
-        if not isinstance(cmd, dict):
-            continue
-        t = (cmd.get("type") or "").strip()
-
-        if t == "ask_reason":
-            ask = cmd
-        elif t == "confirm_quiz":
-            quiz = cmd
-        elif t == "show_end_screen":
-            end = cmd
-        elif t == "show_reasoning_feedback":
-            # 目前 OverlayManagerV2 沒有這個 overlay 類型時，先放 end
-            end = cmd
-
-    return (
-        BundleResponse(view=view_json, ask=ask, quiz=quiz, end=end),
-        events,
-        is_over,
-    )
-
-
-def _step_and_build_response(
-    session_id: str, session: GameSession, action: PlayerAction
-) -> StepResponse:
-    step = session.step(action)
-    bundle, events, is_over = _bundle_from_session_and_step(session=session, step=step)
-    return StepResponse(
-        session_id=session_id, bundle=bundle, events=events, is_over=is_over
-    )
-
-
 def _to_json_dict(obj: Any) -> Optional[Dict[str, Any]]:
     if obj is None:
         return None
-
     if isinstance(obj, dict):
         return obj
 
-    # questforge views 通常會有 to_json()（你 curl 出來就是 nodeId camelCase）
     if hasattr(obj, "to_json"):
         try:
             return obj.to_json()
         except Exception:
             pass
-
     if hasattr(obj, "to_dict"):
         try:
             return obj.to_dict()
         except Exception:
             pass
-
-    # pydantic v2
     if hasattr(obj, "model_dump"):
         try:
             return obj.model_dump()
         except Exception:
             pass
 
-    # 最後 fallback：盡量用 __dict__ 但不保證欄位命名正確
     try:
         return dict(obj.__dict__)
     except Exception:
         return None
+
+
+def _bundle_from_session_and_step(
+    *,
+    request: Request,
+    session: GameSession,
+    step: Optional[StepResult],
+) -> Tuple[BundleResponse, List[str], bool]:
+    """
+    產出 Flutter 端吃的 bundle：
+    - bundle.view (NodeView json)
+    - bundle.ask / quiz / end (overlay command)
+    - bundle.commands (tts_playlist_v1 等)
+    並額外把 commands 同步塞到 view.commands 方便 debug。
+    """
+
+    # routes_game.py 內：_make_tts_cmd_from_view_json
+    def _make_tts_cmd_from_view_json(view_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not view_json:
+            return None
+
+        narration = (view_json.get("narration") or "").strip()
+        if not narration:
+            return None
+
+        def _parse_paragraph(p: str) -> tuple[str, str]:
+            s = (p or "").strip()
+            if not s:
+                return ("旁白", "")
+            if "：" in s:
+                role, rest = s.split("：", 1)
+                role = role.strip()
+                text = rest.strip()
+                if role and text:
+                    return (role, text)
+            return ("旁白", s)
+
+        raw_paras = [x.strip() for x in narration.split("\n\n") if x.strip()]
+        if not raw_paras:
+            return None
+
+        out_dir = Path(".qf_cache/tts").resolve()
+        base = str(request.base_url).rstrip("/")
+
+        items: List[Dict[str, Any]] = []
+        for i, p in enumerate(raw_paras):
+            role, text = _parse_paragraph(p)
+
+            spoken_text = (text or "").strip()
+            if not spoken_text:
+                continue
+
+            # ✅ 你要的 speed 規則
+            speed = 1.0
+            if role in ("旁白", "narrator"):
+                speed = 0.95
+            elif role in ("霏霏", "child_female"):
+                speed = 1.05
+            elif role in ("樂樂", "child_male"):
+                speed = 1.12
+            elif role in ("老師", "teacher"):
+                speed = 0.98
+
+            profile = voice_for_role(role)
+            r = synthesize_to_wav(
+                text=spoken_text,
+                out_dir=out_dir,
+                voice=profile.voice,
+                instructions=profile.instructions,
+                speed=speed,
+            )
+            if r is None:
+                continue
+
+            url = f"{base}/static/tts/{r.filename}"
+            items.append(
+                {
+                    "index": i,
+                    "text": spoken_text,     # debug
+                    "role": role,            # debug
+                    "voice": profile.voice,  # debug
+                    "speed": speed,          # debug
+                    "format": "wav",
+                    "path": url,
+                }
+            )
+
+        if not items:
+            return None
+
+        fp = hashlib.sha1(("v2|" + narration).encode("utf-8")).hexdigest()
+        return {
+            "type": "tts_playlist_v1",
+            "scope": "view",
+            "status": "ok",
+            "view_fp": fp,
+            "items": items,
+        }
+
+    # ----------------------------
+    # start: step is None
+    # ----------------------------
+    if step is None:
+        view_obj = session.get_view()
+        view_json = _to_json_dict(view_obj)
+
+        tts_cmd = _make_tts_cmd_from_view_json(view_json)
+        commands_out = [tts_cmd] if tts_cmd else []
+
+        # 同步塞進 view.commands（方便 Flutter debug dump）
+        if view_json is not None:
+            view_json = dict(view_json)
+            view_json["commands"] = commands_out if commands_out else None
+
+        return (
+            BundleResponse(
+                view=view_json, ask=None, quiz=None, end=None, commands=commands_out
+            ),
+            [],
+            False,
+        )
+
+    # ----------------------------
+    # step: view + overlays + playlist
+    # ----------------------------
+    events = list(step.events or [])
+    is_over = bool(step.is_over)
+
+    view_json: Optional[Dict[str, Any]] = _to_json_dict(step.view)
+
+    ask = None
+    quiz = None
+    end = None
+
+    for cmd in step.commands or []:
+        if not isinstance(cmd, dict):
+            continue
+        t = (cmd.get("type") or "").strip()
+        if t == "ask_reason":
+            ask = cmd
+        elif t == "confirm_quiz":
+            quiz = cmd
+        elif t in ("show_end_screen", "show_reasoning_feedback"):
+            end = cmd
+
+    tts_cmd = _make_tts_cmd_from_view_json(view_json)
+    commands_out = [tts_cmd] if tts_cmd else []
+
+    if view_json is not None:
+        view_json = dict(view_json)
+        view_json["commands"] = commands_out if commands_out else None
+
+    print("[BUNDLE] out.commands_count =", len(commands_out), flush=True)
+
+    return (
+        BundleResponse(
+            view=view_json, ask=ask, quiz=quiz, end=end, commands=commands_out
+        ),
+        events,
+        is_over,
+    )
+
+
+def _step_and_build_response(
+    *,
+    request: Request,
+    session_id: str,
+    session: GameSession,
+    action: PlayerAction,
+) -> StepResponse:
+    step = session.step(action)
+    bundle, events, is_over = _bundle_from_session_and_step(
+        request=request, session=session, step=step
+    )
+    return StepResponse(
+        session_id=session_id, bundle=bundle, events=events, is_over=is_over
+    )
+
+
+# ----------------------------
+# Accuse evaluator helpers (你原本那套保留)
+# ----------------------------
 
 
 def _norm_text(s: str) -> str:
@@ -214,8 +332,6 @@ def _norm_text(s: str) -> str:
     s = re.sub(r"[^\u4e00-\u9fff0-9a-z]+", "", s)
     return s
 
-
-# --- 2) 把 TEACHER_KEYWORDS 改成「交給大人/去確認」語氣（你不想突然老師登場） ---
 
 ADULT_FALLBACK_KEYWORDS = [
     "交給大人",
@@ -244,18 +360,10 @@ def _looks_like_teacher_intent(text: str) -> bool:
 
 
 def _iter_choices(view_obj_or_json: Any) -> List[Tuple[Optional[int], str]]:
-    """
-    兼容：
-    - view_json: {"choices":[{"index":0,"text":"..."}]}
-    - view_obj: NodeView.choices = [ChoiceView(...)]
-    回傳 list of (index:int|None, text:str)
-    """
     if view_obj_or_json is None:
         return []
-
     out: List[Tuple[Optional[int], str]] = []
 
-    # dict json
     if isinstance(view_obj_or_json, dict):
         raw_choices = view_obj_or_json.get("choices") or []
         for c in raw_choices:
@@ -274,7 +382,6 @@ def _iter_choices(view_obj_or_json: Any) -> List[Tuple[Optional[int], str]]:
             out.append((idx_int, str(txt or "").strip()))
         return out
 
-    # object view
     raw_choices = getattr(view_obj_or_json, "choices", None) or []
     for c in raw_choices:
         if c is None:
@@ -300,21 +407,15 @@ def _find_teacher_choice_index(view_obj_or_json: Any) -> Optional[int]:
 
 
 def _tokenize_choice_text(text: str) -> List[str]:
-    """
-    從 choice 文案切出候選 token（>=2字），讓孩子只講「飯糰/波波」也能命中。
-    例：'飯糰啵啵（白色吊飾）' -> ['飯糰', '啵啵', '白色', '吊飾', '飯糰啵啵', ...ngram]
-    """
     import re
 
     raw = (text or "").strip()
     if not raw:
         return []
 
-    # 先取括號前的主名 + 全名
     main = re.split(r"[（(]", raw)[0].strip()
     candidates = [raw, main]
 
-    # 去符號後切詞：中文/英文/數字連段
     cleaned = re.sub(r"[^\u4e00-\u9fff0-9a-zA-Z]+", " ", raw)
     parts = [p.strip() for p in cleaned.split() if p.strip()]
 
@@ -324,7 +425,6 @@ def _tokenize_choice_text(text: str) -> List[str]:
         if len(ns) >= 2:
             out.append(ns)
 
-    # 再補：中文連續片段的 2~4 字 ngram（提升片段命中）
     chinese_runs = re.findall(r"[\u4e00-\u9fff]{2,}", raw)
     for run in chinese_runs:
         run = run.strip()
@@ -335,7 +435,6 @@ def _tokenize_choice_text(text: str) -> List[str]:
                     if len(ng) >= 2:
                         out.append(ng)
 
-    # 去重但保留順序
     seen = set()
     uniq: List[str] = []
     for t in out:
@@ -360,8 +459,6 @@ def _best_effort_match_choice(
     for idx, t in _iter_choices(view_obj_or_json):
         if idx is None:
             continue
-
-        # skip adult fallback option for matching suspects
         if any(k in t for k in ADULT_FALLBACK_KEYWORDS):
             continue
 
@@ -386,27 +483,6 @@ def _best_effort_match_choice(
                     why = f"token_hit:{tok}"
                     break
 
-            if score <= 0.0:
-                n = len(r)
-                m = len(nt)
-                dp = [0] * (m + 1)
-                best = 0
-                for i in range(1, n + 1):
-                    prev = 0
-                    for j in range(1, m + 1):
-                        temp = dp[j]
-                        if r[i - 1] == nt[j - 1]:
-                            dp[j] = prev + 1
-                            best = max(best, dp[j])
-                        else:
-                            dp[j] = 0
-                        prev = temp
-
-                if best >= 2:
-                    base = best / max(1, len(nt))
-                    score = base + (0.25 if best >= 3 else 0.12)
-                    why = f"lcs:{best}"
-
         if score > best_score:
             best_score = float(score)
             best_idx = idx
@@ -421,14 +497,150 @@ def _best_effort_match_choice(
 # ----------------------------
 
 
-# --- 3) api_accuse_evaluate：把 ending_kind + score 存進 session.state.vars，讓 engine 用它導結局 ---
+@router.post("/start", response_model=StepResponse)
+def api_start(req: StartRequest, request: Request) -> StepResponse:
+    try:
+        sid, session = store.create(seed=req.seed)
+        bundle, events, is_over = _bundle_from_session_and_step(
+            request=request, session=session, step=None
+        )
+        return StepResponse(
+            session_id=sid, bundle=bundle, events=events, is_over=is_over
+        )
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("[api_start] error:", repr(e), flush=True)
+        print(tb, flush=True)
+        raise HTTPException(
+            status_code=500, detail=f"start_error: {type(e).__name__} {repr(e)}"
+        )
+
+
+@router.post("/choose", response_model=StepResponse)
+def api_choose(req: ChooseRequest, request: Request) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(type="choose", choice_index=req.choice_index)
+    return _step_and_build_response(
+        request=request, session_id=req.session_id, session=session, action=action
+    )
+
+
+@router.post("/replay", response_model=StepResponse)
+def api_replay(req: ReplayRequest, request: Request) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(type="replay")
+    return _step_and_build_response(
+        request=request, session_id=req.session_id, session=session, action=action
+    )
+
+
+@router.post("/end_flow", response_model=StepResponse)
+def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
+    session_id = (req.session_id or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id required")
+
+    action = (req.end_action or "").strip()
+    if not action:
+        raise HTTPException(status_code=400, detail="end_action required")
+
+    session = _get_session_or_404(session_id)
+    step = session.step(PlayerAction(type="end_flow", end_action=action))
+
+    if action == "restart_case":
+        case_id = store.get_case_id(session_id) or "2"
+        new_sess = store.reset(session_id=session_id, case_id=case_id, seed=None)
+        if new_sess is None:
+            raise HTTPException(status_code=500, detail="reset failed")
+
+        bundle, events, is_over = _bundle_from_session_and_step(
+            request=request, session=new_sess, step=None
+        )
+        return StepResponse(
+            session_id=session_id, bundle=bundle, events=["restart_case"], is_over=False
+        )
+
+    if action == "switch_case":
+        current = store.get_case_id(session_id)
+        all_ids = list(CASES.keys())
+        candidates = [cid for cid in all_ids if cid != current] or all_ids
+        next_case_id = random.choice(candidates)
+
+        new_sess = store.reset(session_id=session_id, case_id=next_case_id, seed=None)
+        if new_sess is None:
+            raise HTTPException(status_code=500, detail="reset failed")
+
+        bundle, events, is_over = _bundle_from_session_and_step(
+            request=request, session=new_sess, step=None
+        )
+        return StepResponse(
+            session_id=session_id,
+            bundle=bundle,
+            events=["switch_case", f"case:{next_case_id}"],
+            is_over=False,
+        )
+
+    if action == "quit":
+        store.delete(session_id)
+        return StepResponse(
+            session_id=session_id,
+            bundle=BundleResponse(
+                view=None, ask=None, quiz=None, end=None, commands=None
+            ),
+            events=["quit"],
+            is_over=True,
+        )
+
+    bundle, events, is_over = _bundle_from_session_and_step(
+        request=request, session=session, step=step
+    )
+    return StepResponse(
+        session_id=session_id, bundle=bundle, events=events, is_over=is_over
+    )
+
+
+@router.post("/set_reasons", response_model=StepResponse)
+def api_set_reasons(req: SetReasonsRequest, request: Request) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(
+        type="set_reasons",
+        reason_ids=list(req.reason_ids or []),
+        reason_text=(req.reason_text or ""),
+    )
+    return _step_and_build_response(
+        request=request, session_id=req.session_id, session=session, action=action
+    )
+
+
+@router.post("/confirm_quiz", response_model=StepResponse)
+def api_confirm_quiz(req: ConfirmQuizRequest, request: Request) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(
+        type="confirm_quiz_answer",
+        answers=list(req.answers or []),
+        skipped=bool(req.skipped),
+    )
+    return _step_and_build_response(
+        request=request, session_id=req.session_id, session=session, action=action
+    )
+
+
+@router.post("/quit", response_model=StepResponse)
+def api_quit(req: QuitRequest, request: Request) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(type="quit")
+    resp = _step_and_build_response(
+        request=request, session_id=req.session_id, session=session, action=action
+    )
+    store.delete(req.session_id)
+    return resp
 
 
 @router.post("/accuse_evaluate", response_model=AccuseEvaluateResponse)
 def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
     threshold = 0.6
-    nudge_margin = 0.12  # ✅ 差一點點：0.48~0.59 -> nudge
-    auto_submit_delta = 0.15  # ✅ clear：>= 0.75 才建議直接自動送（可自行調）
+    nudge_margin = 0.12
+    auto_submit_delta = 0.15
 
     try:
         session = _get_session_or_404(req.session_id)
@@ -443,13 +655,11 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
         recognized_text = (req.recognized_text or "").strip()
         teacher_idx = _find_teacher_choice_index(view)
 
-        # 先清掉舊值避免殘留
         session.state.vars.pop("accuse_bucket", None)
         session.state.vars.pop("accuse_score", None)
         session.state.vars.pop("accuse_text", None)
 
         if not recognized_text:
-            # 空字串：不自動送
             session.state.vars["accuse_bucket"] = "defer"
             session.state.vars["accuse_score"] = 0.0
             session.state.vars["accuse_text"] = ""
@@ -464,7 +674,6 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
                 debug={"case": "empty_text", "teacher_idx": teacher_idx},
             )
 
-        # 明確「先去確認/交給大人」
         if _looks_like_teacher_intent(recognized_text):
             session.state.vars["accuse_bucket"] = "defer"
             session.state.vars["accuse_score"] = 0.0
@@ -488,10 +697,8 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
                 },
             )
 
-        # 做 fuzzy match（用來找「你是指誰」）
         idx, text, score, mdbg = _best_effort_match_choice(view, recognized_text)
 
-        # ✅ bucket 決策（3 段）
         if idx is not None and score >= threshold:
             bucket = "clear"
         elif idx is not None and score >= (threshold - nudge_margin):
@@ -505,23 +712,15 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
         if idx is not None:
             session.state.vars["accuse_choice_index"] = int(idx)
 
-        # auto_submit 規則：
-        # - clear：高於 threshold+delta 才直接送
-        # - nudge：不直接送（避免誤送），由孩子按「送出」即可
-        # - defer：若有 fallback 且字夠長，允許直接送
-        if bucket == "clear":
-            accuse_auto_submit = bool(float(score) >= (threshold + auto_submit_delta))
-        else:
-            accuse_auto_submit = False
+        accuse_auto_submit = bool(
+            bucket == "clear" and float(score) >= (threshold + auto_submit_delta)
+        )
+        defer_auto_submit = bool(
+            bucket == "defer"
+            and teacher_idx is not None
+            and len(_norm_text(recognized_text)) >= 4
+        )
 
-        if bucket == "defer":
-            defer_auto_submit = (teacher_idx is not None) and (
-                len(_norm_text(recognized_text)) >= 4
-            )
-        else:
-            defer_auto_submit = False
-
-        # ✅ fifi_reply：不要「線索口吻」，只接住 + 不說教
         if bucket == "clear":
             fifi = (
                 f"霏霏：我聽到你說「{recognized_text}」。好～我們就照你說的方向講清楚。"
@@ -583,149 +782,3 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
             ending_kind="defer",
             debug={"case": "exception", "error": repr(e)},
         )
-
-
-@router.post("/start", response_model=StepResponse)
-def api_start(req: StartRequest) -> StepResponse:
-    sid, session = store.create(seed=req.seed)
-    bundle, events, is_over = _bundle_from_session_and_step(session=session, step=None)
-    return StepResponse(session_id=sid, bundle=bundle, events=events, is_over=is_over)
-
-
-@router.post("/choose", response_model=StepResponse)
-def api_choose(req: ChooseRequest) -> StepResponse:
-    session = _get_session_or_404(req.session_id)
-
-    try:
-        action = PlayerAction(type="choose", choice_index=req.choice_index)
-        return _step_and_build_response(req.session_id, session, action)
-
-    except AssertionError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"assertion_failed: {repr(e)}",
-        )
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    except Exception as e:
-        tb = traceback.format_exc()
-        print("[routes_game] engine error:", type(e).__name__, repr(e))
-        print(tb)
-        raise HTTPException(
-            status_code=500,
-            detail=f"engine_error: {type(e).__name__} {repr(e)}",
-        )
-
-
-@router.post("/replay", response_model=StepResponse)
-def api_replay(req: ReplayRequest) -> StepResponse:
-    session = _get_session_or_404(req.session_id)
-    action = PlayerAction(type="replay")
-    return _step_and_build_response(req.session_id, session, action)
-
-
-@router.post("/end_flow", response_model=StepResponse)
-def api_end_flow(req: EndFlowRequest) -> StepResponse:
-    session_id = (req.session_id or "").strip()
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-
-    action = (req.end_action or "").strip()
-    if not action:
-        raise HTTPException(status_code=400, detail="end_action required")
-
-    session = _get_session_or_404(session_id)
-
-    step = session.step(
-        PlayerAction(
-            type="end_flow",
-            end_action=action,
-        )
-    )
-
-    if action == "restart_case":
-        case_id = store.get_case_id(session_id) or "2"
-        new_sess = store.reset(session_id=session_id, case_id=case_id, seed=None)
-        if new_sess is None:
-            raise HTTPException(status_code=500, detail="reset failed")
-
-        bundle, events, is_over = _bundle_from_session_and_step(
-            session=new_sess, step=None
-        )
-        return StepResponse(
-            session_id=session_id,
-            bundle=bundle,
-            events=["restart_case"],
-            is_over=False,
-        )
-
-    if action == "switch_case":
-        current = store.get_case_id(session_id)
-        all_ids = list(CASES.keys())
-        candidates = [cid for cid in all_ids if cid != current] or all_ids
-        next_case_id = random.choice(candidates)
-
-        new_sess = store.reset(session_id=session_id, case_id=next_case_id, seed=None)
-        if new_sess is None:
-            raise HTTPException(status_code=500, detail="reset failed")
-
-        bundle, events, is_over = _bundle_from_session_and_step(
-            session=new_sess, step=None
-        )
-        return StepResponse(
-            session_id=session_id,
-            bundle=bundle,
-            events=["switch_case", f"case:{next_case_id}"],
-            is_over=False,
-        )
-
-    if action == "quit":
-        store.delete(session_id)
-        return StepResponse(
-            session_id=session_id,
-            bundle=BundleResponse(view=None, ask=None, quiz=None, end=None),
-            events=["quit"],
-            is_over=True,
-        )
-
-    bundle, events, is_over = _bundle_from_session_and_step(session=session, step=step)
-    return StepResponse(
-        session_id=session_id,
-        bundle=bundle,
-        events=events,
-        is_over=is_over,
-    )
-
-
-@router.post("/set_reasons", response_model=StepResponse)
-def api_set_reasons(req: SetReasonsRequest) -> StepResponse:
-    session = _get_session_or_404(req.session_id)
-    action = PlayerAction(
-        type="set_reasons",
-        reason_ids=list(req.reason_ids or []),
-        reason_text=(req.reason_text or ""),
-    )
-    return _step_and_build_response(req.session_id, session, action)
-
-
-@router.post("/confirm_quiz", response_model=StepResponse)
-def api_confirm_quiz(req: ConfirmQuizRequest) -> StepResponse:
-    session = _get_session_or_404(req.session_id)
-    action = PlayerAction(
-        type="confirm_quiz_answer",
-        answers=list(req.answers or []),
-        skipped=bool(req.skipped),
-    )
-    return _step_and_build_response(req.session_id, session, action)
-
-
-@router.post("/quit", response_model=StepResponse)
-def api_quit(req: QuitRequest) -> StepResponse:
-    session = _get_session_or_404(req.session_id)
-    action = PlayerAction(type="quit")
-    resp = _step_and_build_response(req.session_id, session, action)
-
-    store.delete(req.session_id)
-    return resp

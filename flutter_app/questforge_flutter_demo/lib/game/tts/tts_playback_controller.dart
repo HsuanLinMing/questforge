@@ -2,7 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_tts/flutter_tts.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:questforge_flutter_demo/game/widgets/story_card_v2.dart';
 import 'package:questforge_ui_contract/questforge_contract.dart';
 
@@ -18,6 +18,8 @@ class TtsPlaybackState {
     required this.activeChunkIndex,
     required this.viewFp,
     required this.rate,
+    required this.didSpeak,
+    required this.didSpeakFp,
   });
 
   final bool ready;
@@ -27,8 +29,14 @@ class TtsPlaybackState {
   final int activeChunkIndex;
   final String viewFp;
 
-  /// ✅ 語速（FlutterTts speechRate）
+  /// ✅ 播放倍速（just_audio speed）
   final double rate;
+
+  /// ✅ 這一輪 view 真的有開始播音檔嗎？（避免 playlist missing 時觸發 onNarrationEnd → autoContinue）
+  final bool didSpeak;
+
+  /// ✅ 哪個 viewFp 曾經真的播過（debug 用）
+  final String didSpeakFp;
 
   TtsPlaybackState copyWith({
     bool? ready,
@@ -38,6 +46,8 @@ class TtsPlaybackState {
     int? activeChunkIndex,
     String? viewFp,
     double? rate,
+    bool? didSpeak,
+    String? didSpeakFp,
   }) {
     return TtsPlaybackState(
       ready: ready ?? this.ready,
@@ -47,24 +57,102 @@ class TtsPlaybackState {
       activeChunkIndex: activeChunkIndex ?? this.activeChunkIndex,
       viewFp: viewFp ?? this.viewFp,
       rate: rate ?? this.rate,
+      didSpeak: didSpeak ?? this.didSpeak,
+      didSpeakFp: didSpeakFp ?? this.didSpeakFp,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Playlist v1 (from python command: type=tts_playlist_v1)
+// -----------------------------------------------------------------------------
+class _TtsPlaylistItem {
+  _TtsPlaylistItem({
+    required this.index,
+    required this.path,
+    required this.role,
+    required this.voice,
+    required this.text,
+    required this.format,
+  });
+
+  final int index; // paragraph index
+  final String path; // file://...
+  final String role;
+  final String voice;
+  final String text;
+  final String format;
+
+  static _TtsPlaylistItem? tryFromMap(Map<String, dynamic> m) {
+    final path = '${m['path'] ?? ''}'.trim();
+    if (path.isEmpty) return null;
+
+    final idxRaw = m['index'];
+    final idx = (idxRaw is int) ? idxRaw : int.tryParse('$idxRaw') ?? 0;
+
+    return _TtsPlaylistItem(
+      index: idx,
+      path: path,
+      role: '${m['role'] ?? ''}',
+      voice: '${m['voice'] ?? ''}',
+      text: '${m['text'] ?? ''}',
+      format: '${m['format'] ?? ''}',
+    );
+  }
+}
+
+class _TtsPlaylistV1 {
+  _TtsPlaylistV1({
+    required this.scope,
+    required this.viewFp,
+    required this.status,
+    required this.reason,
+    required this.items,
+  });
+
+  final String scope; // view/end
+  final String viewFp;
+  final String status; // ok/unavailable/empty_narration/error
+  final String reason;
+  final List<_TtsPlaylistItem> items;
+
+  bool get playable => status == 'ok' && items.isNotEmpty;
+
+  static _TtsPlaylistV1 fromCommand(Map<String, dynamic> cmd) {
+    final itemsRaw = cmd['items'];
+    final items = <_TtsPlaylistItem>[];
+    if (itemsRaw is List) {
+      for (final x in itemsRaw) {
+        if (x is Map) {
+          final it = _TtsPlaylistItem.tryFromMap(x.cast<String, dynamic>());
+          if (it != null) items.add(it);
+        }
+      }
+    }
+
+    return _TtsPlaylistV1(
+      scope: '${cmd['scope'] ?? 'view'}',
+      viewFp: '${cmd['view_fp'] ?? ''}',
+      status: '${cmd['status'] ?? 'ok'}',
+      reason: '${cmd['reason'] ?? ''}',
+      items: items,
     );
   }
 }
 
 ///
-/// TTS 播放控制器（macOS 友善）
-/// - chunk + paragraph 連播
-/// - progress handler 若不可靠，用 fallback timer（估算朗讀時間）補推進
-/// - session/token guard：seek / view change / stop 都不會誤推進
+/// TTS 播放控制器（播放 Python 回來的音檔 playlist）
+/// - activeChunkIndex：playlist item cursor 進度（不是文字 chunk）
+/// - activeParagraphIndex：目前播放到哪一段（用 item.index）
+/// - rate：音檔播放倍速
 ///
 class TtsPlaybackController {
   TtsPlaybackController({
-    FlutterTts? tts,
     LogFn? logger,
-  })  : _tts = tts ?? FlutterTts(),
-        _logFn = logger;
+  }) : _logFn = logger;
 
-  /// narration 播到「本 view 最後一段最後一 chunk」才觸發
+  /// narration 播放到「playlist 最後一個 item」才觸發
+  /// ✅ 注意：只有 didSpeak==true 才會觸發（避免 playlist missing 時 autoContinue）
   VoidCallback? onNarrationEnd;
 
   // ---------------------------
@@ -78,7 +166,9 @@ class TtsPlaybackController {
       activeParagraphIndex: 0,
       activeChunkIndex: 0,
       viewFp: '',
-      rate: 0.45,
+      rate: 1.0,
+      didSpeak: false,
+      didSpeakFp: '',
     ),
   );
 
@@ -90,53 +180,29 @@ class TtsPlaybackController {
 
   void setEnabled(bool on) => vn.value = vn.value.copyWith(enabled: on);
 
-  /// ✅ 外部設定語速（會立即套用到 TTS）
+  /// ✅ 外部設定倍速（just_audio speed）
   Future<void> setRate(double r) async {
-    final next = r.clamp(0.1, 1.0);
+    final next = r.clamp(0.6, 1.4);
     vn.value = vn.value.copyWith(rate: next);
     try {
-      await _tts.setSpeechRate(next);
+      await _player.setSpeed(next);
     } catch (_) {}
   }
 
-  // init once
-  Future<void> init({
-    String language = 'zh-TW',
-    double speechRate = 0.45,
-    double pitch = 1.0,
-  }) async {
-    // 以目前 state.rate 為主（讓外部可先 setRate 再 init 也行）
-    final initRate = vn.value.rate;
+  Future<void> init() async {
+    if (_inited) return;
+    _inited = true;
 
     try {
-      await _tts.setLanguage(language);
-    } catch (_) {}
-    try {
-      await _tts.setSpeechRate(initRate == 0 ? speechRate : initRate);
-      await _tts.setPitch(pitch);
+      await _player.setSpeed(vn.value.rate);
     } catch (_) {}
 
-    _tts.setProgressHandler((text, start, end, word) {
+    _stateSub?.cancel();
+    _stateSub = _player.playerStateStream.listen((st) {
       if (_tokenSession != _playSession) return;
-      if (text != _currentText) return;
-      _currentProgressEnd = end;
-
-      if (_currentLen > 0 && end >= _currentLen) {
-        _triggerAdvance('progress_end');
+      if (st.processingState == ProcessingState.completed) {
+        _triggerAdvance('audio_completed');
       }
-    });
-
-    _tts.setCompletionHandler(() {
-      _log('TTS_COMPLETE', {});
-    });
-
-    _tts.setCancelHandler(() {
-      _log('TTS_CANCEL', {});
-    });
-
-    _tts.setErrorHandler((msg) {
-      _log('TTS_ERROR', {'msg': msg});
-      stop(resetToStart: false);
     });
 
     vn.value = vn.value.copyWith(ready: true);
@@ -145,18 +211,27 @@ class TtsPlaybackController {
   Future<void> dispose() async {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
+
+    await _stateSub?.cancel();
+    _stateSub = null;
+
     try {
-      await _tts.stop();
+      await _player.dispose();
     } catch (_) {}
+
     vn.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // view changed integration
+  // ---------------------------------------------------------------------------
   Future<void> handleViewChanged({
     required NodeView view,
     required List<StoryParagraph> paragraphs,
     required String viewFp,
     required bool autoPlay,
     required ScrollToParagraphFn scrollTo,
+    required Map<String, dynamic>? playlistCmd,
   }) async {
     _scrollTo = scrollTo;
 
@@ -165,13 +240,34 @@ class TtsPlaybackController {
 
     _playParagraphs = const <StoryParagraph>[];
     _playViewFp = '';
+    _playlist = null;
+    _playlistCursor = 0;
+
+    // ✅ reset didSpeak for this view
+    vn.value = vn.value.copyWith(didSpeak: false, didSpeakFp: '');
+
+    _playParagraphs = paragraphs;
+    _playViewFp = viewFp;
+
+    final pl = (playlistCmd == null) ? null : _TtsPlaylistV1.fromCommand(playlistCmd);
+    _playlist = pl;
 
     if (!autoPlay) return;
     if (!enabled || !ready) return;
     if (paragraphs.isEmpty) return;
 
-    if (_lastAutoPlayedFp == viewFp) return;
-    _lastAutoPlayedFp = viewFp;
+    final dedupeFp = (pl?.viewFp.trim().isNotEmpty ?? false) ? pl!.viewFp.trim() : viewFp;
+    if (_lastAutoPlayedFp == dedupeFp) return;
+    _lastAutoPlayedFp = dedupeFp;
+
+    // ✅ playlist 不可播：只 log，不要 onNarrationEnd（避免直接 autoContinue）
+    if (pl == null || !pl.playable) {
+      _log('PLAYLIST_UNAVAILABLE', {
+        'status': pl?.status ?? 'missing',
+        'reason': pl?.reason ?? '',
+      });
+      return;
+    }
 
     await Future<void>.delayed(const Duration(milliseconds: 20));
     await playParagraph(
@@ -193,6 +289,12 @@ class TtsPlaybackController {
 
     if (!enabled) return;
     if (paragraphs.isEmpty) return;
+
+    final pl = _playlist;
+    if (pl == null || !pl.playable) {
+      _log('TOGGLE_NO_AUDIO', {'reason': pl == null ? 'missing' : pl.status});
+      return; // ✅ 不要 onNarrationEnd
+    }
 
     if (playing) {
       await stop(resetToStart: false);
@@ -236,7 +338,6 @@ class TtsPlaybackController {
     );
   }
 
-  /// ✅ 重播目前段落（從頭播放）
   Future<void> replayCurrent({
     required List<StoryParagraph> paragraphs,
     required String viewFp,
@@ -247,9 +348,12 @@ class TtsPlaybackController {
     if (!enabled) return;
     if (paragraphs.isEmpty) return;
 
+    final pl = _playlist;
+    if (pl == null || !pl.playable) return;
+
     final idx = activeParagraphIndex.clamp(0, paragraphs.length - 1);
 
-    _playSession++; // cut callbacks
+    _playSession++;
     await stop(resetToStart: false);
 
     vn.value = vn.value.copyWith(
@@ -279,10 +383,18 @@ class TtsPlaybackController {
     if (!enabled) return;
     if (paragraphs.isEmpty) return;
 
+    final pl = _playlist;
     final nextIndex = index.clamp(0, paragraphs.length - 1);
+
+    if (pl == null || !pl.playable) {
+      vn.value = vn.value.copyWith(activeParagraphIndex: nextIndex, activeChunkIndex: 0);
+      scrollTo(nextIndex);
+      return;
+    }
+
     final wasPlaying = playing;
 
-    _playSession++; // cut callbacks
+    _playSession++;
     await stop(resetToStart: false);
 
     vn.value = vn.value.copyWith(
@@ -307,37 +419,33 @@ class TtsPlaybackController {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
 
-    _speakBusy = false;
+    _handlingAdvance = false;
 
     _speakToken++;
     _handledToken = -1;
 
     try {
-      await _tts.stop();
+      await _player.stop();
     } catch (_) {}
 
     vn.value = vn.value.copyWith(
       playing: false,
       activeChunkIndex: 0,
       activeParagraphIndex: resetToStart ? 0 : vn.value.activeParagraphIndex,
-      viewFp: vn.value.viewFp,
     );
 
-    _ttsChunks = const <String>[];
-    _currentText = '';
-    _currentLen = 0;
-    _currentProgressEnd = 0;
     _pendingActiveParagraphIndex = null;
   }
 
   // ---------------------------
   // internals
   // ---------------------------
-  final FlutterTts _tts;
   final LogFn? _logFn;
 
-  static const int _chunkMinChars = 12;
-  static const int _chunkMaxChars = 28;
+  final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<PlayerState>? _stateSub;
+
+  bool _inited = false;
 
   List<StoryParagraph> _playParagraphs = const <StoryParagraph>[];
   String _playViewFp = '';
@@ -352,18 +460,13 @@ class TtsPlaybackController {
   int _handledToken = -1;
   int _tokenSession = 0;
 
-  bool _speakBusy = false;
   bool _handlingAdvance = false;
 
   int? _pendingActiveParagraphIndex;
 
-  List<String> _ttsChunks = const <String>[];
+  _TtsPlaylistV1? _playlist;
+  int _playlistCursor = 0;
 
-  String _currentText = '';
-  String _currentSpeakText = '';
-  int _currentLen = 0;
-  int _currentProgressEnd = 0;
-  DateTime? _speakStartedAt;
   Timer? _fallbackTimer;
 
   void _log(String tag, Map<String, Object?> extra) {
@@ -376,73 +479,25 @@ class TtsPlaybackController {
       'handled': _handledToken,
       'viewFp': _playViewFp,
       'rate': vn.value.rate,
+      'didSpeak': vn.value.didSpeak,
+      'didSpeakFp': vn.value.didSpeakFp,
       ...extra,
     });
   }
 
-  bool _isStrongPunc(String s) => s.contains(RegExp(r'[。！？!?]'));
-  bool _isMidPunc(String s) => s.contains(RegExp(r'[，,、；;：:]'));
-  bool _isAnyPunc(String s) => _isStrongPunc(s) || _isMidPunc(s) || s.contains('…');
-
-  Duration _gapAfterChunk(String chunk) {
-    if (_isStrongPunc(chunk)) return const Duration(milliseconds: 220);
-    if (_isMidPunc(chunk) || chunk.contains('…')) return const Duration(milliseconds: 140);
-    return const Duration(milliseconds: 70);
+  Duration _estimateAudioTimeout(_TtsPlaylistItem item) {
+    final len = item.text.trim().length;
+    var ms = 1200 + len * 160;
+    if (ms < 1500) ms = 1500;
+    if (ms > 18000) ms = 18000;
+    return Duration(milliseconds: ms);
   }
 
-  int _estimateSpeakMs(String text) {
-    final t = text.trim();
-    if (t.isEmpty) return 900;
-
-    // 粗估：rate 越快，時間越短
-    final r = vn.value.rate.clamp(0.2, 0.9);
-    final rateFactor = (0.45 / r).clamp(0.6, 1.8);
-
-    const int perChar = 190;
-
-    final strong = RegExp(r'[。！？!?]').allMatches(t).length;
-    final mid = RegExp(r'[，,、；;：:]').allMatches(t).length;
-    final ellipsis = RegExp(r'…+').allMatches(t).length;
-
-    var ms = (t.length * perChar * rateFactor).round();
-    ms += (strong * 420 * rateFactor).round();
-    ms += (mid * 220 * rateFactor).round();
-    ms += (ellipsis * 320 * rateFactor).round();
-
-    if (ms < 900) ms = 900;
-    if (ms > 12000) ms = 12000;
-    return ms;
-  }
-
-  void _armFallbackTimer({required int token, required String text}) {
+  void _armFallbackTimer({required int token, required _TtsPlaylistItem item}) {
     _fallbackTimer?.cancel();
-
-    final expectMs = _estimateSpeakMs(text);
-
-    _fallbackTimer = Timer(Duration(milliseconds: expectMs), () {
+    _fallbackTimer = Timer(_estimateAudioTimeout(item), () {
       if (_tokenSession != _playSession) return;
       if (token != _speakToken) return;
-      if (_currentLen == 0) return;
-
-      if (_currentProgressEnd >= _currentLen) return;
-
-      final started = _speakStartedAt;
-      if (started != null) {
-        final elapsed = DateTime.now().difference(started).inMilliseconds;
-        if (elapsed < expectMs) {
-          final remain = (expectMs - elapsed).clamp(120, 3000);
-          _fallbackTimer?.cancel();
-          _fallbackTimer = Timer(Duration(milliseconds: remain), () {
-            if (_tokenSession != _playSession) return;
-            if (token != _speakToken) return;
-            if (_currentLen == 0) return;
-            if (_currentProgressEnd >= _currentLen) return;
-            _triggerAdvance('fallback_timeout');
-          });
-          return;
-        }
-      }
-
       _triggerAdvance('fallback_timeout');
     });
   }
@@ -465,109 +520,20 @@ class TtsPlaybackController {
     Future.microtask(() async {
       try {
         if (_tokenSession != _playSession) return;
-        await _advanceAfterChunkEnd();
+        await _advanceAfterItemEnd();
       } finally {
         _handlingAdvance = false;
       }
     });
   }
 
-  List<String> _splitByPunctuationKeeping(String text) {
-    final t = text.trim();
-    if (t.isEmpty) return const <String>[];
-
-    final out = <String>[];
-    final re = RegExp(r'[^。！？!?；;：:\n]+[。！？!?；;：:]?|…+|[\n]+');
-    for (final m in re.allMatches(t)) {
-      final s = m.group(0)?.trim() ?? '';
-      if (s.isEmpty) continue;
-      if (s == '\n') continue;
-      out.add(s);
+  int _firstCursorForParagraph(int paragraphIndex) {
+    final pl = _playlist;
+    if (pl == null) return 0;
+    for (var i = 0; i < pl.items.length; i++) {
+      if (pl.items[i].index == paragraphIndex) return i;
     }
-    return out;
-  }
-
-  List<String> _splitLongByCommaOrFixed(String s) {
-    final t = s.trim();
-    if (t.length <= _chunkMaxChars) return <String>[t];
-
-    final parts = t
-        .split(RegExp(r'(?<=[，,、；;：:])'))
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-
-    final out = <String>[];
-    for (final p in (parts.isEmpty ? <String>[t] : parts)) {
-      if (p.length <= _chunkMaxChars) {
-        out.add(p);
-      } else {
-        var i = 0;
-        while (i < p.length) {
-          final end = (i + _chunkMaxChars).clamp(0, p.length);
-          out.add(p.substring(i, end).trim());
-          i = end;
-        }
-      }
-    }
-    return out.where((e) => e.isNotEmpty).toList();
-  }
-
-  List<String> _buildChunksForParagraph(String paragraphText) {
-    final units = _splitByPunctuationKeeping(paragraphText);
-    if (units.isEmpty) return const <String>[];
-
-    final expanded = <String>[];
-    for (final u in units) {
-      if (u.length > _chunkMaxChars) {
-        expanded.addAll(_splitLongByCommaOrFixed(u));
-      } else {
-        expanded.add(u);
-      }
-    }
-
-    final out = <String>[];
-    var buf = '';
-
-    void flush() {
-      final b = buf.trim();
-      if (b.isNotEmpty) out.add(b);
-      buf = '';
-    }
-
-    for (final piece in expanded) {
-      final p = piece.trim();
-      if (p.isEmpty) continue;
-
-      if (buf.isEmpty) {
-        buf = p;
-        if (buf.length >= _chunkMinChars && _isAnyPunc(buf)) flush();
-        continue;
-      }
-
-      final candidate = '$buf$p';
-      if (candidate.length <= _chunkMaxChars) {
-        buf = candidate;
-        if (buf.length >= _chunkMinChars && _isAnyPunc(buf)) flush();
-        continue;
-      }
-
-      flush();
-      buf = p;
-      if (buf.length >= _chunkMinChars && _isAnyPunc(buf)) flush();
-    }
-
-    flush();
-
-    final merged = <String>[];
-    for (final c in out) {
-      if (merged.isNotEmpty && c.length <= 4) {
-        merged[merged.length - 1] = '${merged.last}$c';
-      } else {
-        merged.add(c);
-      }
-    }
-    return merged.where((e) => e.trim().isNotEmpty).toList();
+    return paragraphIndex.clamp(0, (pl.items.length - 1).clamp(0, 999999));
   }
 
   Future<void> playParagraph({
@@ -584,14 +550,15 @@ class TtsPlaybackController {
 
     _scrollTo = scrollTo;
 
-    final text = paragraphs[index].text.trim();
-    if (text.isEmpty) return;
+    final pl = _playlist;
+    if (pl == null || !pl.playable) return;
 
     _playParagraphs = paragraphs;
     _playViewFp = viewFp;
 
-    final chunks = _buildChunksForParagraph(text);
-    if (chunks.isEmpty) return;
+    final cursor = _firstCursorForParagraph(index);
+    if (cursor < 0 || cursor >= pl.items.length) return;
+    _playlistCursor = cursor;
 
     vn.value = vn.value.copyWith(
       playing: true,
@@ -600,126 +567,120 @@ class TtsPlaybackController {
       activeParagraphIndex: deferUiUntilSpeak ? vn.value.activeParagraphIndex : index,
     );
 
-    _ttsChunks = chunks;
     _pendingActiveParagraphIndex = deferUiUntilSpeak ? index : null;
 
     if (!deferUiUntilSpeak) {
       scrollTo(index);
     }
 
-    await _speakCurrentChunk(
-      stopBeforeSpeak: stopBeforeFirstChunk,
-      scrollTo: scrollTo,
-    );
+    await _playCurrentItem(stopBeforePlay: stopBeforeFirstChunk, scrollTo: scrollTo);
   }
 
-  Future<void> _speakCurrentChunk({
-    required bool stopBeforeSpeak,
+  Future<void> _playCurrentItem({
+    required bool stopBeforePlay,
     required ScrollToParagraphFn scrollTo,
   }) async {
     if (!ready || !enabled) return;
-    if (_ttsChunks.isEmpty) return;
-    final ci = vn.value.activeChunkIndex;
-    if (ci < 0 || ci >= _ttsChunks.length) return;
-    if (_speakBusy) return;
 
-    _speakBusy = true;
+    final pl = _playlist;
+    if (pl == null || !pl.playable) return;
+    if (_playlistCursor < 0 || _playlistCursor >= pl.items.length) return;
 
-    final text = _ttsChunks[ci].trim();
-    if (text.isEmpty) {
-      _speakBusy = false;
-      return;
-    }
+    final item = pl.items[_playlistCursor];
 
     _speakToken++;
     final token = _speakToken;
     _handledToken = -1;
     _tokenSession = _playSession;
 
-    _currentText = text;
-    _currentSpeakText = text;
-    _currentLen = text.length;
-    _currentProgressEnd = 0;
-    _speakStartedAt = DateTime.now();
-
-    _log('SPEAK', {
-      'stop': stopBeforeSpeak,
-      'token': token,
-      'len': text.length,
-      'text': text.length <= 30 ? text : '${text.substring(0, 30)}…',
+    _log('PLAY_ITEM', {
+      'stop': stopBeforePlay,
+      'cursor': _playlistCursor,
+      'pIndex': item.index,
+      'path': item.path,
+      'role': item.role,
+      'voice': item.voice,
     });
 
     try {
-      if (stopBeforeSpeak) {
+      if (stopBeforePlay) {
         _fallbackTimer?.cancel();
         _fallbackTimer = null;
-        await _tts.stop();
+        await _player.stop();
       }
 
       final pending = _pendingActiveParagraphIndex;
-      if (pending != null && ci == 0) {
+      if (pending != null) {
         vn.value = vn.value.copyWith(activeParagraphIndex: pending);
         scrollTo(pending);
         _pendingActiveParagraphIndex = null;
+      } else {
+        if (vn.value.activeParagraphIndex != item.index) {
+          vn.value = vn.value.copyWith(activeParagraphIndex: item.index);
+          scrollTo(item.index);
+        }
       }
 
-      _armFallbackTimer(token: token, text: _currentSpeakText);
+      vn.value = vn.value.copyWith(activeChunkIndex: 0);
 
-      await _tts.speak(text);
-    } catch (_) {
-      // ignore
-    } finally {
-      _speakBusy = false;
+      _armFallbackTimer(token: token, item: item);
+
+      final uri = Uri.tryParse(item.path);
+      if (uri == null) {
+        _triggerAdvance('bad_uri');
+        return;
+      }
+
+      // ✅ 只要開始真正 play，標記 didSpeak
+      vn.value = vn.value.copyWith(didSpeak: true, didSpeakFp: _playViewFp);
+
+      await _player.setUrl(uri.toString());
+
+// ✅ 用真實 duration 設 fallback（避免截字）
+      final d = _player.duration;
+      final ms = (d == null ? 60000 : (d.inMilliseconds + 800)).clamp(2000, 90000);
+      _fallbackTimer?.cancel();
+      _fallbackTimer = Timer(Duration(milliseconds: ms), () {
+        if (_tokenSession != _playSession) return;
+        if (token != _speakToken) return;
+        _triggerAdvance('fallback_duration');
+      });
+
+      await _player.play();
+    } catch (e) {
+      _log('AUDIO_ERROR', {'err': e.toString()});
+      _triggerAdvance('audio_error');
     }
   }
 
-  Future<void> _advanceAfterChunkEnd() async {
+  Future<void> _advanceAfterItemEnd() async {
     if (!vn.value.playing) return;
 
-    final scroll = _scrollTo ?? (_) {};
-
-    final ci = vn.value.activeChunkIndex;
-    if (_ttsChunks.isNotEmpty && ci >= 0 && ci < _ttsChunks.length) {
-      final gap = _gapAfterChunk(_ttsChunks[ci]);
-      if (gap.inMilliseconds > 0) {
-        await Future<void>.delayed(gap);
-      }
-    }
-
-    final nextChunk = vn.value.activeChunkIndex + 1;
-    if (_ttsChunks.isNotEmpty && nextChunk < _ttsChunks.length) {
-      vn.value = vn.value.copyWith(activeChunkIndex: nextChunk);
-      await _speakCurrentChunk(stopBeforeSpeak: false, scrollTo: scroll);
-      return;
-    }
-
-    if (_playParagraphs.isEmpty) {
+    final pl = _playlist;
+    if (pl == null || !pl.playable) {
       await stop(resetToStart: false);
       return;
     }
 
-    var nextPara = vn.value.activeParagraphIndex + 1;
-    while (nextPara < _playParagraphs.length && _playParagraphs[nextPara].text.trim().isEmpty) {
-      nextPara++;
-    }
+    final nextCursor = _playlistCursor + 1;
+    if (nextCursor < pl.items.length) {
+      _playlistCursor = nextCursor;
+      vn.value = vn.value.copyWith(activeChunkIndex: vn.value.activeChunkIndex + 1);
 
-    if (nextPara >= _playParagraphs.length) {
-      final endSession = _playSession;
-      await stop(resetToStart: false);
-
-      if (endSession == _playSession) {
-        onNarrationEnd?.call();
-      }
+      final scroll = _scrollTo ?? (_) {};
+      await _playCurrentItem(stopBeforePlay: false, scrollTo: scroll);
       return;
     }
 
-    await playParagraph(
-      index: nextPara,
-      paragraphs: _playParagraphs,
-      viewFp: _playViewFp,
-      stopBeforeFirstChunk: false,
-      deferUiUntilSpeak: true,
-      scrollTo: scroll,
-    );
+    // playlist finished
+    final endSession = _playSession;
+    final didSpeak = vn.value.didSpeak;
+
+    await stop(resetToStart: false);
+
+    // ✅ 只有真的播過音檔才回呼（避免 missing 時 autoContinue）
+    if (didSpeak && endSession == _playSession) {
+      onNarrationEnd?.call();
+    }
   }
 }

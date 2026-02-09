@@ -5,6 +5,8 @@ import argparse
 import json
 import random
 import sys
+import hashlib
+import os
 from typing import Any, Dict, Optional, Tuple
 
 from questforge.content.cases import CASES
@@ -99,6 +101,170 @@ def _normalize_map(v: Any) -> JsonMap:
     if isinstance(v, dict):
         return {str(k): v2 for k, v2 in v.items()}
     return {}
+
+
+# ------------------------------------------------------------
+# TTS v1: Python-side OpenAI TTS -> return playlist via commands
+# ------------------------------------------------------------
+# v1 policy:
+# - Flutter does NOT synthesize; it only plays audio files.
+# - Python generates per-paragraph audio using OpenAI TTS and caches it.
+# - We return a command `tts_playlist_v1` that contains items: role/text/path.
+# - If OpenAI key is missing / SDK missing, we skip (so dev can run without TTS).
+
+_TTS_CLIENT = None
+_TTS_CACHE = None
+
+
+def _sha1(s: str) -> str:
+    return hashlib.sha1((s or "").encode("utf-8")).hexdigest()
+
+
+
+
+def _get_tts_client_and_cache():
+    """Lazy init to keep json_bridge runnable without openai installed."""
+    global _TTS_CLIENT, _TTS_CACHE
+    if _TTS_CLIENT is not None and _TTS_CACHE is not None:
+        return _TTS_CLIENT, _TTS_CACHE
+
+    # only import when enabled
+    from questforge.ai.tts.tts_client_openai import OpenAiTtsClient
+    from questforge.ai.tts.tts_cache import TtsCache
+
+    _TTS_CLIENT = OpenAiTtsClient()
+    _TTS_CACHE = TtsCache()
+    return _TTS_CLIENT, _TTS_CACHE
+
+
+def _build_tts_playlist_from_narration(*, narration: str, view_fp: str) -> dict:
+    """Return a `tts_playlist_v1` command for a narration string.
+
+    Never raise to break gameplay: caller should wrap in try/except.
+    """
+    from questforge.ai.tts.narration_split import split_narration
+    from questforge.ai.tts.voice_map import voice_for_role
+
+    client, cache = _get_tts_client_and_cache()
+    response_format = (os.getenv("QF_TTS_FORMAT") or "mp3").strip().lower() or "mp3"
+
+    items = []
+    for ln in split_narration(narration):
+        vp = voice_for_role(ln.role)
+        cached = cache.get_or_create(
+            role=ln.role,
+            voice=vp.voice,
+            instructions=vp.instructions,
+            text=ln.text,
+            client=client,
+            response_format=response_format,
+        )
+        items.append(
+            {
+                "index": int(ln.index),
+                "role": ln.role,
+                "voice": vp.voice,
+                "text": ln.text,
+                "path": cached.path,  # file://...
+                "format": cached.response_format,
+            }
+        )
+
+    return {
+        "type": "tts_playlist_v1",
+        "view_fp": view_fp,
+        "items": items,
+    }
+
+
+def _maybe_add_tts_playlist(step_payload: JsonMap) -> JsonMap:
+    """Always append a tts playlist command to step_payload.
+
+    v1 contract stability:
+    - Always provide `tts_playlist_v1` so Flutter doesn't branch on existence.
+    - If OpenAI is unavailable (no key / no SDK / error), items will be empty with status.
+    """
+
+    view = step_payload.get("view")
+    cmds = step_payload.get("commands")
+    if not isinstance(cmds, list):
+        cmds = []
+        step_payload["commands"] = cmds
+
+    def _append_playlist(*, narration: str, fp: str, scope: str) -> None:
+        narration2 = _as_str(narration, "").strip()
+
+        # Default: stable command even when narration empty
+        cmd: JsonMap = {
+            "type": "tts_playlist_v1",
+            "scope": scope,         # "view" | "end"
+            "view_fp": fp,
+            "status": "ok",
+            "reason": "",
+            "items": [],
+        }
+
+        if not narration2:
+            cmd["status"] = "empty_narration"
+            cmds.append(cmd)
+            return
+
+        try:
+            built = _build_tts_playlist_from_narration(narration=narration2, view_fp=fp)
+            # merge in items
+            cmd["items"] = built.get("items", []) if isinstance(built, dict) else []
+            cmd["status"] = "ok"
+            cmds.append(cmd)
+        except Exception as e:
+            # Soft-fail but keep contract stable
+            cmd["status"] = "unavailable"
+            cmd["reason"] = str(e)
+            cmd["items"] = []
+            cmds.append(cmd)
+
+    try:
+        # --- view narration ---
+        if isinstance(view, dict):
+            node_id = _as_str(view.get("node_id", "")).strip()
+            narration = _as_str(view.get("narration", "")).strip()
+            fp = f"view:{node_id}:{_sha1(narration)}"
+            _append_playlist(narration=narration, fp=fp, scope="view")
+        else:
+            # still append a stable playlist
+            _append_playlist(narration="", fp="view::", scope="view")
+
+        # --- end screen narration (v2 upgraded shape) ---
+        appended_end = False
+        for c in list(cmds):
+            if not isinstance(c, dict):
+                continue
+            if _as_str(c.get("type", "")).strip() != "show_end_screen":
+                continue
+            end = c.get("end")
+            if not isinstance(end, dict):
+                continue
+            end_narr = _as_str(end.get("narration", "")).strip()
+            fp = f"end:{_sha1(end_narr)}"
+            _append_playlist(narration=end_narr, fp=fp, scope="end")
+            appended_end = True
+
+        # If there's no end screen, don't append end playlist (keep noise low).
+        # (If you want always two playlists, tell me; for now only view is guaranteed.)
+        return step_payload
+
+    except Exception as e:
+        # Extreme safety: if anything weird, still append a minimal stable playlist
+        cmds.append(
+            {
+                "type": "tts_playlist_v1",
+                "scope": "view",
+                "view_fp": "view::",
+                "status": "error",
+                "reason": str(e),
+                "items": [],
+            }
+        )
+        return step_payload
 
 
 def _node_view_to_json(view: Any) -> JsonMap:
@@ -271,7 +437,6 @@ def _new_session_for_case(case: JsonMap, *, config: GameConfig) -> GameSession:
     )
 
 
-
 def _emit_hello(*, case_id: str, case: JsonMap) -> None:
     _jprint(
         {
@@ -315,13 +480,16 @@ def _final_over_payload(*, events: list[str] | None = None) -> JsonMap:
         "selected_next": "",
         "commands": [],
     }
-    return _upgrade_commands_for_v2_envelope(out)
+    out = _upgrade_commands_for_v2_envelope(out)
+    out = _maybe_add_tts_playlist(out)
+    return out
 
 
 def _emit_replay_step(session: GameSession) -> None:
     res = session.step(PlayerAction(type="replay"))
     out = _step_result_to_json(res)
     out = _upgrade_commands_for_v2_envelope(out)
+    out = _maybe_add_tts_playlist(out)
     _emit_step_v2(out)
 
 
@@ -365,6 +533,7 @@ def _dispatch_end_flow(
     res = session.step(PlayerAction(type="end_flow", end_action=a))
     out = _step_result_to_json(res)
     out = _upgrade_commands_for_v2_envelope(out)
+    out = _maybe_add_tts_playlist(out)
 
     # ✅ consume engine flow if any (e.g. engine fallback)
     session3, case_id3, case3, handled = _consume_flow_command_if_any(
@@ -376,11 +545,6 @@ def _dispatch_end_flow(
         args=args,
     )
     if handled:
-        # handled path already emitted step (replay/hello/final_over)
-        # decide exit based on action (consume returns should_exit via handled bool? -> handled means already done)
-        # we should NOT emit `out` here.
-        # exit 여부는 consume 裡面會用 dispatcher 的 should_exit 控制。
-        # 여기서는 그냥 continue 동작을 위해 should_exit=False 로 보고.
         return session3, case_id3, case3, False
 
     _emit_step_v2(out)
@@ -429,7 +593,6 @@ def _consume_flow_command_if_any(
         args=args,
     )
     if should_exit:
-        # let caller return
         return session2, case_id2, case2, True
 
     return session2, case_id2, case2, True
@@ -437,9 +600,7 @@ def _consume_flow_command_if_any(
 
 def main(argv: Optional[list[str]] = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m questforge.cli.json_bridge")
-    ap.add_argument(
-        "--case", dest="case_id", default=None, help="指定案件 id（例如 2）"
-    )
+    ap.add_argument("--case", dest="case_id", default=None, help="指定案件 id（例如 2）")
     ap.add_argument("--seed", dest="seed", type=int, default=None, help="固定抽案 seed")
     ap.add_argument("--quiet", action="store_true", help="不輸出 hello（測試用）")
     args = ap.parse_args(argv)
@@ -454,6 +615,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     first = _step_result_to_json(session.step(PlayerAction(type="replay")))
     first = _upgrade_commands_for_v2_envelope(first)
+    first = _maybe_add_tts_playlist(first)
 
     # ✅ also consume flow in first (just in case)
     session, case_id, case, handled = _consume_flow_command_if_any(
@@ -566,6 +728,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+            out = _maybe_add_tts_playlist(out)
 
             session, case_id, case, handled = _consume_flow_command_if_any(
                 step_payload=out,
@@ -576,7 +739,6 @@ def main(argv: Optional[list[str]] = None) -> None:
                 args=args,
             )
             if handled:
-                # flow handled already emitted new step_result
                 continue
 
             _emit_step_v2(out)
@@ -589,6 +751,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             res = session.step(PlayerAction(type="replay"))
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+            out = _maybe_add_tts_playlist(out)
 
             session, case_id, case, handled = _consume_flow_command_if_any(
                 step_payload=out,
@@ -611,6 +774,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             res = session.step(PlayerAction(type="quit"))
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+            out = _maybe_add_tts_playlist(out)
             _emit_step_v2(out)
             return
 
@@ -632,6 +796,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             )
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+            out = _maybe_add_tts_playlist(out)
 
             session, case_id, case, handled = _consume_flow_command_if_any(
                 step_payload=out,
@@ -658,9 +823,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
             try:
                 res = session.step(
-                    PlayerAction(
-                        type="confirm_quiz_answer", answers=answers, skipped=skipped
-                    )
+                    PlayerAction(type="confirm_quiz_answer", answers=answers, skipped=skipped)
                 )
             except Exception as e:
                 _emit_error(
@@ -670,6 +833,7 @@ def main(argv: Optional[list[str]] = None) -> None:
 
             out = _step_result_to_json(res)
             out = _upgrade_commands_for_v2_envelope(out)
+            out = _maybe_add_tts_playlist(out)
 
             session, case_id, case, handled = _consume_flow_command_if_any(
                 step_payload=out,

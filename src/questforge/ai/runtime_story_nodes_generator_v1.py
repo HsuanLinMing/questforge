@@ -46,38 +46,11 @@ def _strip_code_fence(s: str) -> str:
     return t.strip()
 
 
-def _extract_first_json(text: str) -> Any:
-    s = _strip_code_fence((text or "").strip())
-    if not s:
-        raise RuntimeError("empty_output")
-
-    try:
-        return _loads_json_with_salvage(s)
-    except Exception:
-        pass
-
-    start = s.find("{")
-    if start < 0:
-        raise RuntimeError("no_json_start")
-
-    depth = 0
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return _loads_json_with_salvage(s[start : i + 1])
-
-    raise RuntimeError("no_json_end")
-
 def _sanitize_json_common(text: str) -> str:
     """
     嘗試修復常見「幾乎是 JSON 但壞在字串內容」的情況：
     - 字串中出現原生換行 -> 轉成 \\n
     - 字串中出現原生 tab -> 轉成 \\t
-    - （不處理所有情況，但可以救回你現在這種 JSONDecodeError）
     """
     s = text
 
@@ -115,7 +88,6 @@ def _sanitize_json_common(text: str) -> str:
             out.append("\\n")
             continue
         if ch == "\r":
-            # 忽略或轉義皆可
             continue
         if ch == "\t":
             out.append("\\t")
@@ -130,9 +102,35 @@ def _loads_json_with_salvage(s: str) -> Any:
     try:
         return json.loads(s)
     except json.JSONDecodeError:
-        # 再試一次：把字串裡的原生換行等控制字元轉義
         s2 = _sanitize_json_common(s)
         return json.loads(s2)
+
+
+def _extract_first_json(text: str) -> Any:
+    s = _strip_code_fence((text or "").strip())
+    if not s:
+        raise RuntimeError("empty_output")
+
+    try:
+        return _loads_json_with_salvage(s)
+    except Exception:
+        pass
+
+    start = s.find("{")
+    if start < 0:
+        raise RuntimeError("no_json_start")
+
+    depth = 0
+    for i in range(start, len(s)):
+        ch = s[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return _loads_json_with_salvage(s[start : i + 1])
+
+    raise RuntimeError("no_json_end")
 
 
 def _deep_replace_nl_escapes(obj: Any) -> Any:
@@ -153,16 +151,17 @@ def _autofix_package_dict(
     spec: StorySpecV1,
 ) -> Dict[str, Any]:
     """
-    ✅ 只做「規範修補」，不寫死故事內容
-    - meta/schema/case_id
-    - 必備節點保底（避免遊戲中斷）
-    - 禁詞/專有名詞清洗
-    - 開場主題單一化
-    - ✅ 全故事去重段落（解你現在 dup_paragraphs 爆掉）
+    ✅ 最小 autofix（不改寫故事內容）
+    只做：
+    - meta/schema/case_id/tags/title 的保底
+    - final_accuse：確保 choices 第4個固定文案、solution_index 合法（0/1/2）
+    - endings / quit：只補「choices / can_replay / can_quit」這種結構欄位（不碰 narration）
+    其他一律不動（不 replace、不 dedupe、不塞模板故事）
     """
     if not isinstance(data, dict):
         return data
 
+    # --- meta ---
     meta = data.get("meta")
     if not isinstance(meta, dict):
         meta = {}
@@ -173,138 +172,51 @@ def _autofix_package_dict(
 
     if not str(meta.get("title") or "").strip():
         meta["title"] = "未命名案件"
+
     tags = meta.get("tags")
     if not isinstance(tags, list) or not tags:
         meta["tags"] = ["ai"]
 
-    meta["title"] = spec.remove_banned_proper_nouns(str(meta.get("title") or ""))
-
+    # --- nodes ---
     nodes = data.get("nodes")
     if not isinstance(nodes, dict):
-        nodes = {}
-        data["nodes"] = nodes
+        # 這種情況交給 validator / repair prompt，不硬塞模板故事
+        return data
 
-    def _ensure_node(node_id: str, node_obj: Dict[str, Any]) -> None:
-        if node_id not in nodes or not isinstance(nodes.get(node_id), dict):
-            nodes[node_id] = node_obj
-
-    # ✅ 必備節點保底（這裡只給「極短保底」，真正故事內容交給 AI）
-    _ensure_node(
-        "scene_01_start",
-        {
-            "title": "故事開始",
-            "narration": "旁白：今天要開始一個熱鬧的活動。\n\n霏霏：樂樂，我們慢慢看，別衝太快。\n\n樂樂：好！我會用眼睛當雷達！",
-            "choices": [{"text": "繼續聽故事", "next": "final_accuse"}],
-        },
-    )
-
-    for eid in (
-        "scene_10_ending_clear",
-        "scene_10_ending_nudge",
-        "scene_10_ending_defer",
-    ):
-        _ensure_node(
-            eid,
-            {
-                "title": "結尾",
-                "narration": "旁白：我們把事情說清楚了，也學到要先確認再下結論。",
-                "choices": [{"text": "故事結束", "next": "quit"}],
-            },
-        )
-
-    _ensure_node(
-        "quit",
-        {
-            "title": "離開",
-            "narration": "旁白：今天的故事先到這裡。我們下次再一起來看看新故事～",
-            "choices": [],
-            "can_replay": True,
-            "can_quit": True,
-        },
-    )
-
-    _ensure_node(
-        "final_accuse",
-        {
-            "title": "最後指認",
-            "narration": "旁白：你覺得比較像是哪一個人跟這件事有關？也可以交給老師一起確認。",
-            "choices": [
-                {"text": "東東", "next": "scene_10_ending_clear"},
-                {"text": "小芽", "next": "scene_10_ending_nudge"},
-                {"text": "阿力", "next": "scene_10_ending_defer"},
-                {"text": "我還不確定，交給老師", "next": "scene_10_ending_defer"},
-            ],
-            "solution_index": 0,
-        },
-    )
-
-    # ------------------------------------------------------------
-    # ✅ Hard-fix: final_accuse.solution_index must be 0/1/2
-    # - AI 常常會給 3 / null / "0" 之類，validator 會直接 fail
-    # - 先保證能過 validate，後續 enrich 再補品質
-    # ------------------------------------------------------------
+    # 1) final_accuse：只做結構保險，不寫死嫌疑人名字
     fa = nodes.get("final_accuse")
     if isinstance(fa, dict):
+        # clamp solution_index to 0..2
         si = fa.get("solution_index", 0)
         try:
             si_int = int(si)
         except Exception:
             si_int = 0
-
-        # clamp to 0..2
         if si_int < 0:
             si_int = 0
         elif si_int > 2:
             si_int = 2
-
         fa["solution_index"] = si_int
 
-        # ✅ 保險：確保 choices 結構符合 validator（4個 + 第4個固定文案）
+        # ensure choices length=4 and 4th text fixed
         ch = fa.get("choices")
         if not isinstance(ch, list):
             ch = []
-
-        # 至少 4 個
+        # 只補結構空位，避免崩；內容交給 repair prompt 修
         while len(ch) < 4:
             ch.append({"text": "", "next": "scene_10_ending_defer"})
-
-        # 只保留前 4 個
         ch = ch[:4]
 
-        # 第 4 個 choice 必須完全一致
         c3 = ch[3] if isinstance(ch[3], dict) else {}
         c3 = dict(c3)
-        c3["text"] = "我還不確定，交給老師"
+        c3["text"] = spec.unsure_choice_text  # ✅ 用 spec 內固定文字
         c3.setdefault("next", "scene_10_ending_defer")
         ch[3] = c3
 
         fa["choices"] = ch
         nodes["final_accuse"] = fa
 
-    # ✅ 全節點文字清洗（不寫死內容，只做規範）
-    for nid, node in list(nodes.items()):
-        if not isinstance(node, dict):
-            continue
-
-        node["title"] = spec.remove_banned_proper_nouns(str(node.get("title") or ""))
-
-        nar = node.get("narration")
-        if isinstance(nar, str):
-            nar2 = spec.remove_banned_proper_nouns(nar)
-            nar2 = spec.soften_daily_tone(nar2)
-            nar2 = spec.apply_competition_anti_drift(nar2, theme)
-
-            if nid == "scene_01_start":
-                nar2 = spec.replace_forbidden_opening_terms(nar2)
-                nar2 = spec.normalize_opening_theme(nar2, theme)
-                nar2 = spec.post_clean_opening(nar2)
-
-            # ✅ 重要：全故事去重（解 dup_paragraphs）
-            nar2 = spec.dedupe_paragraphs_global(nar2)
-
-            node["narration"] = nar2
-
-    # ending 強制 choices
+    # 2) endings：只強制 choices 結構（不碰 narration）
     for eid in (
         "scene_10_ending_clear",
         "scene_10_ending_nudge",
@@ -314,28 +226,12 @@ def _autofix_package_dict(
         if isinstance(en, dict):
             en["choices"] = [{"text": "故事結束", "next": "quit"}]
 
-    # quit 強制
+    # 3) quit：只強制 can_replay/can_quit（不碰 narration）
     qn = nodes.get("quit")
     if isinstance(qn, dict):
         qn["choices"] = []
         qn["can_replay"] = True
         qn["can_quit"] = True
-
-    # scene_01_start choice next 必須存在
-    s1 = nodes.get("scene_01_start")
-    if isinstance(s1, dict):
-        ch = s1.get("choices")
-        if not isinstance(ch, list) or not ch or not isinstance(ch[0], dict):
-            s1["choices"] = [{"text": "繼續聽故事", "next": "final_accuse"}]
-        else:
-            c0 = dict(ch[0])
-            nxt = str(c0.get("next") or "").strip()
-            if (not nxt) or (nxt not in nodes):
-                c0["next"] = "final_accuse"
-            if not str(c0.get("text") or "").strip():
-                c0["text"] = "繼續聽故事"
-            ch[0] = c0
-            s1["choices"] = ch
 
     return data
 
@@ -368,7 +264,6 @@ class RuntimeStoryNodesGeneratorV1:
 
         assert self._client is not None
 
-        # ✅ 把規範檔完整餵給 AI（不是只有 story_prompt_v1）
         rules_text = (
             (self._spec.prompts_dir / "story_prompt_v1.md")
             .read_text(encoding="utf-8")
@@ -388,6 +283,10 @@ class RuntimeStoryNodesGeneratorV1:
 
         last_err: Optional[str] = None
         raw_text: str = ""
+        last_prompt: str = ""
+        last_mode: str = ""
+        last_attempt: int = 0
+        case_id_hint = (forced_case_id or "").strip() or f"ai_{uuid.uuid4().hex[:10]}"
 
         t0 = time.time()
         for attempt in range(1, max(1, self._max_attempts) + 1):
@@ -397,8 +296,21 @@ class RuntimeStoryNodesGeneratorV1:
                 mode = "generate"
             else:
                 if (last_err or "").startswith("ENRICH_FAIL"):
+                    rep_obj = {"error": last_err}
+
+                    # ✅ 解析 ENRICH_FAIL 後面的 JSON
+                    try:
+                        prefix = "ENRICH_FAIL "
+                        if last_err.startswith(prefix):
+                            rep_obj = json.loads(last_err[len(prefix):])
+                    except Exception:
+                        # keep fallback rep_obj={"error": last_err}
+                        pass
+
                     input_text = self._spec.build_enrich_prompt(
-                        raw_json=raw_text, theme=theme, rep={"error": last_err}
+                        raw_json=raw_text,
+                        theme=theme,
+                        rep=rep_obj,   # ✅ 這裡會包含 reasons / opening_paragraphs / clue / style
                     )
                     temp = self._enrich_temp
                     mode = "enrich_repair"
@@ -411,6 +323,10 @@ class RuntimeStoryNodesGeneratorV1:
                     temp = 0.2
                     mode = "repair"
 
+            last_prompt = input_text
+            last_mode = mode
+            last_attempt = attempt
+
             print(
                 f"[AI_GEN] attempt={attempt} mode={mode} model={self._model}",
                 flush=True,
@@ -422,9 +338,12 @@ class RuntimeStoryNodesGeneratorV1:
                     input=input_text,
                     temperature=temp,
                     max_output_tokens=7000,
-                    response_format={"type": "json_object"},
+                    text={"format": {"type": "json_object"}},
                 )
-            except Exception:
+                used_json_object = True
+            except Exception as e:
+                used_json_object = False
+                print(f"[AI_GEN] response_format(json_object) unsupported -> fallback: {e!r}", flush=True)
                 resp = self._client.responses.create(
                     model=self._model,
                     input=input_text,
@@ -432,18 +351,41 @@ class RuntimeStoryNodesGeneratorV1:
                     max_output_tokens=7000,
                 )
 
+
             raw_text = (resp.output_text or "").strip()
             if not raw_text:
                 last_err = "empty_output_text"
+                
                 print("[AI_GEN] empty output_text", flush=True)
+                _dump_failed_ai_story_files(
+                    case_id_hint=case_id_hint,
+                    model=self._model,
+                    mode=last_mode,
+                    attempt=attempt,
+                    last_err=last_err,
+                    theme=theme,
+                    prompt=last_prompt,
+                    raw_text=raw_text,
+                )
                 continue
 
             print("[AI_RAW_HEAD]", raw_text[:260].replace("\n", "\\n"), flush=True)
-
+            print(f"[AI_GEN] used_json_object={used_json_object}", flush=True)
             try:
                 data = _extract_first_json(raw_text)
+
                 if not isinstance(data, dict):
                     last_err = "top_level_not_object"
+                    _dump_failed_ai_story_files(
+                        case_id_hint=case_id_hint,
+                        model=self._model,
+                        mode=last_mode,
+                        attempt=attempt,
+                        last_err=last_err,
+                        theme=theme,
+                        prompt=last_prompt,
+                        raw_text=raw_text,
+                    )
                     continue
 
                 data = _deep_replace_nl_escapes(data)
@@ -459,19 +401,13 @@ class RuntimeStoryNodesGeneratorV1:
 
                 nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
 
-                # ✅ gate：不足就走 enrich（AI 來補，不是你寫死）
                 if self._spec.needs_enrich(nodes=nodes):
-                    rep = {
-                        "opening_paragraphs": self._spec.opening_paragraphs(nodes),
-                        "clue": self._spec.clue_quality_report(nodes),
-                        "style": self._spec.style_quality_report(nodes),
-                    }
-                    last_err = f"ENRICH_FAIL rep={rep}"
+                    rep = self._spec.enrich_report(nodes=nodes, theme=theme)
+                    last_err = "ENRICH_FAIL " + json.dumps(rep, ensure_ascii=False)
                     raw_text = json.dumps(data, ensure_ascii=False, indent=2)
                     print(f"[AI_GEN] enrich_gate_fail: {rep}", flush=True)
                     continue
 
-                # meta 保底
                 if not pkg.meta.case_id.strip():
                     pkg.meta.case_id = forced_case_id or f"ai_{uuid.uuid4().hex[:10]}"
                 if not pkg.meta.title.strip():
@@ -485,15 +421,69 @@ class RuntimeStoryNodesGeneratorV1:
                 )
                 return pkg
 
+            except json.JSONDecodeError as e:
+                # ✅ 這就是你遇到的：Expecting ',' delimiter ...
+                pos = int(getattr(e, "pos", 0) or 0)
+                a = max(0, pos - 220)
+                b = min(len(raw_text), pos + 220)
+                near = raw_text[a:b].replace("\n", "\\n")
+
+                last_err = f"JSONDecodeError: {e} (pos={pos})"
+                print(f"[AI_GEN] json_decode_fail: {last_err}", flush=True)
+                print(f"[AI_GEN] json_decode_near: ...{near}...", flush=True)
+
+                _dump_failed_ai_story_files(
+                    case_id_hint=case_id_hint,
+                    model=self._model,
+                    mode=last_mode,
+                    attempt=attempt,
+                    last_err=last_err,
+                    theme=theme,
+                    prompt=last_prompt,
+                    raw_text=raw_text,
+                )
+                continue
+
             except (StoryNodesValidationError, ValueError, KeyError, TypeError) as e:
                 last_err = f"{type(e).__name__}: {e}"
                 print("[AI_GEN] validation_fail:", last_err, flush=True)
+                _dump_failed_ai_story_files(
+                    case_id_hint=case_id_hint,
+                    model=self._model,
+                    mode=last_mode,
+                    attempt=attempt,
+                    last_err=last_err,
+                    theme=theme,
+                    prompt=last_prompt,
+                    raw_text=raw_text,
+                )
                 continue
+
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
                 print("[AI_GEN] fail:", last_err, flush=True)
+                _dump_failed_ai_story_files(
+                    case_id_hint=case_id_hint,
+                    model=self._model,
+                    mode=last_mode,
+                    attempt=attempt,
+                    last_err=last_err,
+                    theme=theme,
+                    prompt=last_prompt,
+                    raw_text=raw_text,
+                )
                 continue
 
+        _dump_failed_ai_story_files(
+            case_id_hint=case_id_hint,
+            model=self._model,
+            mode=last_mode,
+            attempt=last_attempt,
+            last_err=last_err or "unknown_error",
+            theme=theme,
+            prompt=last_prompt,
+            raw_text=raw_text,
+        )
         raise RuntimeError(f"story_generation_failed: {last_err}")
 
     def _mock_story_nodes(self, *, seed: Optional[int]) -> StoryNodesPackage:
@@ -546,13 +536,11 @@ def _dump_story_package_files(*, pkg_dict: Dict[str, Any]) -> None:
     case_id = str((meta or {}).get("case_id") or "unknown_case").strip() or "unknown_case"
     title = str((meta or {}).get("title") or "").strip()
 
-    # 1) 原始 JSON（漂亮縮排）
     (cache / f"{case_id}.json").write_text(
         json.dumps(pkg_dict, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
-    # 2) 純文字方便快速看（把每個 node 的 narration 拉出來）
     nodes = pkg_dict.get("nodes") if isinstance(pkg_dict, dict) else {}
     lines: list[str] = []
     lines.append(f"case_id={case_id}")
@@ -571,3 +559,77 @@ def _dump_story_package_files(*, pkg_dict: Dict[str, Any]) -> None:
             lines.append("")
 
     (cache / f"{case_id}.txt").write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+
+def _dump_failed_ai_story_files(
+    *,
+    case_id_hint: str,
+    model: str,
+    mode: str,
+    attempt: int,
+    last_err: str,
+    theme: str,
+    prompt: str,
+    raw_text: str,
+) -> None:
+    """Dump prompt + raw model output for debugging, even when validation fails."""
+    try:
+        cache = Path(".qf_cache/generated_stories")
+        cache.mkdir(parents=True, exist_ok=True)
+
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        cid = (case_id_hint or "unknown").strip() or "unknown"
+        safe_id = re.sub(r"[^a-zA-Z0-9_\-]+", "_", cid)[:80]
+        prefix = f"FAILED_{safe_id}_A{int(attempt or 0)}"
+
+        meta = {
+            "ts": ts,
+            "case_id_hint": cid,
+            "model": model,
+            "mode": mode,
+            "attempt": int(attempt or 0),
+            "last_err": last_err or "",
+            "theme": theme or "",
+        }
+        (cache / f"{prefix}_meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        (cache / f"{prefix}_prompt.txt").write_text((prompt or "").strip() + "\n", encoding="utf-8")
+        (cache / f"{prefix}_raw.txt").write_text((raw_text or "").strip() + "\n", encoding="utf-8")
+
+        preview_lines: list[str] = []
+        preview_lines.append(f"ts: {ts}")
+        preview_lines.append(f"case_id_hint: {cid}")
+        preview_lines.append(f"model: {model}")
+        preview_lines.append(f"mode: {mode}")
+        preview_lines.append(f"attempt: {attempt}")
+        preview_lines.append(f"theme: {theme}")
+        preview_lines.append(f"last_err: {last_err}")
+        preview_lines.append("")
+
+        try:
+            data = _extract_first_json(raw_text or "")
+            if isinstance(data, dict):
+                nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
+                if isinstance(nodes, dict) and nodes:
+                    preview_lines.append("---- narration preview ----")
+                    for nid, node in nodes.items():
+                        if not isinstance(node, dict):
+                            continue
+                        preview_lines.append(f"== {nid} :: {node.get('title','')} ==")
+                        nar = node.get("narration")
+                        if isinstance(nar, str) and nar.strip():
+                            preview_lines.append(nar.strip())
+                        preview_lines.append("")
+        except Exception:
+            pass
+
+        (cache / f"{prefix}_preview.txt").write_text(
+            "\n".join(preview_lines).rstrip() + "\n",
+            encoding="utf-8",
+        )
+        print(f"[AI_FAIL_STORY_DUMP] saved: {cache / f'{prefix}_preview.txt'}", flush=True)
+    except Exception as e:
+        print(f"[AI_FAIL_STORY_DUMP] fail: {e!r}", flush=True)

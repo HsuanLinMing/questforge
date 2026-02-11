@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 
 JsonDict = Dict[str, Any]
 
-# 你想用來當「語氣/節奏錨點」的範例故事（只學節奏，不得照抄）
 STYLE_EXAMPLE_FILE = Path("src/questforge/content/story_case_class_party_bag.py")
 
 # -------------------------
@@ -83,18 +82,8 @@ GOLDEN_OPENING_EXAMPLE = """
 """.strip()
 
 
-def _strip_code_fence(s: str) -> str:
-    t = (s or "").strip()
-    if t.startswith("```"):
-        t = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", t)
-        t = re.sub(r"\s*```$", "", t)
-    return t.strip()
-
-
 def extract_style_example(max_lines: int = 180) -> str:
-    """
-    讀取範例故事檔案前段，作為「節奏/語氣」錨點（few-shot）
-    """
+    """抽取範例故事前段作為節奏示範（只學節奏/口吻，不可照抄內容）"""
     if not STYLE_EXAMPLE_FILE.exists():
         return ""
     lines = STYLE_EXAMPLE_FILE.read_text(encoding="utf-8").splitlines()
@@ -104,57 +93,52 @@ def extract_style_example(max_lines: int = 180) -> str:
 @dataclass
 class StorySpecV1:
     """
-    規範驅動（Spec-driven）
-    - 這裡集中：規範文字載入、prompt 組裝、品質 gate、文字清洗/去重
-    - runtime generator 只跑流程，不再塞一堆寫死文案
+    ✅ 以 story_writer_cli 的思路為主：
+    - 用規範 + 節奏錨點 + 明確驗證規則「教 AI 怎麼寫」
+    - 不在這裡做大量替換/寫死對話/改寫 AI 內容
+    - runtime 若驗證失敗 → 用 repair/enrich prompt 讓 AI 自己修
     """
 
-    # ----------------------------
-    # Prompt sources
-    # ----------------------------
     prompts_dir: Path = Path("src/questforge/ai/prompts")
 
-    # ✅ runtime 給 AI 的規範檔（建議包含這些）
-    # ⚠️ 不建議把 story_case_template_v1.md 丟進 runtime（會引導成 Python 檔案格式）
+    # runtime instruction files（跟 CLI 概念一致；不含 template，避免引導成 Python 檔）
     core_files: List[str] = None  # set in __post_init__
 
-    # ----------------------------
-    # Theme constraints
-    # ----------------------------
-    allowed_background_themes: List[str] = None  # set in __post_init__
-    banned_proper_nouns: List[str] = None  # set in __post_init__
+    # 固定的不確定選項文字（UI/合約一致）
+    unsure_choice_text: str = "我還不確定，交給大人"
 
-    # ----------------------------
-    # Tone / safety constraints
-    # ----------------------------
-    forbidden_opening_terms: List[str] = None  # set in __post_init__
-    forbidden_opening_replacements: Dict[str, str] = None  # set in __post_init__
-    gamey_patterns: List[str] = None  # set in __post_init__
-    competition_drift_map: Dict[str, str] = None  # set in __post_init__
-
-    # ----------------------------
-    # Quality gate thresholds
-    # ----------------------------
+    # 開場段落數要求（用「段落」：以 \n\n 分段）
     opening_min_paragraphs: int = 22
+
+    # 事件後至少要有幾個「自然搜尋」scene（避免事件一出就指認）
     min_scene_nodes_after_required: int = 2
 
-    # ✅ 你要「線索自然度」：不只看動詞次數，還要看「具體物件/場景/可觀察細節」
-    min_clue_beats: int = 6
-    min_concrete_clue_hits: int = 5
-    min_distinct_clue_objects: int = 4
+    # ✅ 事件詞（允許出現，但必須延後到故事約 40% 之後才第一次出現）
+    incident_terms: List[str] = None  # set in __post_init__
+    incident_min_ratio: float = 0.40
+    incident_min_paragraphs_before: int = 16  # ratio 之外的保底（避免短篇誤判）
 
-    # 去重門檻：允許少量重複，但不要爆炸
-    max_dup_paragraphs: int = 2
+    # ✅ 結尾完整性（原因 + 道歉 + 教導）最少段落
+    ending_min_paragraphs: int = 6
 
-    # ----------------------------
-    # Quality lists (lazy)
-    # ----------------------------
-    clue_beat_verbs: List[str] = None
-    red_herring_cues: List[str] = None
+    # 允許的背景主題集合（由 runtime pick theme）
+    # ✅ 改成可選：None 代表不限制
+    allowed_background_themes: Optional[List[str]] = None  # set in __post_init__
 
-    # ✅ 線索自然度：具體物件/痕跡關鍵字、以及「模板線索句」黑名單
-    clue_object_keywords: List[str] = None
-    generic_clue_phrases: List[str] = None
+    # cases 殘影（避免帶到別案名詞）
+    banned_proper_nouns: List[str] = None  # set in __post_init__
+
+    # 開場禁止詞（注意：不含 incident_terms）
+    forbidden_opening_terms: List[str] = None  # set in __post_init__
+
+    # 禁止 placeholder 命名（跟 CLI validator 一致）
+    banned_placeholders: List[str] = None  # set in __post_init__
+
+    # 禁止泛稱（要求配角要有名字）
+    banned_generics: List[str] = None  # set in __post_init__
+
+    # 禁止「遊戲提示」口吻（不要對讀者說「你會怎麼做」）
+    gamey_patterns: List[str] = None  # set in __post_init__
 
     def __post_init__(self) -> None:
         if self.core_files is None:
@@ -165,45 +149,77 @@ class StorySpecV1:
                 "story_response_whitelist.md",
                 "world_old_rival_module.md",  # 可開關
             ]
-        if self.allowed_background_themes is None:
-            self.allowed_background_themes = [
-                "運動會",
-                "園遊會",
-                "才藝發表日",
-                "校內比賽",
-                "社團成果展",
-            ]
-        if self.banned_proper_nouns is None:
-            self.banned_proper_nouns = ["千羽會"]
 
-        if self.forbidden_opening_terms is None:
-            self.forbidden_opening_terms = [
+        if self.allowed_background_themes is None:
+            # ✅ 預設給很大的日常場景池（想用就用），但 prompt 不再強制必須從這裡選
+            self.allowed_background_themes = [
+                "校園活動",
+                "公園",
+                "夜市",
+                "便利商店",
+                "超市",
+                "圖書館",
+                "博物館",
+                "車站",
+                "公車上",
+                "社區活動",
+                "海邊",
+                "露營區",
+                "運動中心",
+                "游泳池",
+                "餐廳",
+                "遊樂園",
+                "寵物店",
+                "文具店",
+            ]
+
+
+        if self.banned_proper_nouns is None:
+            self.banned_proper_nouns = ["千羽會", "亨利爵士", "孔雀", "喵喵（粉絲）", "老鷹大翔"]
+
+        # ✅ 事件詞：允許出現，但不得在開場出現，且首次出現需延後
+        if self.incident_terms is None:
+            self.incident_terms = [
                 "不見",
                 "找不到",
                 "遺失",
                 "被偷",
-                "可疑",
-                "推理",
-                "調查",
-                "線索",
-                "破案",
-                "兇手",
-                "嫌疑人",
+                "消失",
+                "失蹤",
             ]
-        if self.forbidden_opening_replacements is None:
-            self.forbidden_opening_replacements = {
-                "不見": "沒放在手邊",
-                "找不到": "一時想不起放哪",
-                "遺失": "一時忘了放哪",
-                "被偷": "好像被拿去別的地方",
-                "可疑": "有點怪怪的",
-                "推理": "想一想",
-                "調查": "看看",
-                "線索": "小細節",
-                "破案": "把事情弄清楚",
-                "兇手": "做了那件事的人",
-                "嫌疑人": "可能跟事情有關的人",
-            }
+
+        # ✅ 開場禁止詞：只禁「異常/推理/案件口吻」，不包含 incident_terms
+        if self.forbidden_opening_terms is None:
+            self.forbidden_opening_terms = [
+                "可疑",
+                "奇怪",
+                "不尋常",
+                "發現問題",
+                "出事",
+                "有問題",
+                "開始調查",
+                "推理過程",
+                "解決案件",
+                "真相",
+                "嫌疑",
+                "犯人",
+            ]
+
+        if self.banned_placeholders is None:
+            self.banned_placeholders = [
+                "學長A",
+                "學長B",
+                "學長C",
+                "嫌疑人A",
+                "嫌疑人B",
+                "嫌疑人C",
+                "嫌疑人甲",
+                "嫌疑人乙",
+                "嫌疑人丙",
+            ]
+
+        if self.banned_generics is None:
+            self.banned_generics = ["紅色衣服", "那個男孩", "某位同學", "穿外套的人", "小朋友"]
 
         if self.gamey_patterns is None:
             self.gamey_patterns = [
@@ -213,18 +229,7 @@ class StorySpecV1:
                 "玩家",
                 "如果你在這裡",
                 "你覺得呢",
-                "怎麼辦",
             ]
-
-        if self.competition_drift_map is None:
-            self.competition_drift_map = {
-                "才藝": "比賽項目",
-                "表演": "比賽",
-                "上台展示": "上場比賽",
-                "精彩的表演": "精彩的比賽",
-                "練習表演": "練習比賽項目",
-                "上台": "上場",
-            }
 
     # ============================================================
     # Prompt loading
@@ -234,9 +239,6 @@ class StorySpecV1:
         return p.read_text(encoding="utf-8").strip()
 
     def build_instructions(self, *, include_old_rival: bool) -> str:
-        """
-        runtime 用：把核心規範檔拼成 instructions 丟給 AI
-        """
         blocks: list[str] = []
         for name in self.core_files:
             if (not include_old_rival) and name == "world_old_rival_module.md":
@@ -251,237 +253,19 @@ class StorySpecV1:
     # ============================================================
 
     def pick_theme(self, seed: Optional[int], nonce: str) -> str:
+        if not self.allowed_background_themes:
+            return ""
         base = f"{seed if seed is not None else 'null'}:{nonce}"
         h = int(hashlib.sha1(base.encode("utf-8")).hexdigest(), 16)
         return self.allowed_background_themes[h % len(self.allowed_background_themes)]
 
+
     # ============================================================
-    # Text utils
+    # Light text helpers (不改寫內容，只做分析/檢查)
     # ============================================================
 
     def split_paragraphs(self, narration: str) -> list[str]:
         return [x.strip() for x in (narration or "").split("\n\n") if x.strip()]
-
-    def join_paragraphs(self, parts: list[str]) -> str:
-        return "\n\n".join([x for x in parts if (x or "").strip()])
-
-    def remove_banned_proper_nouns(self, s: str) -> str:
-        out = s or ""
-        for w in self.banned_proper_nouns:
-            out = out.replace(w, "校園活動")
-        return out
-
-    def replace_forbidden_opening_terms(self, s: str) -> str:
-        out = s or ""
-        for w in self.forbidden_opening_terms:
-            if w in out:
-                out = out.replace(w, self.forbidden_opening_replacements.get(w, ""))
-        return out
-
-    def soften_daily_tone(self, s: str) -> str:
-        """
-        只做「柔化」而不是寫死內容：
-        - 避免太大人/太遊戲提示
-        - 允許吐槽，但不讓它變成「教學/規則宣告」
-        """
-        out = s or ""
-        out = out.replace("可疑", "有點怪怪的")
-        for p in self.gamey_patterns:
-            out = out.replace(p, "霏霏：我們先慢慢把剛剛看到的事情說清楚。")
-        return out
-
-    def apply_competition_anti_drift(self, text: str, theme: str) -> str:
-        if theme != "校內比賽":
-            return text
-        out = text or ""
-        for a, b in self.competition_drift_map.items():
-            out = out.replace(a, b)
-        return out
-
-    def normalize_opening_theme(self, narration: str, theme: str) -> str:
-        parts = self.split_paragraphs(narration)
-        if not parts:
-            return narration
-
-        head = self.join_paragraphs(parts[:3])
-        found = None
-        for t in self.allowed_background_themes:
-            if t in head:
-                found = t
-                break
-
-        if found and found != theme:
-            for i in range(min(3, len(parts))):
-                parts[i] = parts[i].replace(found, theme)
-            return self.join_paragraphs(parts)
-
-        if found == theme:
-            return narration
-
-        insert = (
-            f"旁白：今天是學校的「{theme}」，一早就很熱鬧，走廊上都是忙進忙出的腳步聲。"
-        )
-        parts.insert(1 if len(parts) >= 1 else 0, insert)
-        return self.join_paragraphs(parts)
-
-    # ============================================================
-    # De-dupe
-    # ============================================================
-
-    def dedupe_paragraphs_global(self, text: str) -> str:
-        paras = self.split_paragraphs(text)
-        out: list[str] = []
-        seen: set[str] = set()
-
-        for p in paras:
-            key = re.sub(r"\s+", "", p)
-            if len(key) < 12:
-                out.append(p)
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(p)
-
-        return self.join_paragraphs(out)
-
-    def dedupe_paragraphs_with_seen(self, text: str, seen: set[str]) -> str:
-        """
-        ✅ 跨節點全局去重：避免 enrich 把同一句「先冷靜/先確認」貼到每個 scene
-        """
-        paras = self.split_paragraphs(text)
-        out: list[str] = []
-        for p in paras:
-            key = re.sub(r"\s+", "", p)
-            if len(key) < 12:
-                out.append(p)
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(p)
-        return self.join_paragraphs(out)
-
-    def post_clean_opening(self, narration: str) -> str:
-        out = narration or ""
-        out = self.dedupe_paragraphs_global(out)
-        return out
-
-    # ============================================================
-    # Meta helpers
-    # ============================================================
-
-    def ensure_case_id(self, meta: Dict[str, Any], forced_case_id: str | None) -> None:
-        if forced_case_id:
-            meta["case_id"] = forced_case_id
-            return
-        if not str(meta.get("case_id") or "").strip():
-            meta["case_id"] = f"ai_{uuid.uuid4().hex[:10]}"
-
-    # ============================================================
-    # Quality reports / gate
-    # ============================================================
-
-    def _init_quality_lists(self) -> None:
-        if self.clue_beat_verbs is None:
-            self.clue_beat_verbs = [
-                "注意到",
-                "發現",
-                "看見",
-                "聽到",
-                "聞到",
-                "摸到",
-                "撿起",
-                "指著",
-                "湊近",
-                "低頭看",
-                "抬頭看",
-                "比對",
-                "問",
-                "詢問",
-                "確認",
-                "回想",
-                "整理",
-                "對照",
-                "翻開",
-                "打開",
-                "掀起",
-                "摸了一下",
-                "聞了一下",
-            ]
-        if self.red_herring_cues is None:
-            self.red_herring_cues = [
-                "原來只是",
-                "其實只是",
-                "只是剛好",
-                "只是碰巧",
-                "結果只是",
-                "後來才知道",
-                "才發現不是",
-                "並不是",
-            ]
-        if self.clue_object_keywords is None:
-            # ✅ 具體物件/痕跡：提高「線索自然度」的最關鍵訊號
-            self.clue_object_keywords = [
-                # 紙類/貼類/印記
-                "貼紙",
-                "背紙",
-                "膠帶",
-                "雙面膠",
-                "標籤",
-                "字條",
-                "便條",
-                "紙屑",
-                "紙片",
-                "印章",
-                "印記",
-                "墨水",
-                # 票卡/道具/容器
-                "票",
-                "卡",
-                "號碼牌",
-                "抽籤筒",
-                "籤",
-                "袋子",
-                "紙袋",
-                "背包",
-                "盒子",
-                "收納盒",
-                "透明袋",
-                "拉鍊",
-                "扣環",
-                # 現場痕跡
-                "腳印",
-                "水漬",
-                "油漬",
-                "粉末",
-                "碎屑",
-                "刮痕",
-                "掉落",
-                "裂痕",
-                "皺皺",
-                # 聲音/味道/觸感
-                "味道",
-                "香味",
-                "刺鼻",
-                "黏黏",
-                "滑滑",
-                "冰冰",
-                "濕濕",
-            ]
-        if self.generic_clue_phrases is None:
-            # ✅ 模板句：出現太多就代表「線索不自然」
-            self.generic_clue_phrases = [
-                "我們找到線索了",
-                "這一定是線索",
-                "關鍵線索",
-                "真相只有一個",
-                "我好像知道了",
-                "一定是他做的",
-                "就是這個了",
-                "這很明顯",
-                "毫無疑問",
-            ]
 
     def collect_narration_text(self, nodes: Dict[str, Any]) -> str:
         chunks: list[str] = []
@@ -491,12 +275,6 @@ class StorySpecV1:
             nar = node.get("narration")
             if isinstance(nar, str):
                 chunks.append(nar)
-            elif isinstance(nar, list):
-                for it in nar:
-                    if isinstance(it, dict):
-                        chunks.append(str(it.get("text") or ""))
-                    else:
-                        chunks.append(str(it or ""))
         return "\n".join(chunks)
 
     def opening_paragraphs(self, nodes: Dict[str, Any]) -> int:
@@ -504,37 +282,66 @@ class StorySpecV1:
         s1_nar = str(s1.get("narration") or "") if isinstance(s1, dict) else ""
         return len(self.split_paragraphs(s1_nar))
 
+    # ============================================================
+    # Quality report / gate（只產生報告，不改寫內容）
+    # ============================================================
+
     def clue_quality_report(self, nodes: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        ✅ 線索自然度報告：
-        - beats：感官/確認/比對等動詞密度
-        - concrete_hits：具體物件/痕跡關鍵字命中數（越高越像「真的在現場」）
-        - distinct_objects：不同物件詞的覆蓋數（避免一直只講同一個貼紙）
-        - generic_hits：模板線索句命中（越高越不自然）
-        """
-        self._init_quality_lists()
         blob = self.collect_narration_text(nodes)
 
-        beats = 0
-        for v in self.clue_beat_verbs:
-            beats += blob.count(v)
-        beats = min(beats, 99)
-
-        has_rh = any(k in blob for k in self.red_herring_cues)
-
-        concrete_hits = 0
-        distinct_objects: set[str] = set()
-        for kw in self.clue_object_keywords:
+        object_keywords = [
+            "貼紙",
+            "背紙",
+            "膠帶",
+            "雙面膠",
+            "標籤",
+            "便條",
+            "紙屑",
+            "印記",
+            "墨水",
+            "票",
+            "卡",
+            "號碼牌",
+            "抽籤筒",
+            "籤",
+            "袋子",
+            "背包",
+            "盒子",
+            "收納盒",
+            "透明袋",
+            "拉鍊",
+            "扣環",
+            "水漬",
+            "粉末",
+            "碎屑",
+            "刮痕",
+            "掉落",
+            "裂痕",
+            "味道",
+            "香味",
+            "刺鼻",
+            "黏黏",
+            "滑滑",
+            "濕濕",
+        ]
+        hits = 0
+        distinct = 0
+        for kw in object_keywords:
             c = blob.count(kw)
             if c > 0:
-                concrete_hits += c
-                distinct_objects.add(kw)
-        concrete_hits = min(concrete_hits, 199)
+                hits += c
+                distinct += 1
 
-        generic_hits = 0
-        for g in self.generic_clue_phrases:
-            if g in blob:
-                generic_hits += blob.count(g)
+        generic_phrases = [
+            "我們找到線索了",
+            "這一定是線索",
+            "關鍵線索",
+            "真相只有一個",
+            "就是這個了",
+            "這很明顯",
+            "毫無疑問",
+        ]
+        generic_hits = sum(blob.count(g) for g in generic_phrases)
 
         excluded = {
             "scene_01_start",
@@ -547,130 +354,366 @@ class StorySpecV1:
         scene_nodes = [nid for nid in nodes.keys() if nid not in excluded]
 
         return {
-            "clue_beats": beats,
-            "concrete_hits": concrete_hits,
-            "distinct_objects": len(distinct_objects),
+            "object_hits": min(hits, 199),
+            "distinct_objects": distinct,
             "generic_hits": generic_hits,
-            "has_red_herring_turn": has_rh,
             "scene_nodes_count": len(scene_nodes),
         }
 
     def style_quality_report(self, nodes: Dict[str, Any]) -> Dict[str, Any]:
         blob = self.collect_narration_text(nodes)
-        paras = [x.strip() for x in blob.split("\n\n") if x.strip()]
-
-        qmarks = blob.count("？") + blob.count("?")
 
         second_person_hits = 0
         for p in self.gamey_patterns:
             if p in blob:
                 second_person_hits += blob.count(p)
 
-        dup_paras = 0
+        paras = [x.strip() for x in blob.split("\n\n") if x.strip()]
         seen: set[str] = set()
+        dup = 0
         for p in paras:
             key = re.sub(r"\s+", "", p)
             if len(key) < 12:
                 continue
             if key in seen:
-                dup_paras += 1
+                dup += 1
             else:
                 seen.add(key)
 
-        return {
-            "question_marks": qmarks,
-            "second_person_hits": second_person_hits,
-            "dup_paragraphs": dup_paras,
-        }
+        return {"second_person_hits": second_person_hits, "dup_paragraphs": dup}
 
     def needs_enrich(self, *, nodes: Dict[str, Any]) -> bool:
-        open_ok = self.opening_paragraphs(nodes) >= self.opening_min_paragraphs
+        if self.opening_paragraphs(nodes) < self.opening_min_paragraphs:
+            return True
+
         clue = self.clue_quality_report(nodes)
         style = self.style_quality_report(nodes)
 
-        if not open_ok:
-            return True
-        if (
-            int(clue.get("scene_nodes_count") or 0)
-            < self.min_scene_nodes_after_required
-        ):
+        if int(clue.get("scene_nodes_count") or 0) < self.min_scene_nodes_after_required:
             return True
 
-        # ✅ 線索自然度 gate：不能只靠「注意到/發現」這種動詞堆疊
-        if int(clue.get("clue_beats") or 0) < self.min_clue_beats:
+        if int(clue.get("distinct_objects") or 0) < 4:
             return True
-        if int(clue.get("concrete_hits") or 0) < self.min_concrete_clue_hits:
-            return True
-        if int(clue.get("distinct_objects") or 0) < self.min_distinct_clue_objects:
-            return True
-
-        # ✅ 模板線索句太多：代表不自然（寧願 enrich）
         if int(clue.get("generic_hits") or 0) >= 2:
             return True
 
         if int(style.get("second_person_hits") or 0) >= 1:
             return True
-        if int(style.get("dup_paragraphs") or 0) > self.max_dup_paragraphs:
+
+        if int(style.get("dup_paragraphs") or 0) > 2:
+            return True
+
+        # ✅ incident / ending gate 也會導致 enrich
+        rep = self.enrich_report(nodes=nodes, theme="(n/a)")
+        if rep.get("reasons"):
             return True
 
         return False
 
     # ============================================================
-    # Prompt builders
+    # Enrich gate (CLI-like checks, report only; no rewriting)
+    # ============================================================
+
+    def _has_kana(self, s: str) -> bool:
+        return re.search(r"[\u3040-\u30ff]", s or "") is not None
+
+    def _scene01_text(self, nodes: Dict[str, Any]) -> str:
+        s1 = nodes.get("scene_01_start")
+        if isinstance(s1, dict):
+            return str(s1.get("narration") or "")
+        return ""
+
+    def _all_text(self, nodes: Dict[str, Any]) -> str:
+        return self.collect_narration_text(nodes)
+
+    def _final_accuse_choices(self, nodes: Dict[str, Any]) -> List[str]:
+        fa = nodes.get("final_accuse")
+        if not isinstance(fa, dict):
+            return []
+        ch = fa.get("choices")
+        if not isinstance(ch, list):
+            return []
+        out: List[str] = []
+        for it in ch:
+            if isinstance(it, dict):
+                out.append(str(it.get("text") or "").strip())
+        return out
+
+    def _pre_accuse_text_blob(self, nodes: Dict[str, Any]) -> str:
+        excluded = {
+            "final_accuse",
+            "scene_10_ending_clear",
+            "scene_10_ending_nudge",
+            "scene_10_ending_defer",
+            "quit",
+        }
+        parts: List[str] = []
+        for nid, node in (nodes or {}).items():
+            if nid in excluded:
+                continue
+            if isinstance(node, dict):
+                nar = node.get("narration")
+                if isinstance(nar, str) and nar.strip():
+                    parts.append(nar)
+        return "\n".join(parts)
+
+    # ----------------------------
+    # Incident position helpers
+    # ----------------------------
+
+    def _node_narration(self, nodes: Dict[str, Any], nid: str) -> str:
+        node = (nodes or {}).get(nid)
+        if isinstance(node, dict):
+            nar = node.get("narration")
+            if isinstance(nar, str):
+                return nar
+        return ""
+
+    def _ordered_node_ids(self, nodes: Dict[str, Any]) -> List[str]:
+        # Python dict preserve insertion order; runtime 生成通常也是依順序建
+        return list((nodes or {}).keys())
+
+    def _find_first_incident_node(self, nodes: Dict[str, Any]) -> Optional[str]:
+        for nid in self._ordered_node_ids(nodes):
+            nar = self._node_narration(nodes, nid)
+            if nar and any(t in nar for t in self.incident_terms):
+                return nid
+        return None
+
+    def _count_total_paragraphs(self, nodes: Dict[str, Any]) -> int:
+        total = 0
+        for nid in self._ordered_node_ids(nodes):
+            nar = self._node_narration(nodes, nid)
+            if nar:
+                total += len(self.split_paragraphs(nar))
+        return total
+
+    def _count_paragraphs_before_node(self, nodes: Dict[str, Any], until_nid: str) -> int:
+        total = 0
+        for nid in self._ordered_node_ids(nodes):
+            if nid == until_nid:
+                break
+            nar = self._node_narration(nodes, nid)
+            if nar:
+                total += len(self.split_paragraphs(nar))
+        return total
+
+    # ----------------------------
+    # Ending completeness
+    # ----------------------------
+
+    def _ending_ok(self, text: str) -> bool:
+        t = text or ""
+        has_reason = any(k in t for k in ["因為", "所以", "原來", "其實是"])
+        has_apology = any(k in t for k in ["對不起", "道歉", "抱歉"])
+        has_teach = any(k in t for k in ["下次", "以後", "記得", "學到", "提醒"])
+        paras = len(self.split_paragraphs(t))
+        return has_reason and has_apology and has_teach and paras >= self.ending_min_paragraphs
+
+    def enrich_fail_reasons(self, *, nodes: Dict[str, Any], theme: str) -> List[str]:
+        reasons: List[str] = []
+
+        # --- scene_01_start 基本檢查 ---
+        s01 = self._scene01_text(nodes)
+        if not s01.strip():
+            reasons.append("scene_01_start narration 為空")
+        else:
+            open_paras = len(self.split_paragraphs(s01))
+            if open_paras < self.opening_min_paragraphs:
+                reasons.append(f"scene_01_start 段落不足（{open_paras} < {self.opening_min_paragraphs}）")
+
+            # ✅ 開場禁止：異常/推理口吻
+            hits = [w for w in self.forbidden_opening_terms if w in s01]
+            if hits:
+                reasons.append(f"scene_01_start 出現禁止詞（異常/推理口吻）：{hits}")
+
+            # ✅ 開場禁止：事件詞（必須延後）
+            open_incident_hits = [w for w in self.incident_terms if w in s01]
+            if open_incident_hits:
+                reasons.append(
+                    f"scene_01_start 出現事件詞（必須延後到 40% 之後才可首次出現）：{open_incident_hits}"
+                )
+
+            if self._has_kana(s01):
+                reasons.append("scene_01_start 出現日文假名（平假名/片假名）")
+
+            gen_hits = [w for w in self.banned_generics if w in s01]
+            if gen_hits:
+                reasons.append(f"scene_01_start 出現泛稱（請改成有名字的配角）：{gen_hits}")
+
+        # --- placeholder 命名（全故事） ---
+        blob_all = self._all_text(nodes)
+        ph_hits = [w for w in self.banned_placeholders if w in blob_all]
+        if ph_hits:
+            reasons.append(f"出現 placeholder/佔位命名：{ph_hits[:3]}")
+
+        # --- 其他案例殘影（全故事） ---
+        pn_hits = [w for w in self.banned_proper_nouns if w in blob_all]
+        if pn_hits:
+            reasons.append(f"出現其他案例殘影/專有名詞：{pn_hits[:4]}")
+
+        # --- 遊戲提示口吻（全故事） ---
+        gamey_hits = [p for p in self.gamey_patterns if p in blob_all]
+        if gamey_hits:
+            reasons.append(f"出現對讀者下指令/遊戲提示句型：{gamey_hits[:4]}")
+
+        # --- ✅ 事件詞延後 40% gate（全故事） ---
+        first_incident_nid = self._find_first_incident_node(nodes)
+        if not first_incident_nid:
+            reasons.append(f"全故事未出現事件詞（需在中後段明確發生事件）：{self.incident_terms}")
+        else:
+            total_paras = self._count_total_paragraphs(nodes)
+            before_paras = self._count_paragraphs_before_node(nodes, first_incident_nid)
+            ratio = (before_paras / max(1, total_paras)) if total_paras > 0 else 0.0
+            if (ratio < self.incident_min_ratio) and (before_paras < self.incident_min_paragraphs_before):
+                reasons.append(
+                    f"事件出現太早（首次出現在 {first_incident_nid}；before_paras={before_paras}, total={total_paras}, ratio={ratio:.2f} < {self.incident_min_ratio}）"
+                )
+
+        # --- final_accuse choices（4個 + 第4固定 + 前三是名字且在前文出現） ---
+        choices = self._final_accuse_choices(nodes)
+        if not choices:
+            reasons.append("final_accuse choices 缺失或格式不正確")
+        else:
+            if len(choices) != 4:
+                reasons.append(f"final_accuse choices 必須剛好 4 個（目前 {len(choices)}）")
+            else:
+                if (choices[3] or "").strip() != self.unsure_choice_text.strip():
+                    reasons.append(f"final_accuse 第 4 個選項必須完全等於：{self.unsure_choice_text}")
+
+                suspects = [choices[0].strip(), choices[1].strip(), choices[2].strip()]
+                for s in suspects:
+                    if not s:
+                        reasons.append("final_accuse 前三個嫌疑人名字不可為空")
+                        break
+                    if "老師" in s or "不確定" in s or "交給" in s:
+                        reasons.append(f"final_accuse 前三個選項必須是名字（目前：{s}）")
+                        break
+                    if any(ph in s for ph in self.banned_placeholders):
+                        reasons.append(f"嫌疑人名字出現 placeholder：{s}")
+                        break
+
+                if len(set(suspects)) != 3:
+                    reasons.append(f"嫌疑人名字重複：{suspects}")
+
+                pre_blob = self._pre_accuse_text_blob(nodes)
+                for s in suspects:
+                    if s and (s not in pre_blob):
+                        reasons.append(f"嫌疑人未在指認前登場：{s}")
+
+                fa = nodes.get("final_accuse")
+                if isinstance(fa, dict):
+                    si = fa.get("solution_index", None)
+                    try:
+                        si_int = int(si)
+                    except Exception:
+                        si_int = None
+                    if si_int not in (0, 1, 2):
+                        reasons.append(f"final_accuse.solution_index 必須是 0/1/2（目前：{si}）")
+
+        # --- 事件後 scene 數 ---
+        clue = self.clue_quality_report(nodes)
+        if int(clue.get("scene_nodes_count") or 0) < self.min_scene_nodes_after_required:
+            reasons.append(
+                f"事件後搜尋/互動 scene 不足（{int(clue.get('scene_nodes_count') or 0)} < {self.min_scene_nodes_after_required}）"
+            )
+
+        # --- 線索自然度 ---
+        if int(clue.get("distinct_objects") or 0) < 4:
+            reasons.append("具體物件/痕跡種類不足（distinct_objects < 4）")
+        if int(clue.get("generic_hits") or 0) >= 2:
+            reasons.append("模板線索句過多（generic_hits >= 2）")
+
+        # --- ✅ endings 完整性（原因+道歉+教導）---
+        for eid in ("scene_10_ending_clear", "scene_10_ending_nudge", "scene_10_ending_defer"):
+            nar = self._node_narration(nodes, eid)
+            if not nar.strip():
+                reasons.append(f"{eid} narration 為空")
+                continue
+            if not self._ending_ok(nar):
+                reasons.append(
+                    f"{eid} 結尾不完整：必須明確包含『原因+道歉+教導』且至少 {self.ending_min_paragraphs} 段（\\n\\n 分段）"
+                )
+
+        return reasons
+
+    def enrich_report(self, *, nodes: Dict[str, Any], theme: str) -> Dict[str, Any]:
+        rep = {
+            "theme": theme,
+            "opening_paragraphs": self.opening_paragraphs(nodes),
+            "clue": self.clue_quality_report(nodes),
+            "style": self.style_quality_report(nodes),
+        }
+        rep["reasons"] = self.enrich_fail_reasons(nodes=nodes, theme=theme)
+        return rep
+
+    # ============================================================
+    # Meta
+    # ============================================================
+
+    def ensure_case_id(self, meta: Dict[str, Any], forced_case_id: str | None) -> None:
+        if forced_case_id:
+            meta["case_id"] = forced_case_id
+            return
+        if not str(meta.get("case_id") or "").strip():
+            meta["case_id"] = f"ai_{uuid.uuid4().hex[:10]}"
+
+    # ============================================================
+    # Prompt builders（關鍵：像 story_writer_cli 一樣「教 AI 怎麼寫」）
     # ============================================================
 
     def json_skeleton(self) -> str:
-        return """
+        return f"""
 請只輸出 JSON（不要 markdown、不要 code fence、不要解釋）。
 最外層只能有 meta + nodes。
 
-{
-  "meta": {
+{{
+  "meta": {{
     "schema_version": "v1",
     "title": "故事標題",
     "tags": ["ai"]
-  },
-  "nodes": {
-    "scene_01_start": {
+  }},
+  "nodes": {{
+    "scene_01_start": {{
       "title": "...",
-      "narration": "至少 22 段；用 \\n\\n 分段；每段 1~2 句；以 旁白：/霏霏：/樂樂：/老師： 開頭",
-      "choices": [{"text":"繼續聽故事","next":"（必須存在節點）"}]
-    },
-    "final_accuse": {
+      "narration": "至少 {self.opening_min_paragraphs} 段；用 \\n\\n 分段；每段 1~2 句；以 旁白：/霏霏：/樂樂：/大人： 開頭（需要時可用 爸爸：/媽媽：/店員：/警察：/老師：）",
+      "choices": [{{"text":"繼續聽故事","next":"（必須存在節點）"}}]
+    }},
+    "final_accuse": {{
       "title": "...",
       "narration": "...",
       "choices": [
-        {"text":"嫌疑人1","next":"scene_10_ending_clear"},
-        {"text":"嫌疑人2","next":"scene_10_ending_nudge"},
-        {"text":"嫌疑人3","next":"scene_10_ending_defer"},
-        {"text":"我還不確定，交給老師","next":"scene_10_ending_defer"}
+        {{"text":"嫌疑人1","next":"scene_10_ending_clear"}},
+        {{"text":"嫌疑人2","next":"scene_10_ending_nudge"}},
+        {{"text":"嫌疑人3","next":"scene_10_ending_defer"}},
+        {{"text":"{self.unsure_choice_text}","next":"scene_10_ending_defer"}}
       ],
       "solution_index": 0
-    },
-    "scene_10_ending_clear": {
+    }},
+    "scene_10_ending_clear": {{
       "title": "...",
-      "narration": "...",
-      "choices": [{"text":"故事結束","next":"quit"}]
-    },
-    "scene_10_ending_nudge": {
+      "narration": "...（原因+道歉+修復+教導+餘韻；至少 {self.ending_min_paragraphs} 段）",
+      "choices": [{{"text":"故事結束","next":"quit"}}]
+    }},
+    "scene_10_ending_nudge": {{
       "title": "...",
-      "narration": "...",
-      "choices": [{"text":"故事結束","next":"quit"}]
-    },
-    "scene_10_ending_defer": {
+      "narration": "...（差一點：霏霏補一句 + 老師補齊；含原因+道歉+教導；至少 {self.ending_min_paragraphs} 段）",
+      "choices": [{{"text":"故事結束","next":"quit"}}]
+    }},
+    "scene_10_ending_defer": {{
       "title": "...",
-      "narration": "...",
-      "choices": [{"text":"故事結束","next":"quit"}]
-    },
-    "quit": {
+      "narration": "...（不指認：交給大人確認 + 安全收尾；含原因+道歉+教導；至少 {self.ending_min_paragraphs} 段）",
+      "choices": [{{"text":"故事結束","next":"quit"}}]
+    }},
+    "quit": {{
       "title": "...",
       "narration": "...",
       "choices": [],
       "can_replay": true,
       "can_quit": true
-    }
-  }
-}
+    }}
+  }}
+}}
 """.strip()
 
     def build_user_prompt(
@@ -682,98 +725,126 @@ class StorySpecV1:
         theme: str,
         include_old_rival: bool,
     ) -> str:
-        """
-        ✅ 吐槽口吻 + 線索自然度優先
-        - 你仍可從 runtime 那邊傳入 rules_text（例如：build_instructions 的結果）
-        """
         instructions = self.build_instructions(include_old_rival=include_old_rival)
         style = extract_style_example()
         seed_line = f"{int(seed)}" if seed is not None else "null"
-
-        extra = f"""
-# ✅ 額外生成要求（runtime）
-1) 背景主題只能選一個，且必須是以下之一：
-   {", ".join(self.allowed_background_themes)}
-   本次請使用主題：{theme}
-
-2) 吐槽口吻（優先）：
-   - 霏霏/樂樂像「一起出門的兩個小偵探」：會互虧、被打斷、吐槽一半又憋回去
-   - 但不要變成一直在講道理；要像故事書自然對話
-
-3) 線索自然度（優先）：
-   - 每一個「小細節」都必須是可觀察的：物件/痕跡/聲音/味道/觸感/位置
-   - 不能只寫「我們找到線索了」這種模板句（禁止）
-   - 看到細節後，要有一小段角色對話把它「說成白話」：
-     例如「這個背紙掉在這裡→代表剛剛有人貼過東西→那貼在哪？」
-   - 至少要出現 4 種不同的具體物件/痕跡（貼紙/背紙/膠帶/票/袋子/盒子/印記/水漬…）
-   - 至少 2 個中段 scene 是「自然搜尋」：問人、回到現場對照、翻找道具箱、比對時間/順序（不要模板流程）
-
-4) 禁止「遊戲提示口吻」：
-   - 禁止句型：你覺得該怎麼辦 / 你會怎麼做 / 請選擇 / 玩家
-   - 可以有角色之間的問句（？），但不要在問讀者做選擇
-
-5) 開場必須真的長（scene_01_start 至少 {self.opening_min_paragraphs} 段）：
-   - 用生活細節把氣氛鋪滿
-   - 不要重複同一句話、不要複製貼上段落
-""".strip()
-
-        if theme == "校內比賽":
-            extra += """
-6) 若主題是「校內比賽」：
-   - 不要漂成才藝發表/表演
-   - 抽籤要說清楚抽什麼（出場順序/分組/項目）＋至少 3 個項目
-""".rstrip()
-
-        old_rival_line = (
-            "7) 可選世界觀：可出現『理念型反派／神秘大盜』的影子（不一定登場，不要變主壞人）。"
-            if include_old_rival
-            else ""
-        )
 
         return f"""
 {rules_text}
 
 {instructions}
 
-{extra}
-{old_rival_line}
+你是一位「故事型偵探推理遊戲」的兒童故事作家。
+你要寫的是：給小一能懂、好笑、有日常感的偵探故事（霏霏＆樂樂）。
 
-# 輸出格式（必須遵守）
+────────────────
+【硬性生成要求（非常重要，務必遵守）】
+
+1) 結構完整性（缺一不可）
+- 必須包含並完整定義以下 nodeId（不可缺漏）：
+  - scene_01_start
+  - final_accuse
+  - scene_10_ending_clear
+  - scene_10_ending_nudge
+  - scene_10_ending_defer
+  - quit
+- 每個 ending 節點必須含：
+  - title
+  - narration（必須『原因+道歉+修復+教導+餘韻』，不可只有一句話；至少 {self.ending_min_paragraphs} 段）
+  - choices: [{{"text":"故事結束","next":"quit"}}]
+- quit 節點必須包含 can_replay 與 can_quit
+
+2) 開場硬規範
+- scene_01_start 必須像「真正的故事第一章」，至少 {self.opening_min_paragraphs} 段 narration（用 \\n\\n 分段）
+- scene_01_start 只能做：世界觀介紹 / 日常互動 / 玩笑吐槽 / 配角登場
+- scene_01_start 禁止「異常/推理口吻」：{", ".join(self.forbidden_opening_terms)}
+- scene_01_start 禁止「事件詞」：{", ".join(self.incident_terms)}
+  - ✅ 允許寫「老師要宣布一件重要事」「大家有點慌但先忙著準備」「箱子被挪動」「有人皺眉在找」等
+  - ❌ 不可直接寫「不見/遺失/被偷/找不到/消失」
+- 禁止日文（不得出現平假名/片假名）
+
+3) ✅ 事件詞延後規則（非常重要）
+- 事件詞：{", ".join(self.incident_terms)}
+- 必須在故事約 40% 之後才第一次出現（前段只能鋪陳與互動）
+- 但中後段必須明確出現至少一次，故事才能成立
+
+4) 角色命名硬規則（禁止 placeholder / 泛稱）
+- 配角必須有名字：禁止泛稱（例如：{", ".join(self.banned_generics)}）
+- 禁止 placeholder/佔位命名（例如：{", ".join(self.banned_placeholders)}）
+
+5) 指認候選人硬規則（final_accuse）
+- final_accuse 必須剛好 4 個選項：
+  (1) 嫌疑人1（可愛命名）
+  (2) 嫌疑人2（可愛命名）
+  (3) 嫌疑人3（可愛命名）
+  (4) 必須 **完全等於**：{self.unsure_choice_text}
+- 前三個只允許「名字」，不可夾帶句子
+- 前三個嫌疑人名字必須在前文（scene_01_start～指認前）明確登場過至少一次
+- final_accuse 必須包含 solution_index: 0/1/2（只能指向前三個嫌疑人之一；不可是 3）
+
+6) 中段搜尋節奏（避免太快指認）
+- 事件出現後，必須至少有 2～3 個連續 scene 在做「自然搜尋」：
+  - 回到剛剛的位置對照 / 問不同人 / 看物品痕跡 / 被打斷 / 再次確認
+- 不可「事件一出就立刻指認」
+
+7) 場景自由（不限校園，但要安全、日常尺度）
+- 背景場景可以是任何「兒童安全、日常尺度」地點（校園/公園/商店/車站/博物館/夜市/社區活動…都可以）
+- 故事開頭前 3 段內要明確交代「我們在哪裡、在做什麼」
+- 本次場景建議：{theme if theme else "（由你自由決定）"}
+
+8) 禁止遊戲提示口吻（不要對讀者下指令）
+- 禁止句型：{", ".join(self.gamey_patterns)}
+- 你可以讓角色彼此提問（？），但不要問讀者選什麼
+
+9) 範例只學節奏，不可照抄內容
+- 你要模仿「節奏/口吻/段落感」
+- 不可沿用任何專有名詞或舊案殘影（例如：{", ".join(self.banned_proper_nouns)}）
+
+────────────────
+【輸出格式（必須遵守）】
 - 只輸出一個 JSON object
 - 最外層只能有 meta + nodes
 - narration 用 \\n\\n 分段，且每段用「角色：內容」開頭（旁白/霏霏/樂樂/老師）
+- 禁止任何 markdown / code fence
 
 {self.json_skeleton()}
 
-# 節奏錨點 A（只學節奏，不得照抄）
+────────────────
+【節奏錨點 A（只學節奏，不得照抄）】
 {GOLDEN_OPENING_EXAMPLE}
 
-# 節奏錨點 B（只學語氣/段落，不得照抄）
+────────────────
+【節奏錨點 B（只學語氣/段落，不得照抄）】
 {style}
 
-# runtime 參數（不要輸出）
+────────────────
+【案件 seed（僅作背景，不代表劇情順序）】
 seed={seed_line}
 nonce={nonce}
 
-最後提醒：只輸出 JSON object
+最後提醒：只輸出 JSON object。
 """.strip()
 
     def build_repair_prompt(self, *, raw_text: str, error: str, theme: str) -> str:
         style = extract_style_example()
         return f"""
-你上一版 JSON 沒有通過驗證。請你「在不重寫整個故事」的前提下做修補（最小修改）。
+你上一版 JSON 沒有通過驗證。請你「保持故事內容與人物盡量不變」，只做必要修補（最小修改）。
 
 # 驗證錯誤
 {error}
 
-# 本次主題（必須維持單一主題，不要雙主題）
+# 本次主題（必須維持單一主題）
 theme={theme}
 
 # 修補規則
 - 你必須輸出「完整 JSON object」（不要 markdown、不要 code fence、不要解釋）
-- 以「最小修改」修好錯誤：除了必要欄位，其他文字與節點內容盡量不動
-- 不可改動故事核心事實，只補齊缺漏/修正格式/修掉違規句
-- 吐槽口吻要保留、線索要更像「現場觀察」而不是模板句
+- 只修正：缺漏欄位、違規文字、結構不合規
+- 不可用 placeholder 命名，不可用泛稱
+- 第 4 個指認選項必須完全等於：{self.unsure_choice_text}
+- final_accuse.solution_index 必須是 0/1/2
+- 開場不得出現事件詞：{", ".join(self.incident_terms)}
+- 事件詞必須延後到約 40% 才第一次出現
+- endings 必須明確包含『原因+道歉+教導』且至少 {self.ending_min_paragraphs} 段
 
 # 節奏錨點（只學節奏，不得照抄）
 {GOLDEN_OPENING_EXAMPLE}
@@ -785,23 +856,18 @@ theme={theme}
 {raw_text}
 """.strip()
 
-    def build_enrich_prompt(
-        self, *, raw_json: str, theme: str, rep: Dict[str, Any]
-    ) -> str:
+    def build_enrich_prompt(self, *, raw_json: str, theme: str, rep: Dict[str, Any]) -> str:
         style = extract_style_example()
         return f"""
-你要把下面這份故事 JSON 做「最小修改」的補強，目標是：
-- scene_01_start 至少 {self.opening_min_paragraphs} 段（\\n\\n 分段），段落要自然、像故事書
-- 中段至少 2 個 scene 做自然搜尋（問人/回到現場/對照道具/被打斷/再確認）
-- ✅ 線索自然長出來：每個小細節都必須是「具體可觀察」的物件/痕跡/聲音/味道/觸感/位置
-- ✅ 禁止模板線索句（如：我們找到線索了 / 這一定是線索 / 關鍵線索）
-- ✅ 吐槽口吻要保留：互虧、插曲、被打斷，但不要變教條
-
-⚠️ 非常重要：
-- 你可以有角色之間的問句（？），但不要問讀者要選什麼
-- 不要複製貼上段落，避免重複
-- 保留原本故事核心事實，不要推翻事件
-- 至少出現 4 種不同的具體物件/痕跡（貼紙/背紙/膠帶/票/袋子/盒子/印記/水漬…）
+你要把下面這份故事 JSON 做「最小修改」的補強（不要整個重寫），目標是：
+- scene_01_start 至少 {self.opening_min_paragraphs} 段（\\n\\n 分段），且段落不重複
+- ✅ 開場不得出現事件詞：{", ".join(self.incident_terms)}
+- ✅ 事件詞必須在故事約 40% 之後才第一次出現（但中後段必須出現至少一次）
+- 事件後至少 2～3 個 scene 做自然搜尋（問人/回到現場/對照/翻找/被打斷/再確認）
+- 線索要自然：用「具體可觀察」的物件/痕跡/聲音/味道/觸感/位置
+- 禁止模板線索句（例如：我們找到線索了 / 這一定是線索 / 關鍵線索）
+- 禁止對讀者下指令（不要出現：{", ".join(self.gamey_patterns)}）
+- ✅ endings 必須明確包含『原因+道歉+教導』且至少 {self.ending_min_paragraphs} 段
 
 # 目前品質檢查（不要輸出）
 rep={json.dumps(rep, ensure_ascii=False)}
@@ -817,6 +883,6 @@ theme={theme}
 
 # 只輸出完整 JSON object（不要 markdown、不要解釋）
 
-# 你要修補的 JSON
+# 你要補強的 JSON
 {raw_json}
 """.strip()

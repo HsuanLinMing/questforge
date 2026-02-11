@@ -1,3 +1,4 @@
+# src/questforge/ai/guard.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -57,7 +58,21 @@ MIN_SENTENCES = 2
 MAX_SENTENCES = 4
 MAX_QUESTIONS = 1
 
-ROLE_PREFIXES = ("霏霏：", "樂樂：", "老師：")
+# ✅ 允許的角色前綴（放寬：不要再硬綁老師）
+ROLE_PREFIXES = (
+    "旁白：",
+    "霏霏：",
+    "樂樂：",
+    "爸爸：",
+    "媽媽：",
+    "大人：",
+    "店員：",
+    "館員：",
+    "教練：",
+    "保全：",
+    "警察：",
+    "老師：",  # 仍允許（學校故事可用），但不再是唯一選項
+)
 
 
 # ==============================
@@ -114,22 +129,16 @@ def guard_response(text: str) -> GuardResult:
     # Sentence count
     # ==========================
     if sentence_count < MIN_SENTENCES:
-        warnings.append(
-            f"句子過短（{sentence_count} 句），可能太像客服或提示語"
-        )
+        warnings.append(f"句子過短（{sentence_count} 句），可能太像客服或提示語")
 
     if sentence_count > MAX_SENTENCES:
-        warnings.append(
-            f"句子過長（{sentence_count} 句），可能變成說教"
-        )
+        warnings.append(f"句子過長（{sentence_count} 句），可能變成說教")
 
     # ==========================
     # Question count
     # ==========================
     if question_count > MAX_QUESTIONS:
-        warnings.append(
-            f"問句過多（{question_count} 個），容易讓孩子有被逼問感"
-        )
+        warnings.append(f"問句過多（{question_count} 個），容易讓孩子有被逼問感")
 
     # ==========================
     # Forbidden keywords
@@ -149,7 +158,7 @@ def guard_response(text: str) -> GuardResult:
     # Role prefix
     # ==========================
     if not _has_role_prefix(clean):
-        warnings.append("未使用角色前綴（霏霏／樂樂／老師）")
+        warnings.append("未使用角色前綴（旁白／霏霏／樂樂／爸爸／媽媽／大人／…）")
 
     if _has_double_prefix(clean):
         warnings.append("角色前綴重複（可能被加了兩次）")

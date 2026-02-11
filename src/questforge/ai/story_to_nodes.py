@@ -64,7 +64,7 @@ def story_package_to_case(story: StoryPackage) -> Tuple[Dict[str, Any], str, Dic
 
     # final_accuse：把 cooldown + teacher_scene 放在這裡
     accuse_choices = [{"text": nm, "next": "scene_10_ending_nudge"} for nm in suspects]
-    accuse_choices.append({"text": "我還不確定，交給老師", "next": "scene_10_ending_defer"})
+    accuse_choices.append({"text": "我還不確定，交給大人", "next": "scene_10_ending_defer"})
 
     nodes["final_accuse"] = {
         # ✅ 暫時讓「交給老師」當正解（等你之後接 evaluator/真正犯人再改）

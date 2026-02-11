@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List
 
 from questforge.contracts.story_nodes_v1 import StoryNodesPackage
 
@@ -28,11 +28,14 @@ _REQUIRED_NODE_IDS = [
     "quit",
 ]
 
+# ✅ 固定的不確定選項（合約一致）
+UNSURE_CHOICE_TEXT = "我還不確定，交給大人"
+
 # ✅ 開場禁詞：移除「奇怪」「不尋常」
 # 你要的是「有點奇怪/怪怪的」這種日常語氣，不應該被 blocker 擋住
 BANNED_OPENING_TERMS = [
     "不見", "找不到", "遺失", "被偷",
-    "消失", "可疑", "不尋常",
+    "消失", "可疑",
     "發現問題", "出事", "有問題",
     "開始調查", "推理過程", "解決案件",
 ]
@@ -65,8 +68,8 @@ def validate_story_nodes_v1(pkg: StoryNodesPackage) -> None:
         raise StoryNodesValidationError("缺少 final_accuse")
     if len(fa.choices) != 4:
         raise StoryNodesValidationError("final_accuse.choices 必須是 4 個")
-    if fa.choices[3].text != "我還不確定，交給老師":
-        raise StoryNodesValidationError("final_accuse 第4個 choice 必須完全等於：我還不確定，交給老師")
+    if fa.choices[3].text != UNSURE_CHOICE_TEXT:
+        raise StoryNodesValidationError(f"final_accuse 第4個 choice 必須完全等於：{UNSURE_CHOICE_TEXT}")
     if fa.solution_index is None or fa.solution_index not in (0, 1, 2):
         raise StoryNodesValidationError("final_accuse.solution_index 必須是 0/1/2")
 

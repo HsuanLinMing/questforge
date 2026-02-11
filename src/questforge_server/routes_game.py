@@ -342,6 +342,14 @@ def _bundle_from_session_and_step(
     def _make_tts_cmd_from_view_json(
         view_json: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
+        if _env_bool("QF_TTS_ONLY_AI", False):
+            # 只讓 AI case 做 TTS，fallback/static 全部跳過
+            case_id = str(getattr(session, "case_id", "") or "")
+        if not case_id.startswith("ai_"):
+            return None
+
+        if not _env_bool("QF_TTS_ENABLED", True):
+            return None
         if not view_json:
             return None
 
@@ -451,7 +459,17 @@ def _bundle_from_session_and_step(
             [],
             False,
         )
+    # 在 view_json 產出後、回 BundleResponse 前加
+    try:
+        story_meta = getattr(session.state, "vars", {}).get("qf_story")
+    except Exception:
+        story_meta = None
 
+    if view_json is not None and story_meta:
+        view_json = dict(view_json)
+        runtime = dict(view_json.get("runtime") or {})
+        runtime["story"] = story_meta
+    view_json["runtime"] = runtime
     # ----------------------------
     # step: view + overlays + playlist
     # ----------------------------
@@ -528,6 +546,8 @@ def _prefetch_next_bundle_in_background(request: Request, session_id: str) -> No
     """
 
     def _job() -> None:
+        if not _env_bool("QF_PREFETCH_ENABLED", False):
+            return
         try:
             # ✅ 1) 先把 next 變成 AI 案件（nodes）
             store.materialize_next_ai_case(session_id)
@@ -537,12 +557,14 @@ def _prefetch_next_bundle_in_background(request: Request, session_id: str) -> No
             next_run_id = store.get_next_run_id(session_id) or ""
             if next_sess is None or not next_run_id:
                 return
-
-            _prewarm_story_tts_all_nodes(
-                session_id=session_id,
-                run_id=next_run_id,
-                session=next_sess,
-            )
+            if _env_bool("QF_TTS_PREWARM_ENABLED", False) and _env_bool(
+                "QF_TTS_ENABLED", True
+            ):
+                _prewarm_story_tts_all_nodes(
+                    session_id=session_id,
+                    run_id=next_run_id,
+                    session=next_sess,
+                )
 
             # ✅ 3) 再用 next session 產第一頁 bundle（此時幾乎都是 cache hit）
             bundle, _, _ = _bundle_from_session_and_step(
@@ -736,10 +758,22 @@ def _best_effort_match_choice(
 # ----------------------------
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = (os.getenv(name) or "").strip().lower()
+    if not v:
+        return default
+    return v in ("1", "true", "yes", "y", "on")
+
+
 @router.post("/start", response_model=StepResponse)
 def api_start(req: StartRequest, request: Request) -> StepResponse:
     sid = "pending"
     p = ProgressLogger(sid="pending", label="START")
+
+    # ✅ 預設關閉；要開才設 QF_TTS_PREWARM_ENABLED=1
+    prewarm_enabled = _env_bool("QF_TTS_PREWARM_ENABLED", False)
+    # ✅ 你也可以加一個總開關；沒設就當作開（維持既有行為）
+    tts_enabled = _env_bool("QF_TTS_ENABLED", True)
 
     try:
         p.log("create_session:begin", seed=req.seed)
@@ -763,27 +797,46 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
                 step=None,
             )
 
-        # ✅ 2) current 全故事 prewarm 改背景 + 進度 log
-        if run_id:
-            p.log("prewarm_current_all_nodes:spawn")
+        # ✅ 2) current 全故事 prewarm：預設關閉，用 env 控制
+        if run_id and prewarm_enabled and tts_enabled:
+            p.log("prewarm_current_all_nodes:spawn", enabled=True)
 
             def _prewarm_job() -> None:
                 t0 = time.time()
                 print(f"[PREWARM] begin sid={sid[:6]} run={run_id[:6]}", flush=True)
-                _prewarm_story_tts_all_nodes(
-                    session_id=sid, run_id=run_id, session=session
-                )
-                dt = time.time() - t0
-                print(
-                    f"[PREWARM] end   sid={sid[:6]} run={run_id[:6]} dt={dt:.2f}s",
-                    flush=True,
-                )
+                try:
+                    _prewarm_story_tts_all_nodes(
+                        session_id=sid, run_id=run_id, session=session
+                    )
+                except Exception as e:
+                    print(
+                        f"[PREWARM] error sid={sid[:6]} run={run_id[:6]} err={repr(e)}",
+                        flush=True,
+                    )
+                finally:
+                    dt = time.time() - t0
+                    print(
+                        f"[PREWARM] end   sid={sid[:6]} run={run_id[:6]} dt={dt:.2f}s",
+                        flush=True,
+                    )
 
             threading.Thread(target=_prewarm_job, daemon=True).start()
+        else:
+            p.log(
+                "prewarm_current_all_nodes:skip",
+                run_id=bool(run_id),
+                prewarm_enabled=prewarm_enabled,
+                tts_enabled=tts_enabled,
+            )
 
-        # ✅ 3) next 照舊背景 prefetch
-        p.log("prefetch_next:spawn")
-        _prefetch_next_bundle_in_background(request, sid)
+        # ✅ 3) next 照舊背景 prefetch（如果你懷疑它也會觸發 TTS，可同樣加 env 控制）
+        prefetch_enabled = _env_bool("QF_PREFETCH_ENABLED", False)
+
+        if prefetch_enabled:
+            p.log("prefetch_next:spawn", enabled=True)
+            _prefetch_next_bundle_in_background(request, sid)
+        else:
+            p.log("prefetch_next:skip", enabled=False)
 
         p.log("api_start:return", events_count=len(events), is_over=is_over)
         return StepResponse(
@@ -795,8 +848,7 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
         print("[api_start] error:", repr(e), flush=True)
         print(tb, flush=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"start_error: {type(e).__name__} {repr(e)}",
+            status_code=500, detail=f"start_error: {type(e).__name__} {repr(e)}"
         )
 
 

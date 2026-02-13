@@ -10,7 +10,6 @@ RUN pip install --no-cache-dir -U pip \
  && pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
-RUN pip install --no-cache-dir -e .
 
 ENV PYTHONPATH=/app/src
 EXPOSE 8000

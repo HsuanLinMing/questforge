@@ -9,7 +9,7 @@ import traceback
 import threading
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 
 from questforge.core.models import DetectiveState, GameConfig
 from questforge.engine.case_selector import CaseSelector
@@ -18,6 +18,7 @@ from questforge.content.cases import CASES
 
 from questforge.ai.runtime_story_nodes_generator_v1 import RuntimeStoryNodesGeneratorV1
 from questforge.adapters.story_nodes_to_session import build_game_session_from_story_nodes
+from questforge.contracts.story_nodes_v1 import story_nodes_package_from_dict
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -25,6 +26,26 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if not v:
         return default
     return v in ("1", "true", "yes", "y", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    v = (os.getenv(name) or "").strip()
+    if not v:
+        return int(default)
+    try:
+        return int(v)
+    except Exception:
+        return int(default)
+
+
+def _attach_case_id(sess: GameSession, case_id: str) -> None:
+    """
+    ✅ 讓 routes_game 可以用 session.case_id 判斷（例如 QF_TTS_ONLY_AI）
+    """
+    try:
+        setattr(sess, "case_id", (case_id or "").strip())
+    except Exception:
+        pass
 
 
 def _set_story_meta(
@@ -37,7 +58,7 @@ def _set_story_meta(
     forced_case_id: str = "",
 ) -> None:
     """
-    把 AI/Static 狀態塞到 session.state.vars，給 routes_game 打進 view_json 用。
+    把 AI/Static/Pool 狀態塞到 session.state.vars，routes_game 會打進 view.runtime.story
     """
     try:
         if not hasattr(sess, "state") or sess.state is None:
@@ -46,9 +67,9 @@ def _set_story_meta(
         if vars_ is None:
             return
         vars_["qf_story"] = {
-            "source": source,        # "ai" | "static"
+            "source": source,        # "ai" | "static" | "pool"
             "status": status,        # "ok" | "generating" | "failed"
-            "stage": stage,          # create_current / create_next_bg / swap_next_bg ...
+            "stage": stage,          # bootstrap_current_tts / bootstrap_ai1 / ...
             "error": error or "",
             "forced_case_id": forced_case_id or "",
         }
@@ -56,24 +77,24 @@ def _set_story_meta(
         return
 
 
-# ============================================================
-# Internal models
-# ============================================================
+@dataclass
+class _StorySlot:
+    sess: GameSession
+    case_id: str
+    run_id: str
+    prefetched_bundle: Optional[Dict[str, Any]] = None
+
 
 @dataclass
 class _StoreItem:
     ts: float
-    current: GameSession
-    current_case_id: str
-    next: GameSession
-    next_case_id: str
+    current: _StorySlot
+    next1: _StorySlot
+    next2: _StorySlot
 
-    # ✅ 每個 case-run 一個 run_id（用來隔離/刪除語音包）
-    current_run_id: str
-    next_run_id: str
-
-    # ✅ next 的「第一頁 bundle」預生成快取（raw dict）
-    next_prefetched_bundle: Optional[Dict[str, Any]] = None
+    # ✅ 每個 sid 一條背景隊列，保證順序（current_tts -> ai1 -> ai2）
+    bg_lock: threading.Lock
+    bg_running: bool = False
 
 
 # ============================================================
@@ -133,6 +154,34 @@ def _dump_ai_failure(
 
 
 # ============================================================
+# Pool loader
+# ============================================================
+
+def _pool_dir() -> Path:
+    d = (os.getenv("QF_POOL_DIR") or ".qf_cache/pool").strip()
+    return Path(d).resolve()
+
+
+def _list_pool_files() -> List[Path]:
+    root = _pool_dir()
+    if not root.exists():
+        return []
+    files = [p for p in root.glob("*.json") if p.is_file()]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files
+
+
+def _pick_pool_file(seed: Optional[int] = None) -> Optional[Path]:
+    files = _list_pool_files()
+    if not files:
+        return None
+    if seed is None:
+        idx = int(time.time()) % len(files)
+        return files[idx]
+    return files[int(seed) % len(files)]
+
+
+# ============================================================
 # SessionStore
 # ============================================================
 
@@ -142,9 +191,12 @@ class SessionStore:
         self._items: Dict[str, _StoreItem] = {}
         self._gen = RuntimeStoryNodesGeneratorV1()
 
-        # ✅ 開關：AI 生成是否啟用、失敗是否 fallback 靜態
         self._ai_enabled = _env_bool("QF_AI_STORY_ENABLED", True)
+        # 目前這個 flag 先留著（你這版流程以 pool 為 current，比較不需要 fallback）
         self._ai_fallback_to_static = _env_bool("QF_AI_FALLBACK_TO_STATIC", False)
+
+        # 先保留，未來如果你想改成 N 個 AI 預生，可以用它
+        self._bootstrap_ai_count = max(0, _env_int("QF_BOOTSTRAP_AI_COUNT", 2))
 
     def _cleanup(self) -> None:
         now = time.time()
@@ -155,57 +207,78 @@ class SessionStore:
         for sid in expired:
             self._items.pop(sid, None)
 
+    # ----------------------------
+    # getters
+    # ----------------------------
     def get(self, session_id: str) -> Optional[GameSession]:
         self._cleanup()
         sid = (session_id or "").strip()
-        if not sid:
-            return None
         item = self._items.get(sid)
         if not item:
             return None
         item.ts = time.time()
-        return item.current
-
-    def get_next(self, session_id: str) -> Optional[GameSession]:
-        self._cleanup()
-        sid = (session_id or "").strip()
-        item = self._items.get(sid)
-        if not item:
-            return None
-        item.ts = time.time()
-        return item.next
+        return item.current.sess
 
     def get_case_id(self, session_id: str) -> Optional[str]:
         sid = (session_id or "").strip()
         item = self._items.get(sid)
-        if not item:
-            return None
-        return item.current_case_id
+        return item.current.case_id if item else None
 
-    # ----------------------------
-    # run_id / prefetch cache
-    # ----------------------------
     def get_current_run_id(self, session_id: str) -> Optional[str]:
         sid = (session_id or "").strip()
         item = self._items.get(sid)
-        return item.current_run_id if item else None
+        return item.current.run_id if item else None
 
-    def get_next_run_id(self, session_id: str) -> Optional[str]:
+    def get_next1(self, session_id: str) -> Optional[GameSession]:
         sid = (session_id or "").strip()
         item = self._items.get(sid)
-        return item.next_run_id if item else None
+        if not item:
+            return None
+        item.ts = time.time()
+        return item.next1.sess
 
-    def get_next_prefetched_bundle(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_next2(self, session_id: str) -> Optional[GameSession]:
         sid = (session_id or "").strip()
         item = self._items.get(sid)
-        return item.next_prefetched_bundle if item else None
+        if not item:
+            return None
+        item.ts = time.time()
+        return item.next2.sess
 
-    def set_next_prefetched_bundle(self, session_id: str, bundle: Optional[Dict[str, Any]]) -> None:
+    def get_next1_run_id(self, session_id: str) -> Optional[str]:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        return item.next1.run_id if item else None
+
+    def get_next2_run_id(self, session_id: str) -> Optional[str]:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        return item.next2.run_id if item else None
+
+    def get_next1_prefetched_bundle(self, session_id: str) -> Optional[Dict[str, Any]]:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        return item.next1.prefetched_bundle if item else None
+
+    def set_next1_prefetched_bundle(self, session_id: str, bundle: Optional[Dict[str, Any]]) -> None:
         sid = (session_id or "").strip()
         item = self._items.get(sid)
         if not item:
             return
-        item.next_prefetched_bundle = bundle
+        item.next1.prefetched_bundle = bundle
+        item.ts = time.time()
+
+    def get_next2_prefetched_bundle(self, session_id: str) -> Optional[Dict[str, Any]]:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        return item.next2.prefetched_bundle if item else None
+
+    def set_next2_prefetched_bundle(self, session_id: str, bundle: Optional[Dict[str, Any]]) -> None:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        if not item:
+            return
+        item.next2.prefetched_bundle = bundle
         item.ts = time.time()
 
     def delete(self, session_id: str) -> None:
@@ -215,9 +288,9 @@ class SessionStore:
         self._items.pop(sid, None)
 
     # ----------------------------
-    # Static CASES builder (fallback)
+    # Static CASES builder
     # ----------------------------
-    def _build_session(self, case_id: str, seed: int | None = None) -> Tuple[str, GameSession]:
+    def _build_session_from_cases(self, case_id: str, seed: int | None = None) -> Tuple[str, GameSession]:
         case = CASES.get(case_id)
         if not case:
             selector = CaseSelector(CASES)
@@ -248,42 +321,59 @@ class SessionStore:
             config=config,
             solve_rule=solve_rule,
         )
+        _attach_case_id(sess, case_id)
         return case_id, sess
 
-    def _pick_two_cases(self) -> Tuple[str, str]:
+    def _pick_static_case_id(self, exclude: Optional[str] = None) -> str:
         selector = CaseSelector(CASES)
-        a, _ = selector.pick()
-        b, _ = selector.pick()
-        if b == a:
+        cid, _ = selector.pick()
+        if exclude and cid == exclude:
             all_ids = list(CASES.keys())
-            candidates = [x for x in all_ids if x != a]
+            candidates = [x for x in all_ids if x != exclude]
             if candidates:
-                b = candidates[int(time.time()) % len(candidates)]
-        return a, b
+                cid = candidates[int(time.time()) % len(candidates)]
+        return cid
 
     # ----------------------------
-    # AI builder: runtime story_nodes v1
+    # Pool builder (StoryNodesPackage JSON)
+    # ----------------------------
+    def _build_session_from_pool(self, *, seed: int | None = None, stage: str) -> Tuple[str, GameSession, str]:
+        """
+        return: (case_id, session, filename)
+        """
+        p = _pick_pool_file(seed=seed)
+        if p is None:
+            raise RuntimeError("pool_empty")
+
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        pkg = story_nodes_package_from_dict(raw)
+        sess, _solve_rule = build_game_session_from_story_nodes(pkg=pkg, seed=seed)
+        case_id = (pkg.meta.case_id or "").strip() or f"pool_{p.stem}"
+
+        _attach_case_id(sess, case_id)
+        _set_story_meta(sess, source="pool", status="ok", stage=stage, forced_case_id=case_id)
+        return case_id, sess, p.name
+
+    # ----------------------------
+    # AI builder
     # ----------------------------
     def _build_ai_session(
         self,
         *,
         sid: str,
-        seed: int | None = None,
+        seed: int | None,
         stage: str,
         forced_case_id: str,
     ) -> tuple[str, GameSession]:
         sid6 = (sid or "")[:6]
         try:
-            print(
-                f"[AI_BUILD] stage={stage} sid={sid6} seed={seed} forced_case_id={forced_case_id}",
-                flush=True,
-            )
+            print(f"[AI_BUILD] stage={stage} sid={sid6} seed={seed} forced_case_id={forced_case_id}", flush=True)
             pkg = self._gen.generate(seed=seed, forced_case_id=forced_case_id)
             sess, _solve_rule = build_game_session_from_story_nodes(pkg=pkg, seed=seed)
-
             case_id = (pkg.meta.case_id or "").strip() or forced_case_id
-            _set_story_meta(sess, source="ai", status="ok", stage=stage, forced_case_id=forced_case_id)
 
+            _attach_case_id(sess, case_id)
+            _set_story_meta(sess, source="ai", status="ok", stage=stage, forced_case_id=forced_case_id)
             print(f"[AI_BUILD] ok stage={stage} sid={sid6} case_id={case_id}", flush=True)
             return case_id, sess
         except Exception as e:
@@ -294,145 +384,64 @@ class SessionStore:
             raise
 
     # ----------------------------
-    # Background jobs
-    # ----------------------------
-    def _spawn_build_next_in_background(
-        self,
-        *,
-        sid: str,
-        seed: int | None,
-        stage: str,
-        token_run_id: str,
-    ) -> None:
-        sid6 = (sid or "")[:6]
-
-        def _job() -> None:
-            if not self._ai_enabled:
-                return
-            try:
-                forced_case_id = f"ai_{sid6}_{stage}_{int(time.time())}"
-                new_case, new_sess = self._build_ai_session(
-                    sid=sid,
-                    seed=seed,
-                    stage=stage,
-                    forced_case_id=forced_case_id,
-                )
-
-                item = self._items.get(sid)
-                if not item:
-                    print(f"[AI_BG] sid={sid6} item missing; drop result", flush=True)
-                    return
-                if item.next_run_id != token_run_id:
-                    print(f"[AI_BG] sid={sid6} token changed; drop result", flush=True)
-                    return
-
-                item.next = new_sess
-                item.next_case_id = new_case
-                item.next_prefetched_bundle = None
-                item.ts = time.time()
-                print(f"[AI_BG] sid={sid6} next ready case_id={new_case}", flush=True)
-
-            except Exception as e:
-                # ✅ 背景失敗：保留 placeholder，但把 next 標記 failed，UI 可顯示「AI 失敗，先用範例」
-                item = self._items.get(sid)
-                if item and item.next:
-                    _set_story_meta(
-                        item.next,
-                        source="static",
-                        status="failed",
-                        stage=stage,
-                        error=repr(e),
-                    )
-                print(f"[AI_BG] sid={sid6} fail stage={stage} err={e!r}", flush=True)
-
-        t = threading.Thread(target=_job, name=f"qf_ai_next_{sid6}", daemon=True)
-        t.start()
-
-    # ----------------------------
-    # Public: create/reset/swap
+    # Public: create + rotate
     # ----------------------------
     def create(self, seed: int | None = None) -> Tuple[str, GameSession]:
         """
-        - current：同步 AI（馬上進遊戲要能玩）
-        - next：先放靜態 CASES（立即有 next），並在背景生成 AI next 覆蓋掉
+        你的流程：
+        - current：pool（若 pool 空就 static）=> 立刻可玩
+        - next1/next2：static placeholder（立刻有東西），背景會依序換成 AI（routes 做 tts prewarm / prefetch）
         """
         self._cleanup()
         sid = uuid.uuid4().hex
         sid6 = sid[:6]
-        t0 = time.time()
-        print(f"[START] sid={sid6} +0.00s create_session:begin seed={seed}", flush=True)
 
-        # A: current
-        case_a: str
-        sess_a: GameSession
+        # current: pool first
+        try:
+            case_a, sess_a, fname = self._build_session_from_pool(seed=seed, stage="create_current_pool")
+            print(f"[START] sid={sid6} current=POOL file={fname} case_id={case_a}", flush=True)
+        except Exception as e:
+            case_a = self._pick_static_case_id()
+            case_a, sess_a = self._build_session_from_cases(case_id=case_a, seed=seed)
+            _set_story_meta(sess_a, source="static", status="ok", stage="create_current_static", error=repr(e))
+            print(f"[START] sid={sid6} current=STATIC case_id={case_a} (pool_fail={e!r})", flush=True)
 
-        if self._ai_enabled:
-            try:
-                forced_case_id = f"ai_{sid6}_create_current_{int(time.time())}"
-                case_a, sess_a = self._build_ai_session(
-                    sid=sid,
-                    seed=seed,
-                    stage="create_current",
-                    forced_case_id=forced_case_id,
-                )
-            except Exception as e:
-                if not self._ai_fallback_to_static:
-                    raise
-                print(f"[AI] create_current fallback sid={sid6}: {e!r}", flush=True)
-                case_a, _ = self._pick_two_cases()
-                case_a, sess_a = self._build_session(case_id=case_a, seed=seed)
-                _set_story_meta(sess_a, source="static", status="failed", stage="create_current", error=repr(e))
-        else:
-            case_a, _ = self._pick_two_cases()
-            case_a, sess_a = self._build_session(case_id=case_a, seed=seed)
-            _set_story_meta(sess_a, source="static", status="ok", stage="create_current")
+        # next placeholders (static)
+        case_b = self._pick_static_case_id(exclude=case_a)
+        case_b, sess_b = self._build_session_from_cases(case_id=case_b, seed=seed)
+        _set_story_meta(
+            sess_b,
+            source="static",
+            status="generating" if self._ai_enabled else "ok",
+            stage="create_next1_placeholder",
+        )
 
-        # B: next placeholder（先用靜態）
-        case_b, _ = self._pick_two_cases()
-        if case_b == case_a:
-            case_b, _ = self._pick_two_cases()
-        case_b, sess_b = self._build_session(case_id=case_b, seed=seed)
+        case_c = self._pick_static_case_id(exclude=case_b)
+        case_c, sess_c = self._build_session_from_cases(case_id=case_c, seed=seed)
+        _set_story_meta(
+            sess_c,
+            source="static",
+            status="generating" if self._ai_enabled else "ok",
+            stage="create_next2_placeholder",
+        )
 
-        # ✅ next 一開始標記 generating（代表：目前是範例，但背景會換成 AI）
-        if self._ai_enabled:
-            _set_story_meta(sess_b, source="static", status="generating", stage="create_next_bg")
-        else:
-            _set_story_meta(sess_b, source="static", status="ok", stage="create_next_bg")
-
-        next_run_id = uuid.uuid4().hex
         item = _StoreItem(
             ts=time.time(),
-            current=sess_a,
-            current_case_id=case_a,
-            next=sess_b,
-            next_case_id=case_b,
-            current_run_id=uuid.uuid4().hex,
-            next_run_id=next_run_id,
-            next_prefetched_bundle=None,
+            current=_StorySlot(sess=sess_a, case_id=case_a, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+            next1=_StorySlot(sess=sess_b, case_id=case_b, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+            next2=_StorySlot(sess=sess_c, case_id=case_c, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+            bg_lock=threading.Lock(),
+            bg_running=False,
         )
         self._items[sid] = item
-
-        # ✅ 背景生成 next AI（不阻塞）
-        self._spawn_build_next_in_background(
-            sid=sid,
-            seed=seed,
-            stage="create_next_bg",
-            token_run_id=next_run_id,
-        )
-
-        dt = time.time() - t0
-        print(
-            f"[START] sid={sid6} +{dt:.2f}s create_session:ok current={case_a} next(placeholder)={case_b}",
-            flush=True,
-        )
         return sid, sess_a
 
-    def reset_current(
-        self,
-        session_id: str,
-        case_id: str,
-        seed: int | None = None,
-    ) -> Tuple[Optional[GameSession], Optional[str]]:
+    def rotate_to_next1(self, session_id: str, seed: int | None = None) -> Tuple[Optional[GameSession], Optional[str]]:
+        """
+        switch_case 使用：
+        - old current run_id 交給 routes 去刪音檔
+        - current <- next1, next1 <- next2, next2 <- 新 placeholder（static）
+        """
         sid = (session_id or "").strip()
         if not sid:
             return None, None
@@ -441,126 +450,106 @@ class SessionStore:
         if not item:
             return None, None
 
-        sid6 = sid[:6]
-        old_run = item.current_run_id
+        old_run = item.current.run_id
+        cur_case = item.current.case_id
 
-        if self._ai_enabled:
-            try:
-                forced_case_id = f"ai_{sid6}_reset_current_{int(time.time())}"
-                new_case_id, sess = self._build_ai_session(
-                    sid=sid,
-                    seed=seed,
-                    stage="reset_current",
-                    forced_case_id=forced_case_id,
-                )
-            except Exception as e:
-                if not self._ai_fallback_to_static:
-                    raise
-                print(f"[AI] reset_current fallback sid={sid6}: {e!r}", flush=True)
-                new_case_id, sess = self._build_session(case_id=case_id, seed=seed)
-                _set_story_meta(sess, source="static", status="failed", stage="reset_current", error=repr(e))
-        else:
-            new_case_id, sess = self._build_session(case_id=case_id, seed=seed)
-            _set_story_meta(sess, source="static", status="ok", stage="reset_current")
+        # promote
+        item.current = item.next1
+        item.next1 = item.next2
 
-        item.current = sess
-        item.current_case_id = new_case_id
-        item.current_run_id = uuid.uuid4().hex
-        item.ts = time.time()
-        return sess, old_run
-
-    def reset(
-        self,
-        session_id: str,
-        case_id: str,
-        seed: int | None = None,
-    ) -> Tuple[Optional[GameSession], Optional[str]]:
-        return self.reset_current(session_id=session_id, case_id=case_id, seed=seed)
-
-    def swap_to_next_and_prefetch(
-        self,
-        session_id: str,
-        seed: int | None = None,
-    ) -> Tuple[Optional[GameSession], Optional[str]]:
-        sid = (session_id or "").strip()
-        if not sid:
-            return None, None
-        self._cleanup()
-        item = self._items.get(sid)
-        if not item:
-            return None, None
-
-        sid6 = sid[:6]
-        old_run = item.current_run_id
-
-        # promote B -> current
-        item.current = item.next
-        item.current_case_id = item.next_case_id
-        item.current_run_id = item.next_run_id
-
-        # new next placeholder（靜態）
-        selector = CaseSelector(CASES)
-        new_case, _ = selector.pick()
-        if new_case == item.current_case_id:
-            all_ids = list(CASES.keys())
-            candidates = [x for x in all_ids if x != item.current_case_id]
-            if candidates:
-                new_case = candidates[int(time.time()) % len(candidates)]
-        new_case, new_sess = self._build_session(case_id=new_case, seed=seed)
-
-        if self._ai_enabled:
-            _set_story_meta(new_sess, source="static", status="generating", stage="swap_next_bg")
-        else:
-            _set_story_meta(new_sess, source="static", status="ok", stage="swap_next_bg")
-
-        new_next_run_id = uuid.uuid4().hex
-        item.next = new_sess
-        item.next_case_id = new_case
-        item.next_run_id = new_next_run_id
-        item.next_prefetched_bundle = None
-        item.ts = time.time()
-
-        # background overwrite
-        self._spawn_build_next_in_background(
-            sid=sid,
-            seed=seed,
-            stage="swap_next_bg",
-            token_run_id=new_next_run_id,
+        # new next2 placeholder
+        new_case = self._pick_static_case_id(exclude=item.next1.case_id)
+        new_case, new_sess = self._build_session_from_cases(case_id=new_case, seed=seed)
+        _set_story_meta(
+            new_sess,
+            source="static",
+            status="generating" if self._ai_enabled else "ok",
+            stage="rotate_next2_placeholder",
         )
+        item.next2 = _StorySlot(sess=new_sess, case_id=new_case, run_id=uuid.uuid4().hex, prefetched_bundle=None)
+        item.ts = time.time()
 
-        print(f"[SWAP] sid={sid6} current={item.current_case_id} next(placeholder)={item.next_case_id}", flush=True)
-        return item.current, old_run
+        sid6 = sid[:6]
+        print(
+            f"[ROTATE] sid={sid6} old_current={cur_case} -> current={item.current.case_id} next1={item.next1.case_id} next2(placeholder)={item.next2.case_id}",
+            flush=True,
+        )
+        return item.current.sess, old_run
 
-    def materialize_next_ai_case(self, session_id: str, seed: int | None = None) -> bool:
+    # ----------------------------
+    # Background queue coordination
+    # ----------------------------
+    def try_mark_bg_running(self, session_id: str) -> bool:
         sid = (session_id or "").strip()
-        if not sid:
-            return False
-        self._cleanup()
         item = self._items.get(sid)
         if not item:
             return False
+        with item.bg_lock:
+            if item.bg_running:
+                return False
+            item.bg_running = True
+            return True
 
+    def mark_bg_done(self, session_id: str) -> None:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        if not item:
+            return
+        with item.bg_lock:
+            item.bg_running = False
+            item.ts = time.time()
+
+    # ----------------------------
+    # Background tasks called by routes
+    # ----------------------------
+    def build_ai_into_next1(self, *, session_id: str, seed: int | None, stage: str) -> bool:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        if not item:
+            return False
         if not self._ai_enabled:
             return False
 
         sid6 = sid[:6]
+        token_run = item.next1.run_id
         try:
-            forced_case_id = f"ai_{sid6}_materialize_next_{int(time.time())}"
-            new_case_id, new_sess = self._build_ai_session(
-                sid=sid,
-                seed=seed,
-                stage="materialize_next",
-                forced_case_id=forced_case_id,
-            )
-            item.next = new_sess
-            item.next_case_id = new_case_id
-            item.next_run_id = uuid.uuid4().hex
-            item.next_prefetched_bundle = None
+            forced_case_id = f"ai_{sid6}_{stage}_{int(time.time())}"
+            case_id, sess = self._build_ai_session(sid=sid, seed=seed, stage=stage, forced_case_id=forced_case_id)
+
+            if item.next1.run_id != token_run:
+                print(f"[AI_BG] sid={sid6} next1 token changed; drop", flush=True)
+                return False
+
+            item.next1 = _StorySlot(sess=sess, case_id=case_id, run_id=token_run, prefetched_bundle=None)
             item.ts = time.time()
-            print(f"[NEXT] materialized ai case_id={new_case_id} sid={sid6}", flush=True)
             return True
         except Exception as e:
-            if item.next:
-                _set_story_meta(item.next, source="static", status="failed", stage="materialize_next", error=repr(e))
-            print(f"[NEXT] materialize fail sid={sid6} err={e!r}", flush=True)
+            _set_story_meta(item.next1.sess, source="static", status="failed", stage=stage, error=repr(e))
+            print(f"[AI_BG] sid={sid6} build next1 fail stage={stage} err={e!r}", flush=True)
+            return False
+
+    def build_ai_into_next2(self, *, session_id: str, seed: int | None, stage: str) -> bool:
+        sid = (session_id or "").strip()
+        item = self._items.get(sid)
+        if not item:
+            return False
+        if not self._ai_enabled:
+            return False
+
+        sid6 = sid[:6]
+        token_run = item.next2.run_id
+        try:
+            forced_case_id = f"ai_{sid6}_{stage}_{int(time.time())}"
+            case_id, sess = self._build_ai_session(sid=sid, seed=seed, stage=stage, forced_case_id=forced_case_id)
+
+            if item.next2.run_id != token_run:
+                print(f"[AI_BG] sid={sid6} next2 token changed; drop", flush=True)
+                return False
+
+            item.next2 = _StorySlot(sess=sess, case_id=case_id, run_id=token_run, prefetched_bundle=None)
+            item.ts = time.time()
+            return True
+        except Exception as e:
+            _set_story_meta(item.next2.sess, source="static", status="failed", stage=stage, error=repr(e))
+            print(f"[AI_BG] sid={sid6} build next2 fail stage={stage} err={e!r}", flush=True)
             return False

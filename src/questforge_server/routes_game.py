@@ -2,22 +2,19 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import random
 import re
 import shutil
 import threading
 import traceback
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import time
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from questforge_server.progress import ProgressLogger
-from questforge.content.cases import CASES
 from questforge.engine.actions import PlayerAction
 from questforge.engine.session import GameSession, StepResult
 from questforge_server.session_store import SessionStore
@@ -33,7 +30,6 @@ store = SessionStore()
 # ----------------------------
 # Pydantic Schemas
 # ----------------------------
-
 
 class StartRequest(BaseModel):
     seed: Optional[int] = None
@@ -105,9 +101,19 @@ class StepResponse(BaseModel):
 
 
 # ----------------------------
-# Helpers
+# Env helpers
 # ----------------------------
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = (os.getenv(name) or "").strip().lower()
+    if not v:
+        return default
+    return v in ("1", "true", "yes", "y", "on")
+
+
+# ----------------------------
+# Helpers
+# ----------------------------
 
 def _get_session_or_404(session_id: str) -> GameSession:
     sid = (session_id or "").strip()
@@ -148,8 +154,36 @@ def _to_json_dict(obj: Any) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _safe_rmtree(p: Path) -> None:
+    try:
+        if p.exists():
+            shutil.rmtree(p, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _runs_root() -> Path:
+    return Path(".qf_cache/tts_runs").resolve()
+
+
+def _bundle_to_raw_dict(bundle: BundleResponse) -> Dict[str, Any]:
+    try:
+        return bundle.model_dump()  # pydantic v2
+    except Exception:
+        try:
+            return bundle.dict()  # pydantic v1
+        except Exception:
+            return {
+                "view": bundle.view,
+                "ask": bundle.ask,
+                "quiz": bundle.quiz,
+                "end": bundle.end,
+                "commands": bundle.commands,
+            }
+
+
 # ----------------------------
-# TTS helpers (方案 B：全故事預產)
+# TTS helpers
 # ----------------------------
 
 _ALLOWED_ROLES = {
@@ -204,24 +238,13 @@ def _voice_speed_for_role(role: str) -> float:
 
 
 def _view_fp_for_narration(narration: str) -> str:
-    # ✅ 必須跟 _make_tts_cmd_from_view_json 一樣的算法，才能共用 cache
+    # ✅ 必須固定算法才能共用 cache
     return hashlib.sha1(("v2|" + (narration or "")).encode("utf-8")).hexdigest()
 
 
-def _runs_root() -> Path:
-    # ✅ 你現有的路徑
-    return Path(".qf_cache/tts_runs").resolve()
-
-
-def _prewarm_story_tts_all_nodes(
-    *,
-    session_id: str,
-    run_id: str,
-    session: GameSession,
-) -> None:
+def _prewarm_story_tts_all_nodes(*, session_id: str, run_id: str, session: GameSession) -> None:
     """
-    ✅ 方案 B：一次把整個故事所有 node narration 的語音都產好。
-    只要 synthesize_to_wav 有 cache（檔案存在就快速返回），後面 choose 幾乎不會卡。
+    ✅ 補齊「整個故事」所有 node 的 narration 語音
     """
     try:
         nodes = getattr(session, "nodes", {}) or {}
@@ -229,12 +252,6 @@ def _prewarm_story_tts_all_nodes(
         base_dir.mkdir(parents=True, exist_ok=True)
 
         clips = 0
-        node_total = len([1 for _, n in (nodes or {}).items() if isinstance(n, dict)])
-        node_done = 0
-        p_every = 10  # 每 10 段印一次
-
-        print(f"[PREWARM] begin sid={session_id[:6]} run={run_id[:6]}", flush=True)
-
         for node_id, node in nodes.items():
             if not isinstance(node, dict):
                 continue
@@ -242,23 +259,11 @@ def _prewarm_story_tts_all_nodes(
             if not narration:
                 continue
 
-            node_done += 1
-            if node_done == 1 or node_done % 2 == 0:
-                print(
-                    f"[PREWARM] sid={session_id[:6]} node={node_done}/{node_total} node_id={node_id} clips={clips}",
-                    flush=True,
-                )
-            paras = _split_paragraphs(narration)
-            print(
-                f"[PREWARM] node {node_done}/{node_total} id={node_id} paras={len(paras)}",
-                flush=True,
-            )
-
             view_fp = _view_fp_for_narration(narration)
             out_dir = base_dir / view_fp
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            for i, p in enumerate(paras, start=1):
+            for p in _split_paragraphs(narration):
                 role, text = _parse_paragraph(p)
                 spoken_text = (text or "").strip()
                 if not spoken_text:
@@ -276,52 +281,18 @@ def _prewarm_story_tts_all_nodes(
                 )
                 if r is not None:
                     clips += 1
-                    if clips % 10 == 0:
-                        print(
-                            f"[PREWARM] sid={session_id[:6]} clips={clips}", flush=True
-                        )
-                if (i % p_every) == 0 or i == len(paras):
-                    print(
-                        f"[PREWARM] node={node_id} {i}/{len(paras)} clips={clips}",
-                        flush=True,
-                    )
 
         print(
-            f"[PREWARM] done sid={session_id[:6]} run={run_id[:6]} clips={clips}",
-            flush=True,
-        )
-
-        print(
-            f"[PREWARM] done sid={session_id[:6]} run={run_id[:6]} clips={clips}",
+            f"[PREWARM_ALL] ok sid={session_id[:6]} run={run_id[:6]} clips={clips}",
             flush=True,
         )
     except Exception as e:
-        print(f"[PREWARM] fail sid={session_id[:6]} err={e!r}", flush=True)
+        print(f"[PREWARM_ALL] fail sid={session_id[:6]} err={e!r}", flush=True)
 
 
-def _safe_rmtree(p: Path) -> None:
-    try:
-        if p.exists():
-            shutil.rmtree(p, ignore_errors=True)
-    except Exception:
-        pass
-
-
-def _bundle_to_raw_dict(bundle: BundleResponse) -> Dict[str, Any]:
-    try:
-        return bundle.model_dump()  # pydantic v2
-    except Exception:
-        try:
-            return bundle.dict()  # pydantic v1
-        except Exception:
-            return {
-                "view": bundle.view,
-                "ask": bundle.ask,
-                "quiz": bundle.quiz,
-                "end": bundle.end,
-                "commands": bundle.commands,
-            }
-
+# ----------------------------
+# Bundle builder
+# ----------------------------
 
 def _bundle_from_session_and_step(
     *,
@@ -336,20 +307,35 @@ def _bundle_from_session_and_step(
     - bundle.view (NodeView json)
     - bundle.ask / quiz / end (overlay command)
     - bundle.commands (tts_playlist_v1 等)
-    並額外把 commands 同步塞到 view.commands 方便 debug。
+    並把 commands 同步塞到 view.commands（方便 debug）
     """
 
-    def _make_tts_cmd_from_view_json(
-        view_json: Optional[Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
-        if _env_bool("QF_TTS_ONLY_AI", False):
-            # 只讓 AI case 做 TTS，fallback/static 全部跳過
-            case_id = str(getattr(session, "case_id", "") or "")
-        if not case_id.startswith("ai_"):
+    def _inject_story_meta(view_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if view_json is None:
             return None
+        try:
+            story_meta = getattr(session.state, "vars", {}).get("qf_story")
+        except Exception:
+            story_meta = None
+        if not story_meta:
+            return view_json
+        v = dict(view_json)
+        runtime = dict(v.get("runtime") or {})
+        runtime["story"] = story_meta
+        v["runtime"] = runtime
+        return v
 
+    def _make_tts_cmd_from_view_json(view_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        # ✅ TTS 總開關
         if not _env_bool("QF_TTS_ENABLED", True):
             return None
+
+        # ✅ 只讓 AI case 做 TTS（你如果要 pool 也播：把 env 設為 0）
+        if _env_bool("QF_TTS_ONLY_AI", False):
+            case_id = str(getattr(session, "case_id", "") or "")
+            if not case_id.startswith("ai_"):
+                return None
+
         if not view_json:
             return None
 
@@ -389,18 +375,14 @@ def _bundle_from_session_and_step(
                 continue
 
             url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{r.filename}"
-            print(
-                f"[TTS] view={view_fp[:8]} i={i}/{len(raw_paras)} role={role} ...",
-                flush=True,
-            )
 
             items.append(
                 {
                     "index": i,
                     "text": spoken_text,  # debug
-                    "role": role,  # debug
+                    "role": role,         # debug
                     "voice": profile.voice,  # debug
-                    "speed": speed,  # debug
+                    "speed": speed,       # debug
                     "format": "wav",
                     "path": url,
                 }
@@ -408,27 +390,6 @@ def _bundle_from_session_and_step(
 
         if not items:
             return None
-
-        # ✅ 只保留最新兩個 run（current + next）=> 這裡是 per-session/run 資料夾
-        def _cleanup_keep_latest_runs(root: Path, keep: int = 2) -> None:
-            try:
-                if not root.exists():
-                    return
-                sess_dir = root / session_id
-                if not sess_dir.exists():
-                    return
-
-                dirs = [p for p in sess_dir.iterdir() if p.is_dir()]
-                if len(dirs) <= keep:
-                    return
-
-                dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-                for d in dirs[keep:]:
-                    _safe_rmtree(d)
-            except Exception:
-                return
-
-        _cleanup_keep_latest_runs(_runs_root(), keep=2)
 
         return {
             "type": "tts_playlist_v1",
@@ -444,32 +405,22 @@ def _bundle_from_session_and_step(
     if step is None:
         view_obj = session.get_view()
         view_json = _to_json_dict(view_obj)
+        view_json = _inject_story_meta(view_json)
 
         tts_cmd = _make_tts_cmd_from_view_json(view_json)
         commands_out = [tts_cmd] if tts_cmd else []
 
         if view_json is not None:
-            view_json = dict(view_json)
-            view_json["commands"] = commands_out if commands_out else None
+            v = dict(view_json)
+            v["commands"] = commands_out if commands_out else None
+            view_json = v
 
         return (
-            BundleResponse(
-                view=view_json, ask=None, quiz=None, end=None, commands=commands_out
-            ),
+            BundleResponse(view=view_json, ask=None, quiz=None, end=None, commands=commands_out),
             [],
             False,
         )
-    # 在 view_json 產出後、回 BundleResponse 前加
-    try:
-        story_meta = getattr(session.state, "vars", {}).get("qf_story")
-    except Exception:
-        story_meta = None
 
-    if view_json is not None and story_meta:
-        view_json = dict(view_json)
-        runtime = dict(view_json.get("runtime") or {})
-        runtime["story"] = story_meta
-    view_json["runtime"] = runtime
     # ----------------------------
     # step: view + overlays + playlist
     # ----------------------------
@@ -477,6 +428,7 @@ def _bundle_from_session_and_step(
     is_over = bool(step.is_over)
 
     view_json: Optional[Dict[str, Any]] = _to_json_dict(step.view)
+    view_json = _inject_story_meta(view_json)
 
     ask = None
     quiz = None
@@ -497,15 +449,12 @@ def _bundle_from_session_and_step(
     commands_out = [tts_cmd] if tts_cmd else []
 
     if view_json is not None:
-        view_json = dict(view_json)
-        view_json["commands"] = commands_out if commands_out else None
-
-    print("[BUNDLE] out.commands_count =", len(commands_out), flush=True)
+        v = dict(view_json)
+        v["commands"] = commands_out if commands_out else None
+        view_json = v
 
     return (
-        BundleResponse(
-            view=view_json, ask=ask, quiz=quiz, end=end, commands=commands_out
-        ),
+        BundleResponse(view=view_json, ask=ask, quiz=quiz, end=end, commands=commands_out),
         events,
         is_over,
     )
@@ -527,67 +476,96 @@ def _step_and_build_response(
         session=session,
         step=step,
     )
-    return StepResponse(
-        session_id=session_id, bundle=bundle, events=events, is_over=is_over
-    )
+    return StepResponse(session_id=session_id, bundle=bundle, events=events, is_over=is_over)
 
 
 # ----------------------------
-# Next prefetch (含全故事 prewarm)
+# ✅ 方案 B-1：Bootstrap pipeline（順序：current_tts -> ai1+tts -> ai2+tts）
 # ----------------------------
 
-
-def _prefetch_next_bundle_in_background(request: Request, session_id: str) -> None:
+def _bootstrap_background_pipeline(request: Request, session_id: str, seed: Optional[int]) -> None:
     """
-    背景做：
-    1) materialize next AI（保留你原本的保險，避免 next 還是舊 case）
-    2) prewarm next 全故事語音（方案 B）
-    3) 產 next 第一頁 bundle + playlist，快取到 store
+    - /start 先回第一頁（低延遲）
+    - 背景依序做：
+      1) current 全故事 TTS
+      2) next1 -> AI + 全故事 TTS + prefetch first bundle
+      3) next2 -> AI + 全故事 TTS + prefetch first bundle
+    - 同 sid 只允許一條 pipeline（store.bg_running lock）
     """
+    # 你想全程都跑就設 True；想關閉就設 QF_PREFETCH_ENABLED=0
+    if not _env_bool("QF_PREFETCH_ENABLED", True):
+        return
+    if not store.try_mark_bg_running(session_id):
+        return
 
     def _job() -> None:
-        if not _env_bool("QF_PREFETCH_ENABLED", False):
-            return
+        sid6 = session_id[:6]
         try:
-            # ✅ 1) 先把 next 變成 AI 案件（nodes）
-            store.materialize_next_ai_case(session_id)
+            tts_enabled = _env_bool("QF_TTS_ENABLED", True)
+            prewarm_enabled = _env_bool("QF_TTS_PREWARM_ENABLED", True)
 
-            # ✅ 2) prewarm next 全故事
-            next_sess = store.get_next(session_id)
-            next_run_id = store.get_next_run_id(session_id) or ""
-            if next_sess is None or not next_run_id:
-                return
-            if _env_bool("QF_TTS_PREWARM_ENABLED", False) and _env_bool(
-                "QF_TTS_ENABLED", True
-            ):
-                _prewarm_story_tts_all_nodes(
-                    session_id=session_id,
-                    run_id=next_run_id,
-                    session=next_sess,
-                )
+            # 1) current：補齊整故事 TTS（第一頁已在 start 的 bundle 產掉）
+            if tts_enabled and prewarm_enabled:
+                cur = store.get(session_id)
+                cur_run = store.get_current_run_id(session_id) or ""
+                if cur is not None and cur_run:
+                    print(f"[BOOT] sid={sid6} stage=current_tts", flush=True)
+                    _prewarm_story_tts_all_nodes(session_id=session_id, run_id=cur_run, session=cur)
 
-            # ✅ 3) 再用 next session 產第一頁 bundle（此時幾乎都是 cache hit）
-            bundle, _, _ = _bundle_from_session_and_step(
-                request=request,
-                session_id=session_id,
-                run_id=next_run_id,
-                session=next_sess,
-                step=None,
-            )
-            store.set_next_prefetched_bundle(session_id, _bundle_to_raw_dict(bundle))
-            print(
-                f"[PREFETCH] ok sid={session_id[:6]} run={next_run_id[:6]}", flush=True
-            )
+            # 2) next1：build AI -> prewarm all -> prefetch first bundle
+            print(f"[BOOT] sid={sid6} stage=build_ai1", flush=True)
+            ok1 = store.build_ai_into_next1(session_id=session_id, seed=seed, stage="bootstrap_ai1")
+            if ok1:
+                next1 = store.get_next1(session_id)
+                run1 = store.get_next1_run_id(session_id) or ""
+                if tts_enabled and prewarm_enabled and next1 is not None and run1:
+                    print(f"[BOOT] sid={sid6} stage=ai1_tts", flush=True)
+                    _prewarm_story_tts_all_nodes(session_id=session_id, run_id=run1, session=next1)
+
+                if next1 is not None and run1:
+                    bundle, _, _ = _bundle_from_session_and_step(
+                        request=request,
+                        session_id=session_id,
+                        run_id=run1,
+                        session=next1,
+                        step=None,
+                    )
+                    store.set_next1_prefetched_bundle(session_id, _bundle_to_raw_dict(bundle))
+                    print(f"[BOOT] sid={sid6} ai1_prefetched ok", flush=True)
+
+            # 3) next2：build AI -> prewarm all -> prefetch first bundle
+            print(f"[BOOT] sid={sid6} stage=build_ai2", flush=True)
+            ok2 = store.build_ai_into_next2(session_id=session_id, seed=seed, stage="bootstrap_ai2")
+            if ok2:
+                next2 = store.get_next2(session_id)
+                run2 = store.get_next2_run_id(session_id) or ""
+                if tts_enabled and prewarm_enabled and next2 is not None and run2:
+                    print(f"[BOOT] sid={sid6} stage=ai2_tts", flush=True)
+                    _prewarm_story_tts_all_nodes(session_id=session_id, run_id=run2, session=next2)
+
+                if next2 is not None and run2:
+                    bundle, _, _ = _bundle_from_session_and_step(
+                        request=request,
+                        session_id=session_id,
+                        run_id=run2,
+                        session=next2,
+                        step=None,
+                    )
+                    store.set_next2_prefetched_bundle(session_id, _bundle_to_raw_dict(bundle))
+                    print(f"[BOOT] sid={sid6} ai2_prefetched ok", flush=True)
+
         except Exception as e:
-            print(f"[PREFETCH] fail sid={session_id[:6]} err={e!r}", flush=True)
+            print(f"[BOOT] sid={session_id[:6]} fail err={e!r}", flush=True)
+            print(traceback.format_exc(), flush=True)
+        finally:
+            store.mark_bg_done(session_id)
 
     threading.Thread(target=_job, daemon=True).start()
 
 
 # ----------------------------
-# Accuse evaluator helpers (你原本那套保留)
+# Accuse evaluator helpers（你原本那套保留）
 # ----------------------------
-
 
 def _norm_text(s: str) -> str:
     s = (s or "").strip().lower()
@@ -757,27 +735,13 @@ def _best_effort_match_choice(
 # Routes
 # ----------------------------
 
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    v = (os.getenv(name) or "").strip().lower()
-    if not v:
-        return default
-    return v in ("1", "true", "yes", "y", "on")
-
-
 @router.post("/start", response_model=StepResponse)
 def api_start(req: StartRequest, request: Request) -> StepResponse:
     sid = "pending"
     p = ProgressLogger(sid="pending", label="START")
 
-    # ✅ 預設關閉；要開才設 QF_TTS_PREWARM_ENABLED=1
-    prewarm_enabled = _env_bool("QF_TTS_PREWARM_ENABLED", False)
-    # ✅ 你也可以加一個總開關；沒設就當作開（維持既有行為）
-    tts_enabled = _env_bool("QF_TTS_ENABLED", True)
-
     try:
         p.log("create_session:begin", seed=req.seed)
-
         with p.timed("store.create"):
             sid, session = store.create(seed=req.seed)
 
@@ -787,7 +751,7 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
         run_id = store.get_current_run_id(sid) or ""
         p.log("run_id", run_id=run_id[:6] if run_id else "")
 
-        # ✅ 1) 先回第一頁 bundle（不要被全故事 TTS 卡住）
+        # ✅ 1) 先回第一頁 bundle（第一頁語音也會在這裡產）
         with p.timed("build_bundle_first_view"):
             bundle, events, is_over = _bundle_from_session_and_step(
                 request=request,
@@ -797,59 +761,17 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
                 step=None,
             )
 
-        # ✅ 2) current 全故事 prewarm：預設關閉，用 env 控制
-        if run_id and prewarm_enabled and tts_enabled:
-            p.log("prewarm_current_all_nodes:spawn", enabled=True)
-
-            def _prewarm_job() -> None:
-                t0 = time.time()
-                print(f"[PREWARM] begin sid={sid[:6]} run={run_id[:6]}", flush=True)
-                try:
-                    _prewarm_story_tts_all_nodes(
-                        session_id=sid, run_id=run_id, session=session
-                    )
-                except Exception as e:
-                    print(
-                        f"[PREWARM] error sid={sid[:6]} run={run_id[:6]} err={repr(e)}",
-                        flush=True,
-                    )
-                finally:
-                    dt = time.time() - t0
-                    print(
-                        f"[PREWARM] end   sid={sid[:6]} run={run_id[:6]} dt={dt:.2f}s",
-                        flush=True,
-                    )
-
-            threading.Thread(target=_prewarm_job, daemon=True).start()
-        else:
-            p.log(
-                "prewarm_current_all_nodes:skip",
-                run_id=bool(run_id),
-                prewarm_enabled=prewarm_enabled,
-                tts_enabled=tts_enabled,
-            )
-
-        # ✅ 3) next 照舊背景 prefetch（如果你懷疑它也會觸發 TTS，可同樣加 env 控制）
-        prefetch_enabled = _env_bool("QF_PREFETCH_ENABLED", False)
-
-        if prefetch_enabled:
-            p.log("prefetch_next:spawn", enabled=True)
-            _prefetch_next_bundle_in_background(request, sid)
-        else:
-            p.log("prefetch_next:skip", enabled=False)
+        # ✅ 2) B-1 pipeline：背景順序做 current_tts -> ai1+tts -> ai2+tts
+        _bootstrap_background_pipeline(request, sid, seed=req.seed)
 
         p.log("api_start:return", events_count=len(events), is_over=is_over)
-        return StepResponse(
-            session_id=sid, bundle=bundle, events=events, is_over=is_over
-        )
+        return StepResponse(session_id=sid, bundle=bundle, events=events, is_over=is_over)
 
     except Exception as e:
         tb = traceback.format_exc()
         print("[api_start] error:", repr(e), flush=True)
         print(tb, flush=True)
-        raise HTTPException(
-            status_code=500, detail=f"start_error: {type(e).__name__} {repr(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"start_error: {type(e).__name__} {repr(e)}")
 
 
 @router.post("/choose", response_model=StepResponse)
@@ -889,68 +811,50 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
     session = _get_session_or_404(session_id)
     step = session.step(PlayerAction(type="end_flow", end_action=action))
 
+    # ✅ 你現在的 SessionStore 版本沒有 reset(case_id) 的 API
+    # 如果你真的需要 restart_case，我建議做成：rotate_to_next1 的「重新開始」UX
     if action == "restart_case":
-        case_id = store.get_case_id(session_id) or "2"
-        new_sess, old_run = store.reset(
-            session_id=session_id, case_id=case_id, seed=None
-        )
-        if new_sess is None:
-            raise HTTPException(status_code=500, detail="reset failed")
-
-        # ✅ 刪舊 run
-        if old_run:
-            _safe_rmtree(_runs_root() / session_id / old_run)
-
         run_id = store.get_current_run_id(session_id) or ""
-        if run_id:
-            _prewarm_story_tts_all_nodes(
-                session_id=session_id, run_id=run_id, session=new_sess
-            )
-
         bundle, events, is_over = _bundle_from_session_and_step(
             request=request,
             session_id=session_id,
             run_id=run_id,
-            session=new_sess,
+            session=session,
             step=None,
         )
         return StepResponse(
             session_id=session_id,
             bundle=bundle,
-            events=["restart_case"],
+            events=["restart_case_no_reset_api"],
             is_over=False,
         )
 
     if action == "switch_case":
-        # ✅ 1) 先拿 B 的預生成 bundle（如果有，就能秒回）
-        prefetched = store.get_next_prefetched_bundle(session_id)
+        # ✅ 1) 先拿 next1 的 prefetched bundle（有就秒回）
+        pref1 = store.get_next1_prefetched_bundle(session_id)
 
-        # ✅ 2) swap: B -> current, 同時生成新的 next=C
-        new_current, old_run = store.swap_to_next_and_prefetch(
-            session_id=session_id, seed=None
-        )
+        # ✅ 2) rotate：current <- next1, next1 <- next2, next2 <- new placeholder
+        new_current, old_run = store.rotate_to_next1(session_id=session_id, seed=None)
         if new_current is None:
-            raise HTTPException(status_code=500, detail="swap_to_next failed")
+            raise HTTPException(status_code=500, detail="rotate_to_next1 failed")
 
-        # ✅ 3) 刪掉 A 的音檔包（整個 run 資料夾）
+        # ✅ 3) 刪掉舊 current 的音檔包（整個 run 資料夾）
         if old_run:
             _safe_rmtree(_runs_root() / session_id / old_run)
 
-        # ✅ 4) 回 B 的預生成（最快路徑）
-        if prefetched:
-            bundle_obj = BundleResponse(**prefetched)
-
-            # 背景生 C（materialize + 全故事 prewarm + 第一頁快取）
-            _prefetch_next_bundle_in_background(request, session_id)
-
+        # ✅ 4) 回 next1 預生成（最快）
+        if pref1:
+            bundle_obj = BundleResponse(**pref1)
+            # 背景：補下一個（此時 next2 是 placeholder，pipeline 會把它換成新 AI 並產 TTS）
+            _bootstrap_background_pipeline(request, session_id, seed=None)
             return StepResponse(
                 session_id=session_id,
                 bundle=bundle_obj,
-                events=["switch_case", "swap_to_next_prefetched"],
+                events=["switch_case", "rotate_next1_prefetched"],
                 is_over=False,
             )
 
-        # ✅ 5) fallback：如果 B 還沒預生成完，就現算一次（此時通常 prewarm 已做過，會快很多）
+        # ✅ 5) fallback：如果還沒 prefetched，就現算一次 current 第一頁（通常也不慢）
         run_id = store.get_current_run_id(session_id) or ""
         bundle, events, is_over = _bundle_from_session_and_step(
             request=request,
@@ -959,12 +863,11 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
             session=new_current,
             step=None,
         )
-
-        _prefetch_next_bundle_in_background(request, session_id)
+        _bootstrap_background_pipeline(request, session_id, seed=None)
         return StepResponse(
             session_id=session_id,
             bundle=bundle,
-            events=["switch_case", "swap_to_next_fallback"],
+            events=["switch_case", "rotate_next1_fallback"],
             is_over=False,
         )
 
@@ -973,9 +876,7 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
         _safe_rmtree(_runs_root() / session_id)
         return StepResponse(
             session_id=session_id,
-            bundle=BundleResponse(
-                view=None, ask=None, quiz=None, end=None, commands=None
-            ),
+            bundle=BundleResponse(view=None, ask=None, quiz=None, end=None, commands=None),
             events=["quit"],
             is_over=True,
         )
@@ -989,9 +890,7 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
         session=session,
         step=step,
     )
-    return StepResponse(
-        session_id=session_id, bundle=bundle, events=events, is_over=is_over
-    )
+    return StepResponse(session_id=session_id, bundle=bundle, events=events, is_over=is_over)
 
 
 @router.post("/set_reasons", response_model=StepResponse)

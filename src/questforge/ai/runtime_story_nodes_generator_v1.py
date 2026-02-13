@@ -111,26 +111,39 @@ def _extract_first_json(text: str) -> Any:
     if not s:
         raise RuntimeError("empty_output")
 
+    # 先試整段
     try:
         return _loads_json_with_salvage(s)
     except Exception:
         pass
 
+    # 找第一個 JSON object，用 raw_decode 最穩
     start = s.find("{")
     if start < 0:
         raise RuntimeError("no_json_start")
 
-    depth = 0
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return _loads_json_with_salvage(s[start : i + 1])
+    decoder = json.JSONDecoder()
+    for i in range(start, min(len(s), start + 2000)):  # 掃描一小段就好
+        if s[i] != "{":
+            continue
+        try:
+            obj, end = decoder.raw_decode(_sanitize_json_common(s[i:]))
+            return obj
+        except Exception:
+            continue
 
-    raise RuntimeError("no_json_end")
+    raise RuntimeError("no_json_object_found")
+
+def _contains_any(s: str, terms: list[str]) -> bool:
+    t = s or ""
+    for w in terms or []:
+        if w and (w in t):
+            return True
+    return False
+
+
+def _story_err_text(e: Exception) -> str:
+    return f"{type(e).__name__}: {e}"
 
 
 def _deep_replace_nl_escapes(obj: Any) -> Any:
@@ -264,11 +277,7 @@ class RuntimeStoryNodesGeneratorV1:
 
         assert self._client is not None
 
-        rules_text = (
-            (self._spec.prompts_dir / "story_prompt_v1.md")
-            .read_text(encoding="utf-8")
-            .strip()
-        )
+        rules_text = (self._spec.prompts_dir / "story_prompt_v1.md").read_text(encoding="utf-8").strip()
 
         nonce = uuid.uuid4().hex[:8]
         theme = self._spec.pick_theme(seed, nonce)
@@ -292,7 +301,7 @@ class RuntimeStoryNodesGeneratorV1:
         for attempt in range(1, max(1, self._max_attempts) + 1):
             if attempt == 1:
                 input_text = base_prompt
-                temp = 0.9
+                temp = 0.6
                 mode = "generate"
             else:
                 if (last_err or "").startswith("ENRICH_FAIL"):
@@ -301,7 +310,7 @@ class RuntimeStoryNodesGeneratorV1:
                     # ✅ 解析 ENRICH_FAIL 後面的 JSON
                     try:
                         prefix = "ENRICH_FAIL "
-                        if last_err.startswith(prefix):
+                        if last_err.startswith(prefix) and len(last_err) > len(prefix):
                             rep_obj = json.loads(last_err[len(prefix):])
                     except Exception:
                         # keep fallback rep_obj={"error": last_err}
@@ -320,7 +329,7 @@ class RuntimeStoryNodesGeneratorV1:
                         error=last_err or "unknown_error",
                         theme=theme,
                     )
-                    temp = 0.2
+                    temp = 0.1
                     mode = "repair"
 
             last_prompt = input_text
@@ -396,8 +405,46 @@ class RuntimeStoryNodesGeneratorV1:
                     spec=self._spec,
                 )
 
+                # 先建 pkg
                 pkg = story_nodes_package_from_dict(data)
-                validate_story_nodes_v1(pkg)
+
+                # ✅ 第一次 validate：失敗就做 micro-repair（只修 scene_01_start）
+                try:
+                    validate_story_nodes_v1(pkg)
+                except StoryNodesValidationError as ve:
+                    err_txt = _story_err_text(ve)
+
+                    # (A) 開場段落不足 → micro append
+                    pp = self._is_opening_paragraph_error(err_txt)
+                    if pp is not None:
+                        min_need, cur = pp
+                        ok = self._micro_repair_scene01_append_paragraphs(
+                            data=data,
+                            theme=theme,
+                            min_need=min_need,
+                            cur=cur,
+                        )
+                        if ok:
+                            pkg = story_nodes_package_from_dict(data)
+                            validate_story_nodes_v1(pkg)  # 再驗一次
+                        else:
+                            raise
+
+                    # (B) 開場禁詞（不見/遺失/被偷...）→ micro rewrite scene_01_start only
+                    elif self._is_opening_banned_error(err_txt):
+                        ok = self._micro_repair_scene01_banned(
+                            data=data,
+                            theme=theme,
+                            err=err_txt,
+                        )
+                        if ok:
+                            pkg = story_nodes_package_from_dict(data)
+                            validate_story_nodes_v1(pkg)  # 再驗一次
+                        else:
+                            raise
+                    else:
+                        raise
+
 
                 nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
 
@@ -485,6 +532,212 @@ class RuntimeStoryNodesGeneratorV1:
             raw_text=raw_text,
         )
         raise RuntimeError(f"story_generation_failed: {last_err}")
+
+    def _opening_banned_terms(self) -> list[str]:
+        # scene_01_start 內禁止：incident_terms + forbidden_opening_terms
+        return list(
+            dict.fromkeys(
+                (self._spec.incident_terms_for_opening_ban or [])
+                + (self._spec.forbidden_opening_terms or [])
+            )
+        )
+    def _is_opening_banned_error(self, err: str) -> bool:
+        # 你 validator 的錯誤格式常見：
+        # - "[scene_01_start] 出現禁止詞：不見"
+        # - "scene_01_start 出現事件詞（必須延後...）"
+        t = err or ""
+        return ("[scene_01_start]" in t and "出現禁止詞" in t) or ("scene_01_start" in t and "事件詞" in t)
+
+    def _is_opening_paragraph_error(self, err: str) -> Optional[tuple[int, int]]:
+        # "scene_01_start.narration 至少 22 段，目前 14 段"
+        m = re.search(r"scene_01_start\.narration\s*至少\s*(\d+)\s*段，\s*目前\s*(\d+)\s*段", err or "")
+        if not m:
+            return None
+        return int(m.group(1)), int(m.group(2))
+
+    def _micro_repair_scene01_banned(
+        self,
+        *,
+        data: Dict[str, Any],
+        theme: str,
+        err: str,
+    ) -> bool:
+        """
+        只修 nodes.scene_01_start.narration（禁詞問題），模型只回傳 {"narration": "..."}。
+        成功回 True（已修到通過 scene01 禁詞檢查）；失敗 False。
+        """
+        if not self._client:
+            return False
+
+        nodes = data.get("nodes")
+        if not isinstance(nodes, dict):
+            return False
+        s1 = nodes.get("scene_01_start")
+        if not isinstance(s1, dict):
+            return False
+
+        old = s1.get("narration")
+        if not isinstance(old, str) or not old.strip():
+            return False
+
+        banned = self._opening_banned_terms()
+        banned_text = "、".join(banned) if banned else "(none)"
+
+        # 先本地確認真的含禁詞（避免白跑）
+        if not _contains_any(old, banned):
+            return False
+
+        prompt = f"""
+你是「故事開場修補師」。你只需要修補 scene_01_start 的 narration。
+你必須做的事：把 narration 裡的「開場禁詞」全部移除，但保留故事語氣與情緒，改寫要自然、不要像機械替換。
+
+# 本次主題
+theme={theme}
+
+# 驗證錯誤（供你定位）
+{err}
+
+# 開場禁詞（narration 內任一出現就會失敗）
+{banned_text}
+
+# 絕對限制（非常重要）
+- 你只能輸出一個 JSON object，格式必須是：{{"narration":"..."}}
+- 不要輸出 meta、不要輸出 nodes、不要解釋、不要 markdown
+- narration 用 \\n\\n 分段
+- 每段必須以「旁白：/霏霏：/樂樂：/大人：/老師：/店員：/爸爸：/媽媽：」其一開頭
+- 你不得新增「事件」或「調查」內容；仍然只能是日常互動 / 玩笑 / 場景 / 配角登場
+- 改完後請自己掃描一次，確認禁詞命中數=0
+
+# 你要修補的原始 narration
+{json.dumps({"narration": old}, ensure_ascii=False)}
+""".strip()
+
+        try:
+            resp = self._client.responses.create(
+                model=self._model,
+                input=prompt,
+                temperature=0.0,
+                max_output_tokens=2500,
+                text={"format": {"type": "json_object"}},
+            )
+            patch_raw = (resp.output_text or "").strip()
+            patch = _extract_first_json(patch_raw)
+            if not isinstance(patch, dict):
+                return False
+            new_nar = patch.get("narration")
+            if not isinstance(new_nar, str) or not new_nar.strip():
+                return False
+
+            # 最後本地再檢查一次禁詞真的消失
+            if _contains_any(new_nar, banned):
+                return False
+
+            s1["narration"] = new_nar
+            nodes["scene_01_start"] = s1
+            data["nodes"] = nodes
+            return True
+        except Exception:
+            return False
+
+    def _micro_repair_scene01_append_paragraphs(
+        self,
+        *,
+        data: Dict[str, Any],
+        theme: str,
+        min_need: int,
+        cur: int,
+    ) -> bool:
+        """
+        只補 scene_01_start 段落不足：模型只回 {"append":[ "段落1", ... ] }
+        由程式 append 到 narration 後面，確保段落數到位。
+        """
+        if not self._client:
+            return False
+
+        nodes = data.get("nodes")
+        if not isinstance(nodes, dict):
+            return False
+        s1 = nodes.get("scene_01_start")
+        if not isinstance(s1, dict):
+            return False
+
+        old = s1.get("narration")
+        if not isinstance(old, str):
+            return False
+
+        add_n = max(0, min_need - cur)
+        if add_n <= 0:
+            return False
+
+        banned = self._opening_banned_terms()
+        banned_text = "、".join(banned) if banned else "(none)"
+
+        prompt = f"""
+你是「故事開場補段落師」。你只需要補齊 scene_01_start 的段落數。
+
+# 本次主題
+theme={theme}
+
+# 目標
+- 目前段落數={cur}
+- 需要至少={min_need}
+- 你必須補上剛好 {add_n} 段（不能多也不能少）
+
+# 開場禁詞（補的段落內也不能出現）
+{banned_text}
+
+# 絕對限制
+- 你只能輸出一個 JSON object，格式必須是：{{"append":[ "...", "..."]}}
+- append 陣列長度必須剛好 {add_n}
+- 每個 append[i] 是「一段」文字（1~2 句），不能包含 \\n\\n
+- 每段必須以「旁白：/霏霏：/樂樂：/大人：/老師：/店員：/爸爸：/媽媽：」其一開頭
+- 內容只能是日常互動/玩笑/場景/配角登場，不要進事件，不要調查
+
+# 你目前的 narration（參考用，不要重寫它）
+{json.dumps({"narration": old}, ensure_ascii=False)}
+""".strip()
+
+        try:
+            resp = self._client.responses.create(
+                model=self._model,
+                input=prompt,
+                temperature=0.2,
+                max_output_tokens=1800,
+                text={"format": {"type": "json_object"}},
+            )
+            patch_raw = (resp.output_text or "").strip()
+            patch = _extract_first_json(patch_raw)
+            if not isinstance(patch, dict):
+                return False
+
+            arr = patch.get("append")
+            if not isinstance(arr, list) or len(arr) != add_n:
+                return False
+
+            cleaned: list[str] = []
+            for x in arr:
+                if not isinstance(x, str):
+                    return False
+                p = x.strip()
+                if not p:
+                    return False
+                # 禁止在單段內出現雙換行（避免它偷偷塞多段）
+                if "\n\n" in p:
+                    return False
+                if _contains_any(p, banned):
+                    return False
+                cleaned.append(p)
+
+            # append-only
+            base_paras = self._spec.split_paragraphs(old)
+            new_paras = base_paras + cleaned
+            s1["narration"] = "\n\n".join(new_paras)
+            nodes["scene_01_start"] = s1
+            data["nodes"] = nodes
+            return True
+        except Exception:
+            return False
+
 
     def _mock_story_nodes(self, *, seed: Optional[int]) -> StoryNodesPackage:
         from questforge.content.story_case_generated_demo_v10 import STORY_NODES as DEMO_NODES  # type: ignore

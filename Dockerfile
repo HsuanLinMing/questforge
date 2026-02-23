@@ -15,4 +15,5 @@ ENV PYTHONPATH=/app/src
 EXPOSE 8000
 
 # Render 會提供 $PORT；這裡用預設值避免本機跑 Docker 時沒有 PORT
-CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker questforge_server.main:app --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 120"]
+CMD ["bash", "-lc", "gunicorn questforge_server.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --workers 2 --timeout 180"]
+

@@ -44,22 +44,41 @@ def _env_snapshot() -> dict:
 def create_app() -> FastAPI:
     app = FastAPI(title="QuestForge Server", version="0.1.0")
 
+    def _cors_origins() -> list[str]:
+        raw = (os.getenv("QF_CORS_ORIGINS") or "").strip()
+        if not raw:
+            return ["*"]  # 開發/測試
+        return [x.strip() for x in raw.split(",") if x.strip()]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins(),
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # ✅ cache dirs（Render 的磁碟是 ephemeral：可用，但重啟會不見）
-    tts_dir = Path(".qf_cache/tts").resolve()
+    # ✅ cache root (Render 建議用 /tmp)
+    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    # ✅ TTS cache dir
+    tts_dir = (cache_root / "tts")
     tts_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static/tts", StaticFiles(directory=str(tts_dir)), name="tts")
 
-    runs_dir = Path(".qf_cache/tts_runs").resolve()
+    # ✅ story runs dir
+    runs_dir = (cache_root / "tts_runs")
     runs_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static/tts_runs", StaticFiles(directory=str(runs_dir)), name="tts_runs")
+
+    @app.get("/")
+    def root() -> dict:
+        return {
+            "ok": True,
+            "service": "questforge_server",
+            "endpoints": ["/health", "/v1/game/start", "/v1/game/choose", "/static/tts"],
+        }
 
     @app.get("/health")
     def health() -> dict:

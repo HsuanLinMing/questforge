@@ -1,0 +1,644 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770972740_20",
+    "title": "游泳池的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：游泳池的熱鬧時光",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是學校游泳池開放日，陽光灑在水面上閃閃發亮。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂跟著班上的同學來到游泳池，大家準備換上泳衣。"
+        },
+        {
+          "role": "narrator",
+          "text": "泳池旁邊放著幾個鮮豔的游泳圈和救生衣。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你的游泳圈是橘色的耶，好像小橘子。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我還想說要不要給它取名字叫『橘子小胖』！"
+        },
+        {
+          "role": "narrator",
+          "text": "泳池邊還有兩個同學正在玩水槍，一個拿著黃色的水槍，一個拿著藍色的。"
+        },
+        {
+          "role": "narrator",
+          "text": "黃色水槍的是飯糰啵啵，藍色水槍的是餅乾小脆。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：小心喔，我要射水了！"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：哇，躲開！水花濺到我眼睛了！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，啵啵你射水的樣子像噴泉耶！"
+        },
+        {
+          "role": "lele",
+          "text": "我也想玩水槍，可是我忘了帶。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒關係啦，泳池這麼大，我們可以先玩跳水比賽。"
+        },
+        {
+          "role": "narrator",
+          "text": "泳池邊的救生員阿亮，戴著紅色帽子，正準備吹哨子。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿亮：大家注意安全，跳水前要先看看水裡有沒有人喔！"
+        },
+        {
+          "role": "lele",
+          "text": "阿亮救生員好帥氣，他的帽子好像番茄耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，番茄帽子！樂樂你想像力真豐富。"
+        },
+        {
+          "role": "narrator",
+          "text": "旁邊的椅子上放著一個藍色毛巾，上面印著一隻笑咪咪的橡皮小方。"
+        },
+        {
+          "role": "feifei",
+          "text": "這條毛巾好軟喔，我想摸摸看。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？我剛剛看到毛巾旁邊有一隻小青蛙玩具耶，綠綠的，很滑。"
+        },
+        {
+          "role": "feifei",
+          "text": "那隻小青蛙是誰的呢？"
+        },
+        {
+          "role": "lele",
+          "text": "不知道啦，可能剛剛有人放在這裡忘了帶走。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們先不要管它，等會兒水槍戰開始前，我們去看看泳池邊其他同學在做什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "好啊，我要用我的超級眼睛找找看！"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，開啟小偵探模式，眼睛亮亮的，準備出發！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "開場延伸：游泳池邊的趣事",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "泳池旁的小販車賣著冰淇淋，膠帶小黏正站在那邊挑選口味。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我要巧克力口味，因為我喜歡黏黏的感覺。"
+        },
+        {
+          "role": "lele",
+          "text": "黏黏的巧克力？聽起來像黏土耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，樂樂你要不要拿黏土來玩？"
+        },
+        {
+          "role": "narrator",
+          "text": "泳池邊傳來孩子們的笑聲和水花聲，像小鼓點一樣跳躍著。"
+        },
+        {
+          "role": "feifei",
+          "text": "你看那邊，橡皮小方正在教大家怎麼做水中翻滾。"
+        },
+        {
+          "role": "lele",
+          "text": "我也想學，可是我還不會游泳。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒關係，我們慢慢來，先從玩水開始。"
+        },
+        {
+          "role": "narrator",
+          "text": "泳池邊的風扇轉得呼呼響，吹來一股涼涼的風，帶著泳池的水氣味。"
+        },
+        {
+          "role": "lele",
+          "text": "這風扇轉得像大風車，差點把我的帽子吹飛。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你的帽子會飛走就像小鳥一樣自由了。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "好奇心轉場（小偵探模式）",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "欸欸，樂樂，你剛剛看到泳池邊那個藍色毛巾旁邊，好像有什麼東西掉在地上耶。"
+        },
+        {
+          "role": "lele",
+          "text": "真的耶，我看到一個小小的東西，像是黏黏的膠帶尾巴。"
+        },
+        {
+          "role": "feifei",
+          "text": "膠帶尾巴？那會不會是膠帶小黏的？"
+        },
+        {
+          "role": "lele",
+          "text": "我想知道它怎麼會掉在那裡，這件事有點讓我眼睛亮亮的，好像有秘密藏在裡面。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "案件發生：泳池邊的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "泳池邊突然傳來一陣小騷動，大家的目光都往毛巾那邊看去。"
+        },
+        {
+          "role": "narrator",
+          "text": "有人發現藍色毛巾旁邊的游泳圈被挪動了位置。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，我看到那個橘色游泳圈好像被挪到旁邊去了耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "奇怪，剛剛我們明明看到它是放在椅子上，現在怎麼變成在地上了？"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵和餅乾小脆也走了過來，臉上有點疑惑。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我剛剛去拿水，游泳圈還在椅子上啊。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我也看到的，剛才還有人坐在那附近玩水槍。"
+        },
+        {
+          "role": "lele",
+          "text": "怪怪的，為什麼會動呢？"
+        },
+        {
+          "role": "feifei",
+          "text": "我們用眼睛和耳朵好好看看，說不定會發現什麼呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "第一個觀察：游泳圈的位置",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走近游泳圈，仔細看著它的位置。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，游泳圈摸起來還是濕濕的，好像剛剛有人用過。"
+        },
+        {
+          "role": "feifei",
+          "text": "你有沒有看到旁邊有沒有什麼東西？"
+        },
+        {
+          "role": "lele",
+          "text": "有啊，有一小塊水珠從椅子邊滴下來，地上還有濕濕的水漬。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我剛剛看到餅乾小脆跑過去這裡，她手上還拿著水槍。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我有去這邊玩水，但我沒碰游泳圈喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我們先把這些看到的放進小口袋裡，繼續看看別的地方。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "第二個觀察：藍色毛巾旁的小玩具",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大家走到藍色毛巾旁邊，看見地上有一隻綠色小青蛙玩具。"
+        },
+        {
+          "role": "lele",
+          "text": "這隻小青蛙摸起來滑滑的，還有點冷冷的感覺。"
+        },
+        {
+          "role": "feifei",
+          "text": "青蛙旁邊有沒有其他東西？"
+        },
+        {
+          "role": "lele",
+          "text": "有一張小紙條，皺皺的，掉在地上，好像有人不小心掉了。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：那是我的膠帶尾巴！我剛剛剪膠帶的時候，尾巴跑出來了。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，看來有人剛剛在這裡動過東西。"
+        },
+        {
+          "role": "lele",
+          "text": "可是我剛剛看到有人在水槍戰中途跑過來，水花噴得到處都是，可能把東西弄亂了吧。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，有可能是這樣，還是要繼續看看別的地方才知道。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三個觀察：泳池邊的水槍戰",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "泳池邊的孩子們正在玩水槍戰，水花四濺，笑聲連連。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，那個黃色水槍好像不見水了，是不是被打空了？"
+        },
+        {
+          "role": "feifei",
+          "text": "水槍打空？好像變成了乾槍兵？"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：哈哈，我剛剛被水槍打中，結果水噴到我衣服上，變成了『濕漉漉小飯糰』。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我看到樂樂剛剛跑來跑去，鞋子上還踩到一塊黏黏的東西，好像是膠帶。"
+        },
+        {
+          "role": "lele",
+          "text": "蛤？我怎麼沒注意到？那黏黏的東西感覺像怪獸的口水耶，哈哈！"
+        },
+        {
+          "role": "feifei",
+          "text": "怪獸口水？你是說泳池裡有怪獸？"
+        },
+        {
+          "role": "lele",
+          "text": "不是真的啦，我只是想像一下。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你的想像力真豐富，不過我們還是繼續看看別的地方吧。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想（不下結論）",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，也許游泳圈被挪動，是因為有人想把它拿去玩水槍戰，但又忘了放回原位。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是這樣，或者是水槍戰太熱鬧，水花噴得東西都被弄亂了。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯，我也想過可能是小青蛙玩具自己跑出來找朋友了，哈哈。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，那小青蛙會不會太調皮了！我們還是不確定，等會兒找大人問問好了。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，小偵探們，現在是時候用你們的眼睛和耳朵做決定了！"
+        },
+        {
+          "role": "lele",
+          "text": "選一個你覺得可能和這件事有關的人吧，不過別忘了，也可以說『我還不確定，交給大人』喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，我們不急著下結論，先說說你看到和聽到的。"
+        },
+        {
+          "role": "lele",
+          "text": "加油！偵探模式開啟！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "飯糰啵啵",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "膠帶小黏",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（推理正確）",
+      "narration": [
+        {
+          "role": "teacher",
+          "text": "大家辛苦了，聽了你們的觀察，我們知道游泳圈位置被挪動，是因為飯糰啵啵剛才玩水槍戰時不小心碰到了。"
+        },
+        {
+          "role": "teacher",
+          "text": "因為水槍戰太熱鬧，大家都沒注意到周圍的小東西。"
+        },
+        {
+          "role": "teacher",
+          "text": "飯糰啵啵，對不起讓大家擔心了，謝謝你坦白告訴我們。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我也很抱歉，下次玩水槍會更小心，避免弄亂東西。"
+        },
+        {
+          "role": "teacher",
+          "text": "下次大家玩耍時，記得多用眼睛看看周圍，保持游泳池的整潔和安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "看來游泳池也有小秘密呢，像小橘子游泳圈會自己跑來跑去一樣！"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，我還想知道小青蛙玩具會不會跳舞呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點）",
+      "narration": [
+        {
+          "role": "teacher",
+          "text": "從你們的說法聽起來，餅乾小脆剛才確實在水槍戰中活動，不過游泳圈被挪動的事，可能還有其他原因。"
+        },
+        {
+          "role": "teacher",
+          "text": "因為水槍戰時大家都在跑動，東西被碰到是有可能的。"
+        },
+        {
+          "role": "teacher",
+          "text": "餅乾小脆，對不起讓大家有點擔心，謝謝你配合大家的觀察。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我會記得下次玩水槍要注意周圍，不讓東西亂跑。"
+        },
+        {
+          "role": "teacher",
+          "text": "以後大家玩得開心，也要注意安全和秩序，這樣大家才能快樂游泳。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，我覺得游泳池像個大舞台，大家都是主角呢！"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，下一次我要帶我的超級眼睛，找更多秘密！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "teacher",
+          "text": "看來大家都很用心在觀察，膠帶小黏你剛才說的膠帶尾巴確實掉在地上了。"
+        },
+        {
+          "role": "teacher",
+          "text": "因為水槍戰和大家的活動，有時東西會被弄亂，不一定是故意的。"
+        },
+        {
+          "role": "teacher",
+          "text": "膠帶小黏，謝謝你提醒我們這件小事，對不起讓你擔心了。"
+        },
+        {
+          "role": "teacher",
+          "text": "下次玩耍時，我們會提醒大家注意周圍，保持泳池安全和整潔。"
+        },
+        {
+          "role": "teacher",
+          "text": "不確定的事情交給大人一起來看，這樣更安全也更好。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，我們學到好多東西，像真的小偵探一樣！"
+        },
+        {
+          "role": "lele",
+          "text": "嗯！我下次要帶放大鏡來游泳池！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        },
+        {
+          "role": "narrator",
+          "text": "希望你下次來游泳池，可以用眼睛和耳朵發現更多有趣的秘密喔！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

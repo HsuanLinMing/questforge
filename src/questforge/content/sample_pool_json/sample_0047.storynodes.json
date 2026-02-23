@@ -1,0 +1,648 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770976699_45",
+    "title": "超市的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：超市裡的熱鬧日常",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是個陽光明媚的下午，霏霏和樂樂跟著媽媽一起來到了附近的超市。"
+        },
+        {
+          "role": "narrator",
+          "text": "超市裡擺滿了新鮮的水果、香噴噴的麵包和五顏六色的糖果盒。"
+        },
+        {
+          "role": "feifei",
+          "text": "哇，這裡的蘋果看起來好紅喔，像小燈籠一樣。"
+        },
+        {
+          "role": "lele",
+          "text": "我最喜歡吃蘋果了，甜甜的又脆脆的。"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽推著購物車，一邊看著購物清單，一邊慢慢逛著。"
+        },
+        {
+          "role": "narrator",
+          "text": "超市的收銀台旁站著兩個店員，飯糰啵啵和膠帶小黏，他們正忙著幫客人包裝。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：欸，小黏，這個包裝紙好軟啊，像棉花糖一樣。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：哈哈，軟軟的包裝紙最適合裝脆脆的餅乾了。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你看那邊有個小推車，輪子好像有點歪歪的。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？我剛剛踩到一點黏黏的東西，是不是有人掉了口香糖？"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽：小心點，地上滑滑的，別摔倒了。"
+        },
+        {
+          "role": "narrator",
+          "text": "超市裡不時傳來歡笑聲和推車輪子摩擦地板的聲音，氣氛很熱鬧。"
+        },
+        {
+          "role": "narrator",
+          "text": "樂樂拉著霏霏的手，跑去看糖果區那一排五顏六色的巧克力棒。"
+        },
+        {
+          "role": "lele",
+          "text": "霏霏，這個巧克力棒包裝上有一個小熊貼紙，好可愛喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，我也看到那個貼紙了，顏色還閃閃發亮。"
+        },
+        {
+          "role": "narrator",
+          "text": "突然，餅乾小脆帶著笑容走過來，手上拿著一包餅乾。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：你們好！這是我們新出的巧克力餅乾，脆脆甜甜的，超好吃！"
+        },
+        {
+          "role": "lele",
+          "text": "哇，我可以試吃嗎？"
+        },
+        {
+          "role": "feifei",
+          "text": "別急，先看看包裝上有沒有寫什麼成分，怕你過敏。"
+        },
+        {
+          "role": "narrator",
+          "text": "超市裡還有幾個小朋友在玩抓迷藏，笑聲此起彼落。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得這裡好像一個大大的遊樂場，東西多又好玩。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我們先幫媽媽挑好東西，再去找冰淇淋區，好不好？"
+        },
+        {
+          "role": "lele",
+          "text": "好！但我眼睛會一直偷偷往冰淇淋那裡看，像小偵探一樣！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你這偵探模式開得真早，眼睛亮亮的，我也要學學！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "開場延伸：更多超市趣事",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂繼續逛著超市，看到架子上擺著各種形狀奇特的蔬菜。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，那個紅蘿蔔長得像一隻小兔子耶！"
+        },
+        {
+          "role": "lele",
+          "text": "真的欸，我想把它帶回家養！"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏突然發現地上有一張小紙片，彎彎曲曲的。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：欸，這是誰掉的購物清單嗎？上面畫了好多水果呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "好奇心轉場（小偵探模式）",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "霏霏，我剛剛看到那個架子上的巧克力棒，好像少了一兩根耶。"
+        },
+        {
+          "role": "feifei",
+          "text": "真的嗎？你眼睛真銳利，像小老鷹一樣。"
+        },
+        {
+          "role": "lele",
+          "text": "我想知道是誰拿走的，還是被風吹掉了？"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我們可以用放大鏡模式，偷偷用眼睛看看超市裡發生了什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "好啊！我眼睛亮亮的，準備當小偵探！"
+        },
+        {
+          "role": "feifei",
+          "text": "我也是，我們一起去看看吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "案件發生：巧克力棒的秘密",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到巧克力棒的架子前，發現有幾個位置空空的。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這裡少了兩根巧克力棒耶，旁邊還有一些碎屑。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我看到地上有一些細小的巧克力碎片，還有一點黏黏的糖紙。"
+        },
+        {
+          "role": "narrator",
+          "text": "附近的餅乾小脆也走了過來，手上還拿著一包巧克力餅乾。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：你們也發現了嗎？剛剛有好幾個小朋友在這附近逛來逛去。"
+        },
+        {
+          "role": "lele",
+          "text": "我聽到有人說他喜歡那個巧克力棒的包裝，很想買。"
+        },
+        {
+          "role": "feifei",
+          "text": "可是包裝上的小熊貼紙好像有點歪歪的，不像剛剛看到的那麼整齊。"
+        },
+        {
+          "role": "narrator",
+          "text": "超市裡的音樂輕輕響著，氣氛依然愉快，但巧克力棒的空缺讓大家有點好奇。"
+        },
+        {
+          "role": "lele",
+          "text": "我想知道發生什麼事了，這巧克力棒去哪裡了呢？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "第一個觀察：巧克力棒架子旁",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏蹲下來仔細看架子底下。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我看到架子下面有一塊皺皺的糖紙，好像被揉過。"
+        },
+        {
+          "role": "lele",
+          "text": "我摸到那糖紙有點黏黏的，好像剛剛有人吃過放下的。"
+        },
+        {
+          "role": "narrator",
+          "text": "附近有一個小推車，輪子上沾了一點巧克力碎屑。"
+        },
+        {
+          "role": "lele",
+          "text": "這個推車輪子上有巧克力屑，可能剛剛有人推著它吃巧克力。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我剛剛看到膠帶小黏在那邊幫忙整理貨架，他好像沒注意到這些碎屑。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我聽到有人在說話，好像是說他們剛剛看到一個小朋友跑得很快。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "第二個觀察：冰淇淋區附近",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到冰淇淋區，這裡人比較多，聲音也比較吵。"
+        },
+        {
+          "role": "lele",
+          "text": "我聽到有人在說笑話，還有冰淇淋機發出嗡嗡聲。"
+        },
+        {
+          "role": "feifei",
+          "text": "我看到冰淇淋櫃旁邊有一個小帽子，帽子上貼著一張小熊貼紙，跟巧克力棒上的貼紙很像。"
+        },
+        {
+          "role": "lele",
+          "text": "可是這頂帽子好像有人戴過，邊邊有點皺皺的。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏正忙著幫忙擦地，手上拿著一塊濕布。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：剛剛有人不小心把冰淇淋滴到地上了，我趕快擦掉了。"
+        },
+        {
+          "role": "lele",
+          "text": "地上有點溼溼的，還帶著甜甜的味道。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我聽到有人說他看到一個小朋友拿著巧克力棒跑過去冰淇淋區。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三個觀察：收銀台附近的誤會",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到收銀台附近，這裡排著長長的隊伍。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，我看到飯糰啵啵手上有一個巧克力棒盒子，好像比剛剛看到的多一根。"
+        },
+        {
+          "role": "feifei",
+          "text": "可是他說那是給員工的零食，不是賣給客人的。"
+        },
+        {
+          "role": "narrator",
+          "text": "突然，樂樂腳下踩到一小塊黏黏的東西，嚇得跳開。"
+        },
+        {
+          "role": "lele",
+          "text": "哇！這是什麼？我差點滑倒！"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：哈哈，那是我剛才不小心掉的膠帶，黏黏的吧？"
+        },
+        {
+          "role": "feifei",
+          "text": "看起來像是一個假線索，膠帶黏住的東西和巧克力棒沒什麼關係。"
+        },
+        {
+          "role": "lele",
+          "text": "我還是覺得有點怪怪的，為什麼巧克力棒會少那麼多？"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，也許有人只是喜歡吃巧克力棒，但還沒付錢呢？或者是別的什麼原因？"
+        },
+        {
+          "role": "lele",
+          "text": "我想知道更多，等下我們再去問問看吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想：巧克力棒的秘密",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，也許是有人偷偷想吃巧克力棒，所以拿了幾根放進自己的袋子裡。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許吧，可是如果是這樣，為什麼包裝上的小熊貼紙會歪掉？"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得也可能是有人不小心碰到，然後掉了一些巧克力碎屑。"
+        },
+        {
+          "role": "feifei",
+          "text": "或者是巧克力棒被風吹動了一下，掉了幾根。"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，我還想過，是不是有隻小熊偷偷跑出來，拿了巧克力棒當零食啊？"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈哈，那小熊要是跑出來，我們就變成小偵探要幫忙找他了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，我們的偵探模式開啟了！"
+        },
+        {
+          "role": "lele",
+          "text": "現在可以選擇你覺得可能和巧克力棒有關的人喔。"
+        },
+        {
+          "role": "feifei",
+          "text": "不過沒關係，如果你還不確定，也可以選擇交給大人幫忙確認，這樣比較安全。"
+        },
+        {
+          "role": "lele",
+          "text": "加油，我們一起來看看吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "膠帶小黏",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "飯糰啵啵",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（推理正確）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人：其實啊，餅乾小脆剛剛在整理貨架時，不小心把一包巧克力棒掉到了地上。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：所以架子上才會少了幾根，還有地上的巧克力碎屑。"
+        },
+        {
+          "role": "feifei",
+          "text": "原來如此！這樣就解釋了那些碎屑和空缺的位置。"
+        },
+        {
+          "role": "lele",
+          "text": "對不起，餅乾小脆，我以為是別人拿走了巧克力棒。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：沒關係啦，我也應該注意點，謝謝你們幫我找出問題。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：下次大家逛超市時，遇到這種情況可以告訴店員，讓他們幫忙處理，這樣大家都會更安全喔！"
+        },
+        {
+          "role": "lele",
+          "text": "我學到要用眼睛和耳朵仔細觀察，還要有耐心。"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，當小偵探也要溫柔對待每個人！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人：膠帶小黏剛剛確實在附近幫忙擦地，地上有膠帶碎片，不過巧克力棒的事可能跟他沒有直接關係。"
+        },
+        {
+          "role": "feifei",
+          "text": "原來是這樣，我還以為他有拿巧克力棒呢。"
+        },
+        {
+          "role": "lele",
+          "text": "對不起，我誤會你了，膠帶小黏。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：沒關係，我知道你們是想幫忙。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：下次遇到不確定的事情，可以先用觀察來了解，再跟大人說說看，這樣會更安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "我覺得我們都學到要多用眼睛聽覺，還有耐心等答案。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，當小偵探就是要這樣！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人：其實這件事情有點複雜，我們也需要再問問其他店員和小朋友。"
+        },
+        {
+          "role": "feifei",
+          "text": "有時候事情沒有那麼簡單，說不定還有別的原因。"
+        },
+        {
+          "role": "lele",
+          "text": "對不起，我們還不太確定，謝謝你們聽我們說。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：沒關係，知道不確定也是很棒的事，下次遇到問題，可以先跟大人說，我們一起來找答案。"
+        },
+        {
+          "role": "feifei",
+          "text": "以後我們會更注意細節，慢慢學會用眼睛和耳朵觀察。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯，當小偵探也要懂得請大人幫忙，這樣才安全！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        },
+        {
+          "role": "narrator",
+          "text": "下次再來超市，我們繼續用眼睛和耳朵發現更多有趣的事。"
+        },
+        {
+          "role": "narrator",
+          "text": "記得，觀察和耐心是最棒的秘密武器！"
+        },
+        {
+          "role": "narrator",
+          "text": "希望你玩得開心，我們下次見囉！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

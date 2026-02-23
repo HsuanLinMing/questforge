@@ -1,0 +1,840 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770971729_12",
+    "title": "公園裡的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：公園裡的陽光日常",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天的公園陽光明媚，草地上還有幾片落葉輕輕飄著。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂帶著他們的風箏來到公園，準備放風箏比賽。"
+        },
+        {
+          "role": "narrator",
+          "text": "公園裡還有不少小朋友，有拿著冰淇淋的餅乾小脆和推著滑板車的橡皮小方在附近玩耍。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，我看你的風箏線纏得好像一團毛線球耶！"
+        },
+        {
+          "role": "lele",
+          "text": "我才不管，我要讓我的風箏飛得最高！"
+        },
+        {
+          "role": "feifei",
+          "text": "你最好不要把線拉斷了，不然風箏就變成放風箏的風箏了。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆在一旁咬著冰淇淋，不時舔舔嘴唇，冰淇淋滴下來黏黏的。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：欸欸，你們看我這個巧克力口味的冰淇淋，超好吃！"
+        },
+        {
+          "role": "lele",
+          "text": "等一下，不要滴到我的風箏線上，不然它會黏住飛不起來。"
+        },
+        {
+          "role": "narrator",
+          "text": "橡皮小方：我剛剛在滑板車上試了個新花樣，差點摔個四腳朝天！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你的四腳朝天技術已經很厲害了，還敢挑戰新花樣。"
+        },
+        {
+          "role": "narrator",
+          "text": "風吹過，樹葉沙沙作響，還帶著一點淡淡的花香。"
+        },
+        {
+          "role": "narrator",
+          "text": "附近有幾隻小鳥在枝頭跳來跳去，唱著歡快的歌。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得今天的風有點怪怪的，風箏老是忽高忽低。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你看那邊，有隻小松鼠在樹上跳來跳去，好像在玩捉迷藏。"
+        },
+        {
+          "role": "lele",
+          "text": "真的耶！牠跳得好靈活，像是在表演特技。"
+        },
+        {
+          "role": "feifei",
+          "text": "公園裡的動物們也好像很享受這個陽光明媚的下午呢。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆突然跑過來，手上拿著一張皺皺的紙。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：你們看，我剛剛在草地上找到這張紙，好像有人不小心掉了。"
+        },
+        {
+          "role": "feifei",
+          "text": "皺皺的？你摸摸看，是不是有什麼特別的感覺？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：摸起來有點黏黏的，好像沾了什麼糖漿。"
+        },
+        {
+          "role": "lele",
+          "text": "欸欸，這是什麼啊？怪怪的耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "怪怪的？你看到或聽到什麼讓你覺得怪怪的嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "我看到風箏晃，不知道是不是有人偷偷摸過它？"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我們可以再去看看風箏附近，仔細觀察一下。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "開場延伸：公園裡的小插曲",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "樂樂拉著霏霏往風箏那邊跑去，風箏線在陽光下閃著亮光。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你看那邊，橡皮小方的滑板車放在草地上，好像被挪動過。"
+        },
+        {
+          "role": "lele",
+          "text": "真的耶，我剛剛明明看到它靠著樹，現在變成躺著了。"
+        },
+        {
+          "role": "narrator",
+          "text": "橡皮小方：啊！我剛剛去買水，滑板車自己跑去曬太陽了！"
+        },
+        {
+          "role": "feifei",
+          "text": "滑板車會自己跑？你是不是想像力太豐富了？"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得滑板車可能有魔法，可以自己走路。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，那我希望它不會自己跑去公園外面玩，會被警察叔叔帶走。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆舔著冰淇淋，突然發現冰淇淋上有一隻小蟲子。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：哇！有蟲蟲在我的冰淇淋上！"
+        },
+        {
+          "role": "lele",
+          "text": "快丟掉！不要吃了！"
+        },
+        {
+          "role": "feifei",
+          "text": "別急，說不定是小蟲子想來參加我們的風箏比賽呢。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：哈，那我得跟它說聲加油！"
+        },
+        {
+          "role": "narrator",
+          "text": "樹上的小鳥好像被蟲蟲嚇到了，飛得更高了。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你剛剛說風箏晃了一下，是不是被樹枝碰到？"
+        },
+        {
+          "role": "lele",
+          "text": "可能吧，不過我剛剛聽到一聲「啪」的聲音，好像是什麼東西被撕開了。"
+        },
+        {
+          "role": "feifei",
+          "text": "啪？會不會是膠帶被撕開？"
+        },
+        {
+          "role": "lele",
+          "text": "欸？膠帶？那會是誰的膠帶？"
+        },
+        {
+          "role": "narrator",
+          "text": "這時候，膠帶小黏推著一盒膠帶走過來，臉上還沾著一點不明黏黏的東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：你們有看到我的膠帶嗎？剛剛好像少了一卷。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，膠帶小黏，你手上的膠帶看起來有點黏黏的耶！"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：是啊，我剛剛不小心黏到我的手了，超難洗掉的！"
+        },
+        {
+          "role": "lele",
+          "text": "怪怪的感覺越來越多了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "好奇心轉場（小偵探模式）",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，我覺得我們的眼睛要亮亮的，像小偵探一樣。"
+        },
+        {
+          "role": "lele",
+          "text": "小偵探模式？我喜歡！可以戴放大鏡嗎？"
+        },
+        {
+          "role": "feifei",
+          "text": "當然可以，不過要小聲點，別被別人聽到我們在偷偷看。"
+        },
+        {
+          "role": "narrator",
+          "text": "風輕輕吹過，樹葉沙沙作響，像是在提醒他們要注意周圍的每個小細節。"
+        },
+        {
+          "role": "lele",
+          "text": "我準備好啦！我們去看看風箏那邊有什麼特別的。"
+        },
+        {
+          "role": "feifei",
+          "text": "好，我們慢慢走，仔細看看，不要錯過任何小動作。"
+        },
+        {
+          "role": "narrator",
+          "text": "草地上的影子拉長，陽光透過樹葉灑下斑駁的光點。"
+        },
+        {
+          "role": "feifei",
+          "text": "這樣的天氣，最好多留心身邊的小事，說不定會發現什麼呢。"
+        },
+        {
+          "role": "lele",
+          "text": "對！我眼睛亮亮，耳朵豎豎，準備找出小秘密！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "公園裡的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "當霏霏和樂樂走近風箏的地方，發現風箏線纏得亂七八糟，風箏掛在一根細細的樹枝上。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這風箏怎麼會被卡在樹上？剛剛明明放得很好。"
+        },
+        {
+          "role": "feifei",
+          "text": "我看到風箏線有幾處拉得很緊，好像有人拉過。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏也跟了過來，手上還拿著那卷黏黏的膠帶。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我剛剛看到風箏附近有一點黏黏的東西，像是糖漿還是膠水。"
+        },
+        {
+          "role": "lele",
+          "text": "怪怪的耶，風箏怎麼會有黏黏的東西？"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我剛剛聽到附近有小小的聲音，像是紙被撕開的聲音。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：對對！我也聽到了！"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆蹲在草地上，指著一塊皺皺的紙。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：這個紙片好像被踩過，還有泥土的味道。"
+        },
+        {
+          "role": "lele",
+          "text": "泥土？那附近是不是有人剛剛走過？"
+        },
+        {
+          "role": "feifei",
+          "text": "或許是剛剛有人經過，然後風箏被碰到了？"
+        },
+        {
+          "role": "narrator",
+          "text": "樂樂皺著眉頭，看著風箏線上的黏黏東西。"
+        },
+        {
+          "role": "lele",
+          "text": "我在想，會不會是有人不小心碰到了風箏，然後線就變這樣了？"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是，也許不是。反正我們先看看還有什麼發現。"
+        },
+        {
+          "role": "narrator",
+          "text": "風輕輕吹動風箏，發出沙沙的聲音，好像在等他們繼續觀察。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "第一個觀察：風箏線上的黏黏東西",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏蹲下身子，仔細看著風箏線。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，這裡的線真的有點黏黏的，摸起來有點厚厚的。"
+        },
+        {
+          "role": "lele",
+          "text": "我剛剛也摸到那裡，好像有黏黏的糖漿或者膠水。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：那可能是我的膠帶滴下來的？可是我沒有拆開膠帶耶。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我看到風箏線旁邊有一小片皺皺的紙，好像被踩過。"
+        },
+        {
+          "role": "feifei",
+          "text": "皺皺的紙？我摸摸看…嗯，紙上有點泥土和草葉的味道。"
+        },
+        {
+          "role": "lele",
+          "text": "草葉味？那有人剛剛在這裡走過吧？"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：可是這裡應該沒有人經過啊，風箏在樹下，大家都繞著走。"
+        },
+        {
+          "role": "feifei",
+          "text": "那可能是風把紙吹過來的？"
+        },
+        {
+          "role": "lele",
+          "text": "我看風箏線黏黏的地方有一點亮亮的，是不是糖果的殘渣？"
+        },
+        {
+          "role": "feifei",
+          "text": "糖果？你會不會是想像風箏吃了糖果，變得黏黏的？"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，我想像力超豐富的！"
+        },
+        {
+          "role": "narrator",
+          "text": "三個小朋友開始笑了起來，氣氛輕鬆又愉快。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "第二個觀察：樹枝上的小痕跡",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏抬頭看著風箏掛著的樹枝。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你們看這根樹枝，竟然有一點被折彎的痕跡。"
+        },
+        {
+          "role": "lele",
+          "text": "真的耶，好像有人用力拉過。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：那會不會是風箏被拉掛到樹上，才會折到樹枝？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我剛剛看到樹上有幾片葉子黏著一點黏黏的東西，好像樹脂。"
+        },
+        {
+          "role": "feifei",
+          "text": "樹脂？那會不會讓風箏線變得黏黏的？"
+        },
+        {
+          "role": "lele",
+          "text": "欸欸，那如果風箏線黏到樹脂，會不會飛不起來？"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：應該會吧，風箏飛起來要線很順，不然會卡卡的。"
+        },
+        {
+          "role": "feifei",
+          "text": "不過我看到風箏線上有一些亮亮的東西，像是小小的塑膠片。"
+        },
+        {
+          "role": "lele",
+          "text": "塑膠片？是不是有人在這裡玩過膠帶？"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：欸，我剛剛說過，我的膠帶沒有少啊！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，別急，我們只是猜猜看。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆突然打了個噴嚏，冰淇淋差點掉到地上。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：哎呀，我感冒了，好像有點冷。"
+        },
+        {
+          "role": "lele",
+          "text": "快擦擦鼻涕，不然風箏會被你嚇跑！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三個觀察：草地上的奇怪腳印",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "樂樂走到草地上，指著一排小小的腳印。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，你們看這裡有一排腳印，好像是小動物的腳印。"
+        },
+        {
+          "role": "feifei",
+          "text": "真的耶，腳印旁邊還有一點泥土被踢起來了。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：那會不會是什麼小動物剛剛跑過，碰到了風箏線？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：可是我剛剛看到那腳印好像有點不對勁，像是人腳的形狀，又不完全像。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸欸，你說的那個不對勁，是什麼感覺？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：就是怪怪的，有點像是…鞋底的圖案？"
+        },
+        {
+          "role": "lele",
+          "text": "鞋底？那不就有人走過這裡了嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "這時候，樂樂突然大叫起來。"
+        },
+        {
+          "role": "lele",
+          "text": "欸！我踩到了什麼東西，黏黏的，還有點軟軟的！"
+        },
+        {
+          "role": "feifei",
+          "text": "你踩到什麼了？快說清楚！"
+        },
+        {
+          "role": "lele",
+          "text": "我踩到一團像是口香糖被踩過的東西，黏黏又扁扁的。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：哈哈，那不是我的膠帶，是怪怪的口香糖怪物！"
+        },
+        {
+          "role": "feifei",
+          "text": "口香糖怪物？你又在幻想了吧？"
+        },
+        {
+          "role": "lele",
+          "text": "我想像力豐富到可以當漫畫家了！"
+        },
+        {
+          "role": "narrator",
+          "text": "大家笑成一團，風也吹得更大，草地上的風箏輕輕擺動。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想時間（不下結論）",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，會不會是有人剛剛玩風箏的時候，不小心踩到了口香糖怪物，然後風箏線被黏住了？"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是這樣，也許是風把膠帶的殘留黏在風箏線上。"
+        },
+        {
+          "role": "lele",
+          "text": "或者是那隻小鳥想幫忙，但不小心把風箏掛在樹枝上了。"
+        },
+        {
+          "role": "feifei",
+          "text": "還有可能是風箏和滑板車的魔法打架，搞得線亂糟糟的。"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，魔法打架？那我想看魔法秀！"
+        },
+        {
+          "role": "feifei",
+          "text": "不過我們還不確定，要不要去問問公園裡的大人？"
+        },
+        {
+          "role": "lele",
+          "text": "好主意！大人一定知道怎麼解決。"
+        },
+        {
+          "role": "feifei",
+          "text": "那我們先去找那個坐在長椅上看報紙的爸爸吧，他看起來很可靠。"
+        },
+        {
+          "role": "lele",
+          "text": "走吧！小偵探出動！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，偵探模式啟動！現在要選一個你覺得可能和這件事有關的人哦。"
+        },
+        {
+          "role": "lele",
+          "text": "選好了就按下去，別忘了，也可以選『我還不確定，交給大人』，這樣很安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "不用急，慢慢想，說不定我們還會發現更多小秘密呢！"
+        },
+        {
+          "role": "lele",
+          "text": "加油！我們一起做最棒的小偵探！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "膠帶小黏",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "橡皮小方",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（原因明確）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "原來風箏線上的黏黏東西是餅乾小脆的冰淇淋滴下來的。"
+        },
+        {
+          "role": "narrator",
+          "text": "因為不小心滴到，風箏線才會黏住，風箏飛得不順。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆對大家說了對不起，因為沒有注意冰淇淋的滴落。"
+        },
+        {
+          "role": "narrator",
+          "text": "爸爸：下次吃冰淇淋要小心，這樣才能讓風箏飛得高高的。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們都學到了，要注意小細節，才能讓事情更順利。"
+        },
+        {
+          "role": "lele",
+          "text": "下次我也要帶布擦一擦，風箏才不會被黏住！"
+        },
+        {
+          "role": "narrator",
+          "text": "大家笑著，風箏在陽光下又開始輕輕飄揚，公園裡又恢復了快樂的氣氛。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（還差一點）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "膠帶小黏的膠帶確實有黏黏的痕跡，但不是風箏線上的主要問題。"
+        },
+        {
+          "role": "narrator",
+          "text": "因為風箏線上的黏東西主要是冰淇淋滴落，膠帶只是旁邊的誤會。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏向大家道歉，因為自己的膠帶讓大家有點困惑。"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽：以後玩膠帶時要小心，不然會弄得一團亂。"
+        },
+        {
+          "role": "feifei",
+          "text": "這次我們學到，要多留意每個小細節，但也不能太快下結論。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我們還是要繼續用眼睛和耳朵，好好觀察！"
+        },
+        {
+          "role": "narrator",
+          "text": "故事最後，大家一起笑著，繼續享受陽光和公園的美好時光。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "這件事有點複雜，大家還有些不確定的地方。"
+        },
+        {
+          "role": "narrator",
+          "text": "所以他們決定找公園裡的老師來幫忙看看。"
+        },
+        {
+          "role": "teacher",
+          "text": "我來幫你們看看這些黏黏的東西，還有風箏線的狀況。"
+        },
+        {
+          "role": "teacher",
+          "text": "原來是冰淇淋滴下來，還有一些樹脂和膠帶的痕跡混在一起。"
+        },
+        {
+          "role": "teacher",
+          "text": "所以大家都不是故意的，只是小意外造成了一點困擾。"
+        },
+        {
+          "role": "teacher",
+          "text": "對不起讓你們的風箏飛得不順，下次我們一起注意細節就好。"
+        },
+        {
+          "role": "feifei",
+          "text": "謝謝老師，我們以後會更小心，也會用眼睛和耳朵多觀察。"
+        },
+        {
+          "role": "lele",
+          "text": "不確定也沒關係，有大人幫忙，感覺安全多了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

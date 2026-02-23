@@ -1,0 +1,600 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770973298_23",
+    "title": "車站裡的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：車站熱鬧日常",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是週末，車站裡人來人往，好熱鬧。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂跟著爸爸媽媽一起來搭車，準備去郊外露營。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，車站裡有好多攤販在賣零食耶，聞起來好香。"
+        },
+        {
+          "role": "lele",
+          "text": "我要買那個糖果！你看那攤有超大顆的棉花糖！"
+        },
+        {
+          "role": "narrator",
+          "text": "爸爸：小心點，別跑太快，車站人多很容易碰撞。"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽：我們先站在月台邊等車，別離開太遠。"
+        },
+        {
+          "role": "narrator",
+          "text": "月台上，站著許多旅客，有穿著紅色帽子的阿姨，也有拿著大書包的哥哥。"
+        },
+        {
+          "role": "feifei",
+          "text": "那位阿姨戴著紅色帽子，好像很會照顧小朋友耶。"
+        },
+        {
+          "role": "lele",
+          "text": "那個哥哥好高喔，他背的書包像個小山。"
+        },
+        {
+          "role": "narrator",
+          "text": "遠處傳來列車進站的聲音，嗚嗚嗚，像在唱歌。"
+        },
+        {
+          "role": "feifei",
+          "text": "我喜歡這種聲音，好像列車在跟我們打招呼。"
+        },
+        {
+          "role": "lele",
+          "text": "我也喜歡！可是站太近會不會太吵啊？"
+        },
+        {
+          "role": "narrator",
+          "text": "爸爸：別太靠近軌道喔，要安全第一。"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽：你們看，那邊有個賣冰淇淋的小攤子，夏天來一支一定很涼快。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，我們賽跑看看誰先跑到那攤子怎麼樣？"
+        },
+        {
+          "role": "lele",
+          "text": "好啊！不過我可不想輸給你這個姊姊。"
+        },
+        {
+          "role": "narrator",
+          "text": "兩人笑著準備起跑，旁邊的店員阿布正在擦拭攤位的玻璃。"
+        },
+        {
+          "role": "narrator",
+          "text": "店員阿布：小朋友們，要玩得開心，但記得安全最重要喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "阿布叔叔，今天車站好多人，還有好多小攤子呢。"
+        },
+        {
+          "role": "lele",
+          "text": "我聞到烤玉米的香味，好想吃喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "我們等車的時候，可以先看看這些攤子，順便找找看有什麼新奇的東西。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，像小偵探一樣！眼睛亮亮，放大鏡模式！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，放大鏡模式啟動，準備找點有趣的東西！"
+        },
+        {
+          "role": "lele",
+          "text": "你看！那邊有人拿著一個超大的布偶，像個巨人耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "欸欸，等等，我們悄悄地過去看看，好像有點小秘密喔！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "開場延伸：更多車站趣事",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂悄悄走近布偶旁邊，發現裡面站著一個穿著藍色制服的哥哥。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，那個哥哥手裡拿著一張車票，好像在找東西。"
+        },
+        {
+          "role": "feifei",
+          "text": "他好像在看地上的什麼東西，蹲著不動。"
+        },
+        {
+          "role": "narrator",
+          "text": "店員阿布：欸，你們在看什麼呢？小心別踩到地上的小石子喔。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "好奇心轉場（小偵探模式）",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "我看到那個哥哥蹲著一直看地上，好像有什麼東西掉了。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？我也聽到有人輕輕說「啊？」的聲音，好像有人發現新奇的東西。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們的小偵探模式開啟，偷偷用眼睛看看發生了什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，眼睛亮亮，放大鏡模式，準備出發！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "車站裡的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走近那個藍制服哥哥，發現他正蹲在月台邊緣，旁邊有幾張彩色貼紙散落在地上。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這些貼紙怎麼會掉在這裡？"
+        },
+        {
+          "role": "feifei",
+          "text": "我聽到旁邊有人說，『我剛剛放在這裡的貼紙怎麼會跑出來？』"
+        },
+        {
+          "role": "narrator",
+          "text": "附近的紅帽阿姨也皺起眉頭，似乎在找什麼東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "紅帽阿姨：我剛剛放在包包裡的貼紙，好像少了一些。"
+        },
+        {
+          "role": "narrator",
+          "text": "藍制服哥哥抬頭看了看四周，然後輕輕嘆氣。"
+        },
+        {
+          "role": "narrator",
+          "text": "藍制服哥哥：我也不知道怎麼會掉出來的，剛剛明明放好好的。"
+        },
+        {
+          "role": "feifei",
+          "text": "看來有點小狀況，我們來仔細看看這些貼紙吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "第一個觀察：地上的貼紙",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏蹲下來，伸手摸了摸地上的貼紙。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，這些貼紙摸起來黏黏的，好像剛被撕下來。"
+        },
+        {
+          "role": "lele",
+          "text": "我看到貼紙的邊邊有點皺皺的，好像有人用力撕過。"
+        },
+        {
+          "role": "narrator",
+          "text": "店員阿布：我剛剛聽到『啪』一聲，像是貼紙被撕開的聲音。"
+        },
+        {
+          "role": "feifei",
+          "text": "貼紙掉在這裡，可能是剛剛有人不小心碰掉的吧？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "第二個觀察：紅帽阿姨的包包",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到紅帽阿姨旁邊，看她正打開包包檢查。"
+        },
+        {
+          "role": "narrator",
+          "text": "紅帽阿姨：我剛剛放在包包裡的貼紙，好像少了幾張。"
+        },
+        {
+          "role": "lele",
+          "text": "阿姨，包包裡還有其他東西嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "紅帽阿姨：有一些零食和一把小傘，不過包包口是拉鍊的，應該不會自己開。"
+        },
+        {
+          "role": "feifei",
+          "text": "我看到包包的拉鍊有點沒拉到最頂端，好像沒完全閉起來。"
+        },
+        {
+          "role": "lele",
+          "text": "那是說，貼紙可能從沒拉緊的拉鍊口掉出來？"
+        },
+        {
+          "role": "narrator",
+          "text": "紅帽阿姨：有可能喔，剛剛我拿東西的時候可能沒注意。"
+        },
+        {
+          "role": "feifei",
+          "text": "不過我們還是再看看其他地方好了。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三個觀察：地上的小石頭和膠帶",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "樂樂蹲下來仔細看地上的其他東西。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這裡有一小塊透明的膠帶，黏黏的，還有一顆小石頭。"
+        },
+        {
+          "role": "feifei",
+          "text": "膠帶？我剛剛還以為是地上的口水怪物留下的痕跡呢。"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，口水怪物？那我是不是要帶放大鏡來抓牠？"
+        },
+        {
+          "role": "narrator",
+          "text": "店員阿布：哈哈，小朋友想像力真豐富。"
+        },
+        {
+          "role": "narrator",
+          "text": "紅帽阿姨蹲下來看了看膠帶。"
+        },
+        {
+          "role": "narrator",
+          "text": "紅帽阿姨：這膠帶好像是我用來貼貼紙的小工具。"
+        },
+        {
+          "role": "feifei",
+          "text": "膠帶掉在這裡，可能有人撕貼紙的時候不小心掉了。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯嗯，我覺得這個膠帶黏黏的，剛好跟貼紙掉下有關。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想（不下結論）",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，可能有人剛剛想貼貼紙，但膠帶不小心掉了，貼紙也跟著掉了。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是有人走路太急，沒注意到包包沒拉緊，貼紙就這樣掉出來了。"
+        },
+        {
+          "role": "lele",
+          "text": "或者…有人用膠帶玩了一下，然後忘記收好。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，這個可能性有點像小怪獸搞的鬼喔。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得還好啦，我們再看看其他人怎麼說。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我們還不確定，先不要亂猜，等一下再看看。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，小偵探們，我們準備要選擇可能跟貼紙掉出有關的人囉！"
+        },
+        {
+          "role": "lele",
+          "text": "選擇之前，我們眼睛要亮亮的，像放大鏡一樣仔細看過。"
+        },
+        {
+          "role": "feifei",
+          "text": "不過，如果還是不確定，也可以選『我還不確定，交給大人』，這樣很安全喔！"
+        },
+        {
+          "role": "lele",
+          "text": "沒錯，我們慢慢想，沒有急著下結論。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "藍制服哥哥",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "紅帽阿姨",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "店員阿布",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（推理正確）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（媽媽）：原來藍制服哥哥的包包拉鍊沒拉緊，貼紙才會掉出來。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：所以貼紙散落在地上，讓大家找了好一會兒。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（媽媽）：對不起，讓大家擔心了，這都是小小的疏忽。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：下次我們記得包包要拉緊，貼紙也要放好，這樣就不會掉出來了。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，這次沒有大怪獸，是小小的拉鍊怪耶。"
+        },
+        {
+          "role": "lele",
+          "text": "下次我也要當拉鍊小偵探，幫大家注意包包！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（店員阿布）：紅帽阿姨的包包拉鍊確實沒拉緊，貼紙有可能掉出來。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（媽媽）：所以貼紙散落，讓大家有點小混亂。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（店員阿布）：對不起喔，讓大家找了好久，下次要多留意包包。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（媽媽）：以後我們都提醒彼此，東西放好，才不會這樣掉出來。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我覺得大家都很努力找東西了！"
+        },
+        {
+          "role": "lele",
+          "text": "下次我也要幫忙看包包，當個小幫手！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：我們還不太確定貼紙怎麼會掉出來，還要多問問大家。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（媽媽）：其實有時候小東西掉了，是因為大家都忙著趕車，沒注意到細節。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：對不起，讓大家找東西有點麻煩，下次會提醒大家多留心。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（媽媽）：下次我們一起幫忙看包包，貼紙放好，這樣就不會掉了。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒關係，大家都在努力，我們慢慢來。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，不確定也沒關係，交給大人一起想！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

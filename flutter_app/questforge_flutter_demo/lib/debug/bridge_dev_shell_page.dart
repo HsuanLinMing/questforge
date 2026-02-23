@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:questforge_flutter_demo/bridge/bridge_controller_v2.dart';
+import 'package:questforge_flutter_demo/config/app_env.dart';
 import 'package:questforge_flutter_demo/fastapi_bridge.dart';
 
 
@@ -23,7 +24,7 @@ class _BridgeDevShellPageState extends State<BridgeDevShellPage> {
   void initState() {
     super.initState();
 
-    final api = FastApiBridge(baseUrl: 'http://127.0.0.1:8000');
+    final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
 
     _controller = BridgeControllerV2(
       api: api,

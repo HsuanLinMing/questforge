@@ -1,0 +1,632 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770975417_36",
+    "title": "校園才藝日的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：日常熱鬧",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是學校一年一度的才藝日，教室裡充滿了彩色的氣球和閃閃發亮的彩帶。"
+        },
+        {
+          "role": "narrator",
+          "text": "窗外的陽光灑進來，操場上有幾個同學在練習舞蹈。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂正準備他們的表演道具，旁邊還有兩個小朋友在幫忙搬東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：欸，這個氣球怎麼一直飄上去？"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：因為它裡面裝了好多空氣啊！"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你的魔術帽準備好了嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "準備好了！我要變出一隻會跳舞的青蛙！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你確定不是變出一隻會跳舞的青蛙王子？"
+        },
+        {
+          "role": "lele",
+          "text": "欸，那我就變得超厲害了！"
+        },
+        {
+          "role": "narrator",
+          "text": "老師走進教室，手裡拿著一大疊節目單。"
+        },
+        {
+          "role": "teacher",
+          "text": "大家準備好了嗎？才藝日要開始囉！"
+        },
+        {
+          "role": "lele",
+          "text": "我好緊張喔，會不會忘記動作？"
+        },
+        {
+          "role": "feifei",
+          "text": "放心啦，我會在旁邊偷偷幫你加油的。"
+        },
+        {
+          "role": "narrator",
+          "text": "走廊上傳來一陣笑聲，是甜甜圈阿咚和餅乾小脆在互相逗趣。"
+        },
+        {
+          "role": "narrator",
+          "text": "甜甜圈阿咚：我練習唱歌唱到快喘不過氣了！"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：那是因為你唱得太賣力啦！"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你看那邊，甜甜圈阿咚的髮箍好像快掉了。"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，他會不會變成鬆餅王子？"
+        },
+        {
+          "role": "feifei",
+          "text": "你比較像是亂鬧小王子。"
+        },
+        {
+          "role": "lele",
+          "text": "哼！亂鬧也有亂鬧的魅力！"
+        },
+        {
+          "role": "narrator",
+          "text": "教室裡熱鬧非凡，大家忙著最後的準備。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏偷偷瞄了瞄桌上的貼紙，貼紙好像被動過位置。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸欸，樂樂，你剛剛有看到貼紙在哪裡嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "我只看到貼紙上有點黏黏的，好像被手指摸過。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯…我們用放大鏡模式，好好看看這些小細節吧！"
+        },
+        {
+          "role": "lele",
+          "text": "好啊，我的眼睛亮晶晶的，準備偵查！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "開場延伸：更多日常與配角",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "操場上，橡皮小方和橡皮小圓正在比賽誰跑得快。"
+        },
+        {
+          "role": "narrator",
+          "text": "橡皮小方：我一定會贏，因為我腳步像風一樣快！"
+        },
+        {
+          "role": "narrator",
+          "text": "橡皮小圓：才不會呢，我的鞋子有秘密武器！"
+        },
+        {
+          "role": "feifei",
+          "text": "哇，秘密武器？會不會是噴射背包？"
+        },
+        {
+          "role": "lele",
+          "text": "欸欸，我也要有噴射背包，這樣我就可以飛上天了！"
+        },
+        {
+          "role": "narrator",
+          "text": "走廊的牆上貼著彩色的海報，上面寫著「才藝日快樂」的字樣，還有大家的名字。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏蹲在桌子旁邊，手裡拿著一卷閃亮的膠帶，正想幫忙貼海報。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "好奇心轉場（小偵探模式）",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "樂樂，你有沒有發現，剛剛貼紙那裡好像有點不太一樣？"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得怪怪的，好像有人動過那裡，但我沒看到是誰。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸欸，我們用小偵探模式，眼睛亮亮地再看一次，好不好？"
+        },
+        {
+          "role": "lele",
+          "text": "好！我準備好了，偵探帽戴起來！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "案件發生（中後段才開始）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "才藝日的氣氛越來越熱鬧，突然，老師走到教室門口，表情有點嚴肅。"
+        },
+        {
+          "role": "teacher",
+          "text": "大家稍微安靜一下，我們發現了點小狀況。"
+        },
+        {
+          "role": "lele",
+          "text": "小狀況？是什麼？"
+        },
+        {
+          "role": "feifei",
+          "text": "我也想知道，好奇怪喔。"
+        },
+        {
+          "role": "teacher",
+          "text": "有人發現教室裡的道具位置好像被動過了，還有貼紙也不在原本的位置。"
+        },
+        {
+          "role": "narrator",
+          "text": "大家開始互相看了看，氣氛有點安靜下來。"
+        },
+        {
+          "role": "lele",
+          "text": "我剛剛看到貼紙那裡黏黏的，好像有人摸過。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯嗯，我也瞄到桌子上有點不一樣的地方。"
+        },
+        {
+          "role": "teacher",
+          "text": "我們想請幾位同學幫忙看看發生了什麼事，好嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "樂樂和霏霏對視一眼，眼睛裡閃著亮光。"
+        },
+        {
+          "role": "feifei",
+          "text": "這下有趣了，我們來當小偵探吧！"
+        },
+        {
+          "role": "lele",
+          "text": "我準備好了，偵探模式啟動！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "第一個觀察",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂回到貼紙所在的桌子旁。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這個貼紙的邊邊有點皺皺的，好像被撕過一點。"
+        },
+        {
+          "role": "feifei",
+          "text": "我看到桌面上有一小點黏黏的東西，可能是膠水還是糖漿？"
+        },
+        {
+          "role": "lele",
+          "text": "還有，桌腳那裡踩到了幾個小碎屑，看起來像是爆米花的殼。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯嗯，看起來有人剛剛在這裡做過什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "可是我沒看到誰來過這邊。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "第二個觀察",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "兩人走到教室後方的道具箱旁。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這個箱子蓋子沒關好，還有點晃來晃去的。"
+        },
+        {
+          "role": "feifei",
+          "text": "我摸到箱子外面有點冷冷的，好像剛剛有人碰過。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我剛剛看到餅乾小脆在這附近轉來轉去，不知道他在找什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "餅乾小脆？他手上拿著一包零食，一直偷吃。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許他是來拿點心，不過箱子蓋沒關好，好像有點怪怪的。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯…但也可能只是太急著吃吧？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三個觀察（可誤導但不強制排除）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂來到教室門口的鞋架旁。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，鞋架上有一隻鞋子放反了耶，還有鞋底有點黏黏的。"
+        },
+        {
+          "role": "feifei",
+          "text": "我聞到一點點甜甜的味道，好像是巧克力糖漿。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：欸欸，我剛剛看到橡皮小方在這附近玩鞋子，好像還踩到什麼黏黏的東西。"
+        },
+        {
+          "role": "lele",
+          "text": "橡皮小方？他平常超愛搞笑的，會不會是他弄的？"
+        },
+        {
+          "role": "feifei",
+          "text": "也可能啦，但也許那黏黏的東西是別人不小心掉的，像怪物的口水一樣。"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，怪物口水？那我快點洗手好了！"
+        },
+        {
+          "role": "feifei",
+          "text": "別急著下結論，我們再多看看其他地方。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想（不下結論）",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，可能是有人不小心碰到這些東西，然後急著去別的地方了。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是這樣，或者是有人想幫忙但手腳太慢，弄得有點亂。"
+        },
+        {
+          "role": "lele",
+          "text": "還有可能是…欸，我想像一下，如果是外星人來偷偷看才藝日，他們會不會也弄亂東西？"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，外星人？那我們得準備外星語翻譯機了！"
+        },
+        {
+          "role": "lele",
+          "text": "不過我還不確定，我們要不要去問問老師？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，小偵探們，現在要用你的偵探眼睛選一個可能跟這件事有關的人喔！"
+        },
+        {
+          "role": "lele",
+          "text": "別忘了，這只是猜猜看，真的不確定也沒關係，交給大人一起幫忙！"
+        },
+        {
+          "role": "feifei",
+          "text": "選好了嗎？偵探模式啟動，讓我們看看你的選擇吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "甜甜圈阿咚",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "橡皮小方",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（推理正確）",
+      "narration": [
+        {
+          "role": "teacher",
+          "text": "其實，是甜甜圈阿咚不小心把貼紙移動了，他當時在找自己的髮箍。"
+        },
+        {
+          "role": "teacher",
+          "text": "因為他太專心找東西，沒注意到自己碰到了桌上的貼紙。"
+        },
+        {
+          "role": "narrator",
+          "text": "甜甜圈阿咚：對不起大家，我不是故意的，真的很抱歉。"
+        },
+        {
+          "role": "teacher",
+          "text": "下次大家記得放東西要注意周圍，這樣才不會弄亂別人的東西。"
+        },
+        {
+          "role": "feifei",
+          "text": "看來你們的觀察真的很厲害，找到事情的答案了！"
+        },
+        {
+          "role": "lele",
+          "text": "下次我也要像甜甜圈阿咚一樣，小心點，不亂碰別人東西！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點）",
+      "narration": [
+        {
+          "role": "teacher",
+          "text": "大家現在都回到教室，環境也被整理好了。"
+        },
+        {
+          "role": "teacher",
+          "text": "其實是因為餅乾小脆當時確實在附近吃零食，但他沒有動過貼紙。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我當時太專注吃東西，沒注意到旁邊的小狀況，真是不好意思。"
+        },
+        {
+          "role": "teacher",
+          "text": "對不起大家，這次讓大家擔心了，請大家多多包容。"
+        },
+        {
+          "role": "teacher",
+          "text": "以後大家也要記得，吃東西時要小心，避免弄髒或弄亂環境。"
+        },
+        {
+          "role": "feifei",
+          "text": "你們的觀察很棒喔，差一點就找到真相了！"
+        },
+        {
+          "role": "lele",
+          "text": "我下次也要學會更仔細看看，不能著急下結論！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "teacher",
+          "text": "大家都回到教室，氣氛恢復平靜，有人幫忙整理鞋架。"
+        },
+        {
+          "role": "teacher",
+          "text": "原來橡皮小方當時確實在附近玩鞋子，但沒有碰到貼紙。"
+        },
+        {
+          "role": "teacher",
+          "text": "對不起大家，這次讓大家擔心了，請大家見諒。"
+        },
+        {
+          "role": "teacher",
+          "text": "下次我們會提醒大家保持教室整潔，也會多注意安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "不確定也沒關係，交給大人一起幫忙是很棒的選擇！"
+        },
+        {
+          "role": "lele",
+          "text": "我學到，下次要用心觀察，不急著猜測！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        },
+        {
+          "role": "narrator",
+          "text": "期待下次再一起發現更多有趣的小秘密。"
+        },
+        {
+          "role": "narrator",
+          "text": "別忘了，觀察力是最棒的超能力喔！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

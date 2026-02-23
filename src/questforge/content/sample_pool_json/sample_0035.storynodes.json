@@ -1,0 +1,768 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770974708_33",
+    "title": "露營區的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：露營日的早晨",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是學校的露營日，大家都來到森林裡的露營區。"
+        },
+        {
+          "role": "narrator",
+          "text": "樹木高高聳立，空氣中飄著松針和泥土的味道。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂帶著他們的背包，和同學們一起搭帳篷。"
+        },
+        {
+          "role": "narrator",
+          "text": "附近還有兩位同學，餅乾小脆和飯糰啵啵，大家正在忙著準備晚餐。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你看那個帳篷搭得歪歪的，是不是像個倒下的蛋糕？"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，我覺得更像一隻睡著的熊貓，肚子鼓鼓的。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：你們在講什麼啊？我這個帳篷可是超級牢固的！"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我剛剛看到一隻小松鼠從樹上跳下來，好像在偷吃我們的午餐。"
+        },
+        {
+          "role": "feifei",
+          "text": "松鼠也愛露營嗎？還帶零食耶。"
+        },
+        {
+          "role": "lele",
+          "text": "我想松鼠應該是露營高手，因為他們很會藏東西。"
+        },
+        {
+          "role": "feifei",
+          "text": "說到藏東西，我剛剛看到那邊的樹下有個亮亮的東西，好像是什麼包裝紙。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？亮亮的？會不會是誰的零食包裝掉了？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我剛才聽到附近傳來『啪』的一聲，好像是東西掉下來的聲音。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我也聽到了，不過我沒看到是什麼。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們去看看吧，說不定是誰不小心掉了什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "好啊！我想知道是誰的零食包裝這麼亮眼。"
+        },
+        {
+          "role": "feifei",
+          "text": "小聲點，像小偵探一樣偷偷看，別嚇跑松鼠。"
+        },
+        {
+          "role": "lele",
+          "text": "好，我的眼睛亮亮的，準備啟動放大鏡模式！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，我的耳朵也打開了，準備聽秘密。"
+        },
+        {
+          "role": "lele",
+          "text": "我們一起去看看那亮亮的東西好了！"
+        },
+        {
+          "role": "narrator",
+          "text": "夕陽慢慢地染紅了天空，露營區的氣氛變得更加溫暖和寧靜。"
+        },
+        {
+          "role": "narrator",
+          "text": "爸爸：今晚的晚餐有烤棉花糖和熱巧克力，大家準備好了嗎？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "營地的小插曲",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到樹下，看到一小團紙屑散落在地上。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這些紙屑摸起來有點黏黏的，好像有點糖漿。"
+        },
+        {
+          "role": "feifei",
+          "text": "黏黏的？你摸哪裡？"
+        },
+        {
+          "role": "lele",
+          "text": "就在這塊石頭旁邊，還有一點點黏黏的東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我剛剛看到膠帶小黏在那邊玩，他說他弄掉了一點膠帶。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：呃…我不是故意的，是膠帶自己跑出來的啦！"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：哈哈，膠帶會自己跑嗎？那我家的飯糰也會自己走路了。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你剛剛聽到什麼聲音？"
+        },
+        {
+          "role": "lele",
+          "text": "嗯…有點像有人輕輕踩石頭的聲音，『嘎吱嘎吱』。"
+        },
+        {
+          "role": "feifei",
+          "text": "嘎吱嘎吱？那可能是誰剛剛經過這裡吧。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我覺得有點怪怪的，因為剛剛這裡應該沒有人走過。"
+        },
+        {
+          "role": "feifei",
+          "text": "怪怪的？你剛剛看到什麼？"
+        },
+        {
+          "role": "lele",
+          "text": "我看到飯糰啵啵的帽子掉在一旁的草叢裡耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "帽子掉了？那他剛剛有去那邊玩嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我剛剛有去找我的水壺，可能不小心掉了。"
+        },
+        {
+          "role": "lele",
+          "text": "水壺？我也想喝水了，口渴了啦！"
+        },
+        {
+          "role": "feifei",
+          "text": "好啦，我們先不急，慢慢看。"
+        },
+        {
+          "role": "lele",
+          "text": "我眼睛亮亮的，準備再找找看！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "小偵探模式啟動",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你有沒有覺得這裡有點不一樣？"
+        },
+        {
+          "role": "lele",
+          "text": "嗯？哪裡不一樣？"
+        },
+        {
+          "role": "feifei",
+          "text": "我看到草叢裡有幾片葉子被踩扁了，好像有人剛剛走過。"
+        },
+        {
+          "role": "lele",
+          "text": "真的耶！還有地上有一點點沙子，感覺剛剛有人從這邊走過。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們開啟小偵探模式，眼睛要亮亮的，耳朵要聽清楚。"
+        },
+        {
+          "role": "lele",
+          "text": "好！我準備好了，放大鏡和聽診器都帶上！"
+        },
+        {
+          "role": "feifei",
+          "text": "我們去看看那邊的帳篷好了，說不定會有更多發現。"
+        },
+        {
+          "role": "lele",
+          "text": "走吧！我覺得這次的露營好像藏了什麼秘密呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "露營帳篷的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到帳篷旁，發現帳篷的門有點敞開著。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這個帳篷不是剛剛我們看到的嗎？怎麼門開著？"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，剛剛明明是關著的。"
+        },
+        {
+          "role": "narrator",
+          "text": "帳篷裡放著樂樂的水壺和一個小背包。"
+        },
+        {
+          "role": "lele",
+          "text": "我的水壺！可是我記得剛剛還放在桌子上啊？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我剛剛看到有人在帳篷附近走來走去，好像在找什麼東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我也看到膠帶小黏在那邊，他一直皺著眉頭，好像在想事情。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我只是想幫忙整理一下東西，結果弄得亂七八糟。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，這裡好像有點亂，地上有幾片樹葉和一塊小石頭。"
+        },
+        {
+          "role": "lele",
+          "text": "還有，我剛剛摸到水壺蓋有點濕濕的，像是剛倒過水。"
+        },
+        {
+          "role": "feifei",
+          "text": "濕濕的？你摸到哪裡濕？"
+        },
+        {
+          "role": "lele",
+          "text": "就是水壺蓋的邊邊，還有背包的拉鍊好像有點鬆。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯…好像有人剛剛翻過這個背包。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得怪怪的，因為我記得我收得很整齊。"
+        },
+        {
+          "role": "feifei",
+          "text": "怪怪的？你剛剛看到或聽到什麼？"
+        },
+        {
+          "role": "lele",
+          "text": "我剛剛聽到『刷刷』的聲音，好像是拉鍊拉開的聲音。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我們先把這些收進小口袋裡，繼續看看別的地方吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "帳篷附近的發現",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到帳篷旁邊，發現地上有幾顆小石頭。"
+        },
+        {
+          "role": "lele",
+          "text": "這些小石頭摸起來有點冰冰涼涼的，好像剛從溪邊帶過來的。"
+        },
+        {
+          "role": "feifei",
+          "text": "冰冰涼涼的？你摸到哪裡？"
+        },
+        {
+          "role": "lele",
+          "text": "就在帳篷門口的地上，還有一片葉子壓在石頭上。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我剛剛看到飯糰啵啵手上拿著一根小樹枝，好像在撥開草叢。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我在找我的帽子，剛剛好像掉在這附近。"
+        },
+        {
+          "role": "feifei",
+          "text": "帽子掉了？那我們順便找找看吧。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得這裡好像有人剛剛走過，因為有踩過的痕跡。"
+        },
+        {
+          "role": "feifei",
+          "text": "踩過的痕跡？你看到什麼樣的痕跡？"
+        },
+        {
+          "role": "lele",
+          "text": "有幾個腳印，還有一些碎葉子被踩扁了。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，這些都很有趣，我們接著往營火區走看看。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "營火區的小細節",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "營火區有幾根燒焦的木頭，還有一些散落的樹枝。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這根樹枝摸起來黏黏的，好像沾到樹脂了。"
+        },
+        {
+          "role": "feifei",
+          "text": "黏黏的？你摸到哪裡黏黏的？"
+        },
+        {
+          "role": "lele",
+          "text": "就在樹枝的末端，還有一些黑黑的燒痕。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我剛剛幫忙搬柴火，可能不小心把樹枝弄到這邊。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我看到營火旁有幾片掉落的葉子，比平常多了一點。"
+        },
+        {
+          "role": "feifei",
+          "text": "葉子多？你覺得有什麼特別嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "我聽到旁邊有『沙沙』的聲音，好像風把葉子吹動了。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，風的聲音很自然，但我們還是留意看看。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得有點怪怪的，因為風好像突然變大了。"
+        },
+        {
+          "role": "feifei",
+          "text": "怪怪的？你剛剛看到什麼？"
+        },
+        {
+          "role": "lele",
+          "text": "我看到膠帶小黏的帽子被風吹得歪歪的，好像快飛走了。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，那帽子會不會想飛去冒險？"
+        },
+        {
+          "role": "lele",
+          "text": "可能是想去找松鼠玩吧！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "湖邊的誤會",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到湖邊，湖水清澈見底，微風輕拂水面。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，那邊有個東西，看起來像是一隻小怪物的尾巴！"
+        },
+        {
+          "role": "feifei",
+          "text": "小怪物的尾巴？你是說什麼？"
+        },
+        {
+          "role": "lele",
+          "text": "我看到一條長長的膠帶黏在石頭上，還搖來搖去的。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：欸，那是我掉的膠帶啦！你們別嚇我好不好。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，膠帶搖來搖去，真的像小怪物在跳舞。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我剛剛踩到水邊的泥巴，腳底黏黏的，好像踩到果凍。"
+        },
+        {
+          "role": "lele",
+          "text": "泥巴黏黏的？那你腳底有沒有怪怪的味道？"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：呃…有一點點像青草味，還有點甜甜的。"
+        },
+        {
+          "role": "feifei",
+          "text": "甜甜的？會不會是有人帶了甜點來這裡呢？"
+        },
+        {
+          "role": "lele",
+          "text": "我想像那個甜點是會跳舞的布丁！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你想像力真的很豐富。"
+        },
+        {
+          "role": "lele",
+          "text": "這次露營真有趣，連湖邊都藏著小秘密呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想時間",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，可能有人不小心把東西掉在帳篷附近，然後又去湖邊玩了。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是這樣，也有可能是風把膠帶吹到湖邊去了。"
+        },
+        {
+          "role": "lele",
+          "text": "或者膠帶其實是有生命的，偷偷跑出來玩耍！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，膠帶會不會太調皮了？"
+        },
+        {
+          "role": "lele",
+          "text": "我還不太確定，但我覺得我們可以再看看別的地方。"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，不急著下結論，反正我們眼睛和耳朵都打開著呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，我們進入小偵探模式了！"
+        },
+        {
+          "role": "lele",
+          "text": "選一個你覺得可能跟這件事有關的人吧！"
+        },
+        {
+          "role": "feifei",
+          "text": "不過，不確定也沒關係，交給大人一起幫忙總是安全的選擇。"
+        },
+        {
+          "role": "lele",
+          "text": "偵探帽戴好，眼睛亮亮，準備指認囉！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "飯糰啵啵",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "膠帶小黏",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（推理正確）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "原來餅乾小脆剛剛在幫忙搬柴火時，不小心把膠帶掉了出來。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：對不起，餅乾小脆，幫忙的時候沒注意到，造成大家的疑惑。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：所以請大家以後搬東西時要更小心，避免弄亂營地。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我知道了，下次我會更注意的，對不起大家！"
+        },
+        {
+          "role": "feifei",
+          "text": "下次我們露營，也要記得互相提醒，才能玩得更開心。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯，我學到要用眼睛和耳朵，好好觀察身邊的事情！"
+        },
+        {
+          "role": "feifei",
+          "text": "不過話說回來，膠帶會跳舞這件事，我還是覺得有點好笑！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "其實飯糰啵啵當時在找帽子，帽子意外掉在草叢裡。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：飯糰啵啵，對不起讓你找帽子找得有點辛苦。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：以後記得把東西放好，這樣比較不會忘記。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我知道了，下次會更小心。"
+        },
+        {
+          "role": "feifei",
+          "text": "這次我們都學到，用眼睛和耳朵去發現小細節很重要。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，還有要互相幫忙，這樣露營才更快樂！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大家回到安全的營地，並有大人開始協助整理狀況。"
+        },
+        {
+          "role": "narrator",
+          "text": "原來這次的小混亂是因為大家忙著準備，東西沒放好，所以才會出現這些小狀況。"
+        },
+        {
+          "role": "lele",
+          "text": "膠帶小黏，你真的不是故意的嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：對不起，我沒有注意到，造成大家困擾，真的很抱歉。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：以後露營時，大家要記得把東西收好，避免類似情況再發生。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒關係，下次我們會更小心，也學到要用眼睛和耳朵仔細觀察。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯，雖然事情有點亂，但我們還是玩得很開心，這才是最重要的！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

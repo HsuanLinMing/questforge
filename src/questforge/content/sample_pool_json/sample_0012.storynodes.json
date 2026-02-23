@@ -1,0 +1,592 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770971241_10",
+    "title": "博物館的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "博物館的一天",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是星期六，陽光灑進博物館的大廳，地板上閃著亮亮的光。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂跟著爸爸媽媽一起來參觀恐龍展。"
+        },
+        {
+          "role": "narrator",
+          "text": "博物館裡有好多小朋友，還有穿著工作服的館員小方和零食啵啵。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你看那隻大恐龍，好像在對我們眨眼睛耶。"
+        },
+        {
+          "role": "lele",
+          "text": "哪有啦！牠不會眨眼睛啦，我才不怕恐龍呢！"
+        },
+        {
+          "role": "narrator",
+          "text": "小方館員正忙著整理展覽牌，上面寫著恐龍的名字和介紹。"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：我剛買的爆米花有點甜甜的，黏黏的，好像黏在手上了。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，那你手上有沒有像恐龍腳印一樣的黏黏痕跡？"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：哈哈，沒有啦！不過我想像恐龍腳印會不會很大呢？"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你剛才摸到那個恐龍模型的尾巴了嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "有啊！摸起來硬硬的，還有點涼涼的。"
+        },
+        {
+          "role": "narrator",
+          "text": "館內播放著輕快的音樂，像在歡迎大家來探險。"
+        },
+        {
+          "role": "narrator",
+          "text": "小方館員拿著放大鏡，仔細看著一個小小的化石標本。"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：哇，那個化石看起來像小小的蝸牛殼耶。"
+        },
+        {
+          "role": "feifei",
+          "text": "說不定是恐龍的朋友，牠們一起住在古代的森林裡。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得恐龍朋友應該會玩捉迷藏。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂在展區裡蹦蹦跳跳，興奮地看著各種恐龍模型。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你看到那個角落的恐龍蛋了嗎？好大一顆！"
+        },
+        {
+          "role": "lele",
+          "text": "有啊！還有一隻小恐龍好像在守護著它。"
+        },
+        {
+          "role": "narrator",
+          "text": "突然，樂樂瞇起眼睛，小聲說："
+        },
+        {
+          "role": "lele",
+          "text": "欸，霏霏，你有沒有覺得那邊的恐龍蛋旁邊，好像少了一點什麼？"
+        },
+        {
+          "role": "feifei",
+          "text": "真的耶，我也看到了。眼睛亮亮的，像是要用放大鏡仔細看看。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們當小小偵探，好好看看這個恐龍展會不會有什麼秘密藏著！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "博物館裡的小插曲",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走向恐龍蛋旁邊，發現地上有一點點黏黏的東西。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這個黏黏的是什麼？像糖漿還是膠水？"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：我剛剛的爆米花袋子好像破了一點，可能掉下來了。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，爆米花變成恐龍的點心了嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "如果恐龍真的吃爆米花，牠們會不會變成大大的爆米花恐龍？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "小偵探模式開啟",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "我們開啟小偵探模式，眼睛要亮亮的喔！"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得這裡有好多秘密藏著，像寶藏一樣。"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，我們悄悄地用放大鏡看，別讓恐龍聽到。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，我先偷偷看那個角落，可能有什麼東西沒被發現！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "博物館的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到恐龍蛋旁邊，發現展區突然安靜了下來。"
+        },
+        {
+          "role": "narrator",
+          "text": "小方館員皺著眉頭，看著恐龍蛋附近的地板。"
+        },
+        {
+          "role": "narrator",
+          "text": "小方館員：咦？這裡的恐龍蛋好像被移動過了？"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你有沒有看到什麼不一樣的地方？"
+        },
+        {
+          "role": "lele",
+          "text": "我聽到有人輕輕地說「不好了」，聲音有點急。"
+        },
+        {
+          "role": "narrator",
+          "text": "其他小朋友也慢慢圍了過來，大家的眼睛都盯著那個蛋。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們來看看周圍有沒有什麼特別的東西，好好用眼睛和耳朵觀察！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "恐龍蛋旁的發現",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏蹲下身子，仔細看地上的痕跡。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你看這裡有一些細細的腳印，好像小動物的腳印。"
+        },
+        {
+          "role": "lele",
+          "text": "腳印有點黏黏的，好像踩到糖漿一樣。"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵走過來，手上還拿著半包爆米花。"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：我剛才在這附近吃爆米花，可能掉了一些。"
+        },
+        {
+          "role": "feifei",
+          "text": "那腳印可能是誰踩過這裡呢？"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得應該不是恐龍，恐龍腳印應該大大的！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "展區另一角",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到恐龍展的另一角。"
+        },
+        {
+          "role": "narrator",
+          "text": "牆上掛著一幅大大的恐龍圖畫，畫框有點歪了。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，這幅畫好像被碰過，框框有點鬆掉。"
+        },
+        {
+          "role": "lele",
+          "text": "我聽到有人說「喔喔」，像是驚訝的聲音。"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：我剛剛經過這裡，看到一隻小貓咪跑過去，牠應該沒進來吧？"
+        },
+        {
+          "role": "feifei",
+          "text": "小貓咪？牠會不會也踩到那個黏黏的東西？"
+        },
+        {
+          "role": "lele",
+          "text": "如果是小貓咪，牠一定很調皮。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "奇怪的膠帶怪物？",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏蹲下來，看到地上有一小片透明膠帶。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這膠帶摸起來黏黏的，好像怪物的口水！"
+        },
+        {
+          "role": "feifei",
+          "text": "怪物口水？哈哈，那你要小心不要被膠帶怪黏住喔！"
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵笑著說："
+        },
+        {
+          "role": "narrator",
+          "text": "啵啵：我覺得膠帶怪會偷偷躲起來，然後突然跳出來嚇人！"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，那我不想被嚇到，我要拿膠帶怪做我的新朋友！"
+        },
+        {
+          "role": "feifei",
+          "text": "說不定膠帶怪是恐龍展的守護神呢？"
+        },
+        {
+          "role": "lele",
+          "text": "守護神？那牠會不會也怕爆米花？"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "小小猜想",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，也許是有人不小心踩到黏黏的爆米花，然後膠帶怪就被黏住了。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許吧，或者是那隻小貓咪想玩膠帶怪？"
+        },
+        {
+          "role": "lele",
+          "text": "還有可能是恐龍蛋想自己走路，但被黏住了腳。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，那恐龍蛋會自己滾來滾去，好像玩溜滑梯。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊！不過我還不確定，等一下我們去問問館員好了。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，小偵探們，是時候選出你覺得可能和這件事有關的人囉！"
+        },
+        {
+          "role": "lele",
+          "text": "別忘了，我們還可以選『我還不確定，交給大人』，這樣最安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，偵探模式開啟，選擇你覺得最有趣的答案吧！"
+        },
+        {
+          "role": "lele",
+          "text": "加油，我們一起用眼睛和耳朵找出真相！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "小方館員",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "啵啵",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "那隻小貓咪",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（小方館員）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（館長）：其實，這次的小狀況是因為小方館員在整理展區時，不小心把恐龍蛋的位置挪動了一下。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：因為他手上拿著膠帶和爆米花袋，地上才會有黏黏的東西和膠帶。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：對不起，讓大家誤會了，造成小朋友的困擾。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：下次整理的時候，我們會更小心，也會提醒大家注意地上的東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：大家參觀的時候，也要記得注意腳下，避免踩到東西滑倒。"
+        },
+        {
+          "role": "feifei",
+          "text": "看來小方館員真的很忙，不過我們的眼睛和耳朵真的很棒，發現了好多細節呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（啵啵）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（館長）：啵啵的爆米花袋子確實破了一點，爆米花和糖漿掉在地上，讓地板變得黏黏的。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：因為這樣，小方館員才會忙著清理，造成一些小混亂。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：對不起讓大家擔心了，啵啵也很抱歉沒注意到袋子破了。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：下次我們會提醒大家吃東西要小心，也會多準備垃圾桶。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：這次大家都學到了注意細節的重要性，參觀更有趣也更安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "雖然是小混亂，但我們真的看到好多有趣的東西，像真正的小偵探！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（館長）：大家都安全回到休息區，有工作人員在旁邊協助整理現場。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：其實這次的情況有點複雜，因為地上有黏黏的東西和膠帶，需要更多時間確認細節。"
+        },
+        {
+          "role": "lele",
+          "text": "（吐槽）哎呀，這膠帶怪還真會搞事情呢！"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：對不起讓大家有點疑惑，我們會仔細檢查監視器和展區，確保一切安全。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（館長）：下次參觀時，大家也可以多留意身邊的環境，有問題就跟工作人員說，這樣會更安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "有時候不一定要馬上知道答案，慢慢看、慢慢想，也是很重要的，大家一起加油！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        },
+        {
+          "role": "narrator",
+          "text": "期待下一次的冒險，再一起用眼睛和耳朵發現更多秘密！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

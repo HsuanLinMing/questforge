@@ -80,11 +80,12 @@ class ApiException implements Exception {
 /// ----------------------------
 class FastApiBridge {
   FastApiBridge({
-    required this.baseUrl,
+    required String baseUrl,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+  })  : baseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl,
+        _client = client ?? http.Client();
 
-  final String baseUrl; // e.g. http://127.0.0.1:8003
+  final String baseUrl;
   final http.Client _client;
 
   static const _kSessionIdKey = 'qf_session_id';

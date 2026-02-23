@@ -1,0 +1,652 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770973426_25",
+    "title": "海邊的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "海邊的早晨",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天早上，霏霏和樂樂來到了海邊。"
+        },
+        {
+          "role": "narrator",
+          "text": "海風輕輕吹著，海浪拍打著沙灘，天空湛藍得像一塊大玻璃。"
+        },
+        {
+          "role": "narrator",
+          "text": "他們參加學校舉辦的海邊野餐活動。"
+        },
+        {
+          "role": "narrator",
+          "text": "沙灘上有很多小朋友，還有兩個熟悉的同學：飯糰啵啵和膠帶小黏。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，啵啵！你帶的沙灘球看起來好大喔！"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：哈哈，這可是我家特製的，超級彈力球！"
+        },
+        {
+          "role": "lele",
+          "text": "我要用力一踢，看看能不能踢到海裡去！"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：你踢太大力，會踢到大人腳喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "大家別吵啦，我們先找個地方坐下來吃點心。"
+        },
+        {
+          "role": "narrator",
+          "text": "野餐墊鋪在沙灘上，旁邊有一個小攤位賣冰淇淋，老闆是餅乾小脆。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：來來來，今天特價草莓口味！甜甜的很適合夏天喔！"
+        },
+        {
+          "role": "lele",
+          "text": "我要三球！草莓、巧克力、還有香草！"
+        },
+        {
+          "role": "feifei",
+          "text": "你嘴巴會不會太忙？"
+        },
+        {
+          "role": "lele",
+          "text": "忙才有趣嘛！"
+        },
+        {
+          "role": "narrator",
+          "text": "天空中有幾隻海鷗飛來飛去，像是來參加野餐派對。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：欸，你們看那個小螃蟹，好像在追一隻藍色的小魚耶！"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：小魚游得好快，螃蟹追不上啦！"
+        },
+        {
+          "role": "feifei",
+          "text": "欸欸，我們來玩個遊戲吧，誰先找到最多貝殼贏！"
+        },
+        {
+          "role": "lele",
+          "text": "我一定會贏，因為我有海邊雷達！"
+        },
+        {
+          "role": "feifei",
+          "text": "海邊雷達？你是說你有超級鼻子嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我聞得到貝殼的味道！"
+        },
+        {
+          "role": "narrator",
+          "text": "大家笑成一團，海邊充滿了歡笑聲。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你剛剛有沒有看到那邊沙堆好像動了一下？"
+        },
+        {
+          "role": "lele",
+          "text": "真的耶！好像有什麼東西藏在裡面。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們去偷偷看看，好像有點好玩的秘密喔！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "更多海邊趣事",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂蹲在沙堆旁邊，偷偷用手摸了摸沙子。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這裡的沙子感覺有點黏黏的耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "黏黏的？你摸哪裡？"
+        },
+        {
+          "role": "lele",
+          "text": "就在那個小坑洞邊緣，還有一點涼涼的感覺。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我剛剛聽到附近傳來「啪」的一聲，好像有東西被撕開了。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：你們有沒有看到那個彩色的塑膠袋？它好像不見了半邊。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，說不定是風把它吹走了？"
+        },
+        {
+          "role": "lele",
+          "text": "還是有小螃蟹把它當成家了？哈哈！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，樂樂你想像力真豐富！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "小偵探模式開啟",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "你看，我們來當小偵探，好不好？"
+        },
+        {
+          "role": "lele",
+          "text": "小偵探？有放大鏡嗎？"
+        },
+        {
+          "role": "feifei",
+          "text": "沒有啦，但我們可以用眼睛和耳朵，仔細看看和聽聽。"
+        },
+        {
+          "role": "lele",
+          "text": "那我眼睛亮亮的，準備捕捉秘密！"
+        },
+        {
+          "role": "feifei",
+          "text": "我也是，放大鏡模式啟動！我們先別急著說話，偷偷觀察一下。"
+        },
+        {
+          "role": "lele",
+          "text": "好耶，我要用我的超級耳朵聽聽看有什麼聲音。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們要慢慢來，像真的偵探一樣，不要急著猜。"
+        },
+        {
+          "role": "lele",
+          "text": "嗯嗯，我會小心的！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "發現沙灘的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "就在霏霏和樂樂準備開始偵探的時候，飯糰啵啵跑過來，臉上有點皺眉。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：欸，剛剛我放在樹下的風箏，好像不在那裡了耶。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：真的嗎？我剛剛還看到有人在那邊玩風箏耶。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，等一下，我剛剛聽到旁邊有「沙沙」的聲音，好像有人跑過去。"
+        },
+        {
+          "role": "feifei",
+          "text": "沙沙聲？是風聲還是腳步聲呢？"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我不太確定，但我記得那個風箏放在一塊大石頭旁邊。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們去那邊看看，好不好？"
+        },
+        {
+          "role": "lele",
+          "text": "走吧！小偵探模式繼續！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "風箏附近的發現",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到大石頭旁，發現地上有些沙子被踩得扁扁的。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這裡的沙子踩扁了耶，好像有人剛剛站過。"
+        },
+        {
+          "role": "feifei",
+          "text": "還有這裡有一小塊彩色的塑膠碎片，像是風箏上的一部分。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：對耶，我的風箏是紅色和藍色的，這片碎片好像就是藍色的。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我剛剛還看到一隻小螞蟻在塑膠碎片旁邊爬來爬去，好像在巡邏。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，螞蟻也當小保全了嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "那我是不是要當風箏保安隊長？"
+        },
+        {
+          "role": "feifei",
+          "text": "你先別亂跑，保安隊長要先觀察才行。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "附近的其他痕跡",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "他們繼續往風箏附近的沙灘走去，發現一個小水坑。"
+        },
+        {
+          "role": "lele",
+          "text": "水坑裡有一些腳印，還有幾片沙子黏在腳印邊緣。"
+        },
+        {
+          "role": "feifei",
+          "text": "腳印看起來有點小，應該是小朋友的鞋子。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我覺得腳印旁邊有點濕濕的，好像剛剛有人踩過水坑。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：欸，我剛剛聽到有孩子在不遠處笑著說「風箏飛得好高！」"
+        },
+        {
+          "role": "feifei",
+          "text": "我們要不要去問問那邊的小朋友？"
+        },
+        {
+          "role": "lele",
+          "text": "好啊，說不定他們看到了什麼！"
+        },
+        {
+          "role": "feifei",
+          "text": "走吧，偵探隊出動！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "海邊遊戲區的小發現",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "他們來到海邊的遊戲區，看到一些小朋友在玩沙子和水。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這裡有個小桶子，裡面裝著一些五顏六色的貝殼。"
+        },
+        {
+          "role": "feifei",
+          "text": "桶子旁邊有幾塊濕濕的海藻，摸起來滑滑的。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：我看見有人把沙鏟放在地上，好像剛剛挖了個坑。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：我剛剛聽到「咕嚕咕嚕」的聲音，像是水流動的聲音。"
+        },
+        {
+          "role": "lele",
+          "text": "欸欸，我看到那邊有個小螃蟹，牠好像拿著一片塑膠袋在爬耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "塑膠袋？會不會是剛剛那片碎片的朋友？"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，塑膠袋變成海邊的秘密武器了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想時間",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想啊，可能是風把風箏吹到別的地方去了，也許還有人不小心踩到它。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許是風吹動沙子，把風箏的線拉得亂七八糟。"
+        },
+        {
+          "role": "lele",
+          "text": "或者，也許有隻調皮的小螃蟹想玩風箏，結果把它弄得有點亂。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，有沒有可能是風箏自己跑去散步了？"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得風箏不會自己走路啦！"
+        },
+        {
+          "role": "feifei",
+          "text": "這些都是可能的，但我們還不確定喔。"
+        },
+        {
+          "role": "lele",
+          "text": "對啦，還是要再看看，或者找老師幫忙比較好。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，小偵探們，現在是偵探模式時間！"
+        },
+        {
+          "role": "lele",
+          "text": "你可以選一個你覺得可能和風箏有關的人喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "不過也可以說「我還不確定，交給大人」，這樣最安全。"
+        },
+        {
+          "role": "lele",
+          "text": "不管選什麼，都很棒！我們一起慢慢看清楚！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "飯糰啵啵",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "膠帶小黏",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（風箏的秘密）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "原來風箏被風刮到了海邊的小石堆裡。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：因為海風很大，風箏線鬆了，所以風箏跑到別的地方去了。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：對不起，我沒有把風箏綁好，讓大家擔心了。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：沒關係，下次記得綁緊一點就好，這樣風箏才不會亂跑。"
+        },
+        {
+          "role": "feifei",
+          "text": "下次我們也要一起幫忙看風箏，讓它乖乖待在身邊。"
+        },
+        {
+          "role": "lele",
+          "text": "風箏亂跑的樣子，好像小鳥飛出去玩一樣，好笑呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（還有點不確定）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "風箏最後被找到了，放在一個隱藏的沙堆後面，大家都鬆了一口氣。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：其實是因為有人不小心踩到了沙子，讓風箏滑到了那裡去。"
+        },
+        {
+          "role": "narrator",
+          "text": "膠帶小黏：抱歉，我當時有在附近玩，可能真的踩到了沙子，沒有注意到。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：我們很感謝你的誠實，玩耍時要多注意周圍，這樣大家的東西才會更安全。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們學到，下次要更仔細看風箏，別讓它自己跑掉。"
+        },
+        {
+          "role": "lele",
+          "text": "我也會記得，下次當風箏守護隊，保護風箏不亂跑！"
+        },
+        {
+          "role": "narrator",
+          "text": "大家和好如初，笑著回到海邊的遊戲中，陽光依舊溫暖明亮。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人幫忙）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大家一起找到了風箏，原來是被沙子和風推到角落去了。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：有時候東西會被風吹動，這很正常，別擔心。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：對不起讓你們有點擔心，下次我們會一起注意，確保東西都在安全的地方。"
+        },
+        {
+          "role": "feifei",
+          "text": "不確定的時候，找大人幫忙真的很重要。"
+        },
+        {
+          "role": "lele",
+          "text": "我學到下次要更小心，也要幫朋友看好自己的東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "雖然風箏跑來跑去有點麻煩，但大家還是笑著，繼續享受海邊的陽光和沙灘。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

@@ -1,0 +1,880 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770969449_0",
+    "title": "公車上的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "公車上的熱鬧早晨",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "早晨的公車站，陽光灑在車頂上，閃閃發亮。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂今天要搭公車去學校，車上坐著不少人。"
+        },
+        {
+          "role": "narrator",
+          "text": "旁邊有個戴著紅色帽子的阿蘇拉，手裡拿著一包餅乾小脆。"
+        },
+        {
+          "role": "narrator",
+          "text": "另一邊坐著穿著藍色外套的橡皮小方，他正看著窗外發呆。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，你看那個阿蘇拉帽子好像變大了耶！"
+        },
+        {
+          "role": "lele",
+          "text": "哪可能啦，是你眼睛花了！"
+        },
+        {
+          "role": "feifei",
+          "text": "我沒有啦！你才花眼呢，哈哈。"
+        },
+        {
+          "role": "narrator",
+          "text": "公車司機叔叔笑著按了按喇叭，車子開始慢慢開動。"
+        },
+        {
+          "role": "lele",
+          "text": "哇，這公車搖搖晃晃的，像在跳舞！"
+        },
+        {
+          "role": "feifei",
+          "text": "跳舞？你會不會是想跳街舞啊？"
+        },
+        {
+          "role": "lele",
+          "text": "才沒有，我跳街舞會把公車跳翻！"
+        },
+        {
+          "role": "narrator",
+          "text": "車上有個小朋友拿著一隻飯糰啵啵的玩偶，不停地跟它講話。"
+        },
+        {
+          "role": "narrator",
+          "text": "飯糰啵啵：喵～（玩偶聲）"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，飯糰啵啵今天好像特別吵喔！"
+        },
+        {
+          "role": "lele",
+          "text": "可能它肚子餓了吧，哈哈。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿蘇拉突然站起來，想把餅乾小脆遞給旁邊的橡皮小方。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿蘇拉：你要不要吃點餅乾？我剛買的，好脆喔！"
+        },
+        {
+          "role": "narrator",
+          "text": "橡皮小方：謝謝！我剛好肚子也餓了。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，我怎麼沒有餅乾？"
+        },
+        {
+          "role": "feifei",
+          "text": "你可以跟阿蘇拉借啊，不然我用我的口水跟你換！"
+        },
+        {
+          "role": "lele",
+          "text": "蛤？不要啦，口水不換餅乾啦！"
+        },
+        {
+          "role": "narrator",
+          "text": "公車突然晃了一下，樂樂差點撞到前面的座椅。"
+        },
+        {
+          "role": "feifei",
+          "text": "小心點啦！你快變成公車裡的跳跳虎了。"
+        },
+        {
+          "role": "lele",
+          "text": "我才不是跳跳虎，我是公車上的小飛俠！"
+        },
+        {
+          "role": "feifei",
+          "text": "小飛俠？那你要不要試試看飛下去？"
+        },
+        {
+          "role": "lele",
+          "text": "不要啦，會摔屁股啦！"
+        },
+        {
+          "role": "narrator",
+          "text": "車窗外有一隻貓咪悠閒地走過馬路，尾巴甩來甩去。"
+        },
+        {
+          "role": "feifei",
+          "text": "你看那隻貓咪，尾巴好像在畫圈圈耶。"
+        },
+        {
+          "role": "lele",
+          "text": "牠可能在練習畫畫吧！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，畫貓尾巴畫得很厲害喔！"
+        },
+        {
+          "role": "narrator",
+          "text": "公車快到下一站了，大家開始準備下車。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，等等，我剛剛好像聽到什麼聲音耶。"
+        },
+        {
+          "role": "feifei",
+          "text": "聲音？什麼聲音？"
+        },
+        {
+          "role": "lele",
+          "text": "就是剛剛有人悄悄撕紙的聲音，好像是貼紙那種。"
+        },
+        {
+          "role": "feifei",
+          "text": "撕貼紙？你確定不是你自己的餅乾包裝紙嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "不是啦，我剛剛沒吃餅乾。"
+        },
+        {
+          "role": "feifei",
+          "text": "好啦好啦，我是說說看嘛。"
+        },
+        {
+          "role": "lele",
+          "text": "我想用我的小偵探眼睛再看一次，看看發生了什麼。"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，我們開啟放大鏡模式，偷偷觀察一下。"
+        },
+        {
+          "role": "lele",
+          "text": "我眼睛亮亮的，準備開始偵探了！"
+        },
+        {
+          "role": "feifei",
+          "text": "我也是，我們一起用眼睛說話，看看公車上有什麼小秘密！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "公車上的小插曲",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "公車停靠站牌，門「嘟嘟」一聲打開。"
+        },
+        {
+          "role": "narrator",
+          "text": "一位穿著黃色外套的餅乾小脆上了車，手裡拿著一個大大的氣球。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：氣球要不要看？我剛剛在市集買的，好大喔！"
+        },
+        {
+          "role": "lele",
+          "text": "哇！氣球會飛嗎？"
+        },
+        {
+          "role": "feifei",
+          "text": "氣球飛走的話，我們要不要追？"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：別追啦，氣球會累的。"
+        },
+        {
+          "role": "narrator",
+          "text": "大家笑成一團，氣氛變得很輕鬆。"
+        },
+        {
+          "role": "lele",
+          "text": "我想氣球能變成超人，飛去救人！"
+        },
+        {
+          "role": "feifei",
+          "text": "超人氣球？那他會不會吹口哨，還會唱歌？"
+        },
+        {
+          "role": "lele",
+          "text": "會啊！他唱的歌是『氣球之歌』！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈哈，那我也想聽聽看。"
+        },
+        {
+          "role": "narrator",
+          "text": "公車繼續往前開，窗外風景像在移動的畫卷。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你看那邊的樹葉，好像在跳舞耶。"
+        },
+        {
+          "role": "lele",
+          "text": "樹葉跳舞？那我也想跟著跳！"
+        },
+        {
+          "role": "narrator",
+          "text": "公車裡響起一陣笑聲，大家都覺得今天很有趣。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：我覺得公車像一個搖搖船，搖來搖去好好玩。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我們是不是要變成搖擺舞大師了？"
+        },
+        {
+          "role": "lele",
+          "text": "我可以帶動全場！"
+        },
+        {
+          "role": "narrator",
+          "text": "公車快到下一站，大家開始準備下車。"
+        },
+        {
+          "role": "feifei",
+          "text": "等一下，你聽到剛剛的聲音了嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "有啊，好像又有撕紙的聲音耶。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們再用小偵探模式，好好看清楚這次是誰在撕紙。"
+        },
+        {
+          "role": "lele",
+          "text": "好，我眼睛亮亮的，準備在公車上找答案！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "小偵探的眼睛亮起來",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "樂樂，你有沒有注意到，剛剛有人悄悄摸了摸座位的扶手？"
+        },
+        {
+          "role": "lele",
+          "text": "欸，我有看到！那個扶手摸起來黏黏的，像是剛剛被貼過貼紙。"
+        },
+        {
+          "role": "feifei",
+          "text": "是喔，那我們再看看扶手附近有沒有什麼特別的東西。"
+        },
+        {
+          "role": "lele",
+          "text": "我看到有一片小小的透明紙，掉在座位下的地板上。"
+        },
+        {
+          "role": "feifei",
+          "text": "透明紙？會不會是貼紙的背面？"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我猜有人剛剛撕了貼紙。"
+        },
+        {
+          "role": "feifei",
+          "text": "好好玩喔，公車上也有小秘密藏著。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得我們應該繼續用小偵探眼睛，看看還有什麼奇妙的事情。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，我們的眼睛亮亮的，準備發現更多。"
+        },
+        {
+          "role": "lele",
+          "text": "那我們先不要出聲，偷偷觀察。"
+        },
+        {
+          "role": "feifei",
+          "text": "好啊，我們像小貓一樣輕輕地走。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，你剛剛撞到阿蘇拉的帽子了啦！"
+        },
+        {
+          "role": "feifei",
+          "text": "哎呀，抱歉抱歉，我的腳像小象一樣重。"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，我差點笑出聲。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們繼續觀察，好奇心讓我眼睛都亮起來了！"
+        },
+        {
+          "role": "lele",
+          "text": "我也是！這公車好像藏著好多故事呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "公車上的小狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "公車行駛到半路時，司機叔叔突然停了車。"
+        },
+        {
+          "role": "narrator",
+          "text": "司機叔叔：不好意思，前面有點小狀況，請大家稍等一下。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，怎麼突然停下來？"
+        },
+        {
+          "role": "feifei",
+          "text": "我也不知道耶，大家都開始看向窗外。"
+        },
+        {
+          "role": "narrator",
+          "text": "車門打開，大家看到有人在車外輕輕撿東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿蘇拉：咦，那邊有一張小小的貼紙，好像剛剛掉的。"
+        },
+        {
+          "role": "narrator",
+          "text": "橡皮小方：我看到有人低頭撿東西，好像很著急的樣子。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我剛剛聽到撕貼紙的聲音，難道有什麼東西被撕掉了？"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我們一起去看看吧，也許能發現什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "好！小偵探模式開啟！我們去找找看這個小秘密！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "車外的發現",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂下了車，走到撿東西的小朋友身邊。"
+        },
+        {
+          "role": "feifei",
+          "text": "你撿到什麼了？"
+        },
+        {
+          "role": "narrator",
+          "text": "小朋友：我撿到一小片透明的貼紙背面，還有一點黏黏的感覺。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，這不就是剛剛公車上那個扶手附近掉的嗎？"
+        },
+        {
+          "role": "feifei",
+          "text": "對耶，可能有人剛剛撕了貼紙，這是掉落的碎片。"
+        },
+        {
+          "role": "narrator",
+          "text": "附近的地上還有幾個小紙屑，像是剛被撕開的紙。"
+        },
+        {
+          "role": "lele",
+          "text": "我看到地上還有一張皺皺的便條紙，好像被揉過。"
+        },
+        {
+          "role": "feifei",
+          "text": "便條紙？會不會是誰剛剛寫了什麼，然後又揉掉了？"
+        },
+        {
+          "role": "lele",
+          "text": "我們可以再找找看其他地方有沒有類似的東西！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "換個角度看",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂繞到公車另一邊，想看看有沒有其他東西。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我看到公車門旁邊的地板上，有一個小小的亮亮東西。"
+        },
+        {
+          "role": "lele",
+          "text": "我過去看看，是一片藍色的貼紙角落，還黏著一點灰塵。"
+        },
+        {
+          "role": "feifei",
+          "text": "奇怪，這個貼紙怎麼會在地上？"
+        },
+        {
+          "role": "narrator",
+          "text": "公車內的餅乾小脆也走過來，拿著剛剛的氣球。"
+        },
+        {
+          "role": "narrator",
+          "text": "餅乾小脆：你們在找什麼？我剛剛看到有人在門口摸來摸去，好像在找東西。"
+        },
+        {
+          "role": "lele",
+          "text": "摸來摸去？那會不會是貼紙被撕掉的時候掉下來的？"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，我覺得有可能喔。"
+        },
+        {
+          "role": "narrator",
+          "text": "突然，一陣風吹過，氣球搖晃起來，發出「呼呼」的聲音。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，氣球好像在跟我們說話耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，氣球會不會是公車的秘密守護者？"
+        },
+        {
+          "role": "lele",
+          "text": "那我想跟氣球當朋友！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三次發現與誤會",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走回車內，想再仔細看看扶手和座位。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，我摸到扶手上有點黏黏的東西，像是口香糖！"
+        },
+        {
+          "role": "feifei",
+          "text": "口香糖？那不是很黏腳嗎？"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，可能是公車裡的小怪獸留的口水吧！"
+        },
+        {
+          "role": "feifei",
+          "text": "小怪獸？你是說公車裡有小怪獸？"
+        },
+        {
+          "role": "lele",
+          "text": "對啊！牠一定很調皮，偷偷黏東西在扶手上。"
+        },
+        {
+          "role": "narrator",
+          "text": "旁邊的阿蘇拉聽到笑了起來。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿蘇拉：你們兩個真會想像，公車裡哪有小怪獸啦。"
+        },
+        {
+          "role": "feifei",
+          "text": "不過，扶手真的有黏黏的感覺，這點是真的。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得公車好像有一個小秘密，等一下我們再繼續找找。"
+        },
+        {
+          "role": "feifei",
+          "text": "恩恩，我們的偵探眼睛還亮著呢！"
+        },
+        {
+          "role": "lele",
+          "text": "我想知道這黏黏的是什麼味道，聞起來像糖果還是橡皮？"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我聞到一點甜甜的味道，好像是糖果。"
+        },
+        {
+          "role": "lele",
+          "text": "哇，那小怪獸一定是甜食控！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，我們的公車探險越來越有趣了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "小偵探的猜想",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，也許有人剛剛在公車上玩貼紙遊戲，結果不小心掉了一些。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許吧，或者是有人想做一個貼紙藝術品，結果弄得有點亂。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得那個黏黏的東西，可能不是口香糖，是糖果的包裝紙。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，說不定是小怪獸的甜點掉下來了，我們的公車小怪獸愛吃糖果。"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，我還想，也許有人在偷偷做手工貼紙，想送給朋友。"
+        },
+        {
+          "role": "feifei",
+          "text": "這些都是可能的喔，反正我們先不急著決定是什麼。"
+        },
+        {
+          "role": "lele",
+          "text": "對，等一下我們可以問問看大人，他們可能知道更多。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，交給大人一起看，也是一種安全的做法。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，我們的小偵探眼睛亮亮的，準備選一個可能跟這件事有關的人。"
+        },
+        {
+          "role": "lele",
+          "text": "選誰都可以，不過不確定也沒關係喔！"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，偵探模式開啟，我們慢慢看，沒有急著決定。"
+        },
+        {
+          "role": "lele",
+          "text": "如果真的不確定，交給大人一起看會比較安全。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "阿蘇拉",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "餅乾小脆",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "橡皮小方",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（說明與和好）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "因為阿蘇拉剛剛在公車上摸過貼紙，可能不小心掉了幾片在扶手和地板上。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：阿蘇拉，謝謝你分享餅乾，也謝謝你幫忙撿起掉落的貼紙。"
+        },
+        {
+          "role": "feifei",
+          "text": "對不起，阿蘇拉，我們沒有說你做錯事，只是想知道狀況。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：下次如果有東西掉了，可以跟司機叔叔說，他會幫忙處理。"
+        },
+        {
+          "role": "lele",
+          "text": "我學到，遇到不確定的事情，要用眼睛和耳朵多觀察，還有找大人幫忙。"
+        },
+        {
+          "role": "feifei",
+          "text": "對啊，公車上的小秘密被我們發現了，也沒有讓大家不開心，真棒！"
+        },
+        {
+          "role": "lele",
+          "text": "哈，我覺得公車上的小怪獸應該是糖果控，哈哈哈！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點的猜想）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "餅乾小脆剛剛拿著氣球走來走去，大家都回到座位上，氣氛漸漸平靜下來。"
+        },
+        {
+          "role": "narrator",
+          "text": "原來餅乾小脆在玩氣球的時候，可能不小心碰到了貼紙，讓它掉落了。"
+        },
+        {
+          "role": "lele",
+          "text": "霏霏，你看餅乾小脆好像想說話呢！"
+        },
+        {
+          "role": "feifei",
+          "text": "抱歉餅乾小脆，我們沒有說你做錯事，只是想了解狀況。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：以後如果看到東西掉了，可以提醒大家一起注意，避免踩到。"
+        },
+        {
+          "role": "lele",
+          "text": "我學會了，用眼睛看清楚，也要對朋友有耐心。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，公車上的小秘密讓我們更懂得互相幫助了。"
+        },
+        {
+          "role": "lele",
+          "text": "氣球超可愛，我想帶它一起回家！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人一起看）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "橡皮小方剛剛看著窗外發呆，大家也慢慢回到座位上，車內恢復平靜。"
+        },
+        {
+          "role": "narrator",
+          "text": "其實是因為大家都還在觀察，還沒確定貼紙是怎麼掉的。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：橡皮小方，謝謝你安靜坐著，也謝謝你願意聽大家說話。"
+        },
+        {
+          "role": "feifei",
+          "text": "對不起，我們沒有說你有錯，只是想知道發生什麼事。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人：遇到不確定的事情，交給大人一起看會更安全、更安心。"
+        },
+        {
+          "role": "lele",
+          "text": "我學到，當不確定時，不用急著猜，找大人幫忙是好選擇。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們的小偵探眼睛亮亮的，還有大人陪著，最棒了！"
+        },
+        {
+          "role": "lele",
+          "text": "下次公車上如果有小秘密，我還想一起發現！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

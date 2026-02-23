@@ -1,0 +1,692 @@
+{
+  "meta": {
+    "schema_version": "v1",
+    "case_id": "pool_1770972489_17",
+    "title": "運動中心的小秘密",
+    "tags": [
+      "ai"
+    ]
+  },
+  "nodes": {
+    "scene_01_start": {
+      "title": "開場：運動中心的熱鬧",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "今天是週末，運動中心裡熱熱鬧鬧的。"
+        },
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂跟著爸爸媽媽來這裡玩。"
+        },
+        {
+          "role": "narrator",
+          "text": "運動中心裡有籃球場、游泳池和攀岩區。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，樂樂，你看那邊有好多小朋友在打籃球耶。"
+        },
+        {
+          "role": "lele",
+          "text": "我也想玩！可是我還不會投籃。"
+        },
+        {
+          "role": "narrator",
+          "text": "爸爸：別急，先去暖暖身，等一下我們一起玩。"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽：那邊有攀岩牆，小黏和小脆也來了，他們準備比賽呢。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏是一個戴著藍色頭巾的男孩，小脆則是拿著紅色水壺的女孩。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：霏霏，你看我今天練習了好多次攀岩！"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：我剛喝完水，準備上場了！"
+        },
+        {
+          "role": "feifei",
+          "text": "哇，你們好厲害！我跟樂樂還在學呢。"
+        },
+        {
+          "role": "lele",
+          "text": "我剛剛踩到一塊滑滑的東西，好像是水珠。"
+        },
+        {
+          "role": "feifei",
+          "text": "水珠？那你剛剛在哪裡踩到的？"
+        },
+        {
+          "role": "lele",
+          "text": "就在籃球場旁邊的地板上，好像有人剛剛灑水。"
+        },
+        {
+          "role": "narrator",
+          "text": "運動中心裡播放著輕快的音樂，空氣裡有運動飲料的甜味。"
+        },
+        {
+          "role": "narrator",
+          "text": "爸爸：記得喝水，運動要保持水分喔。"
+        },
+        {
+          "role": "narrator",
+          "text": "媽媽：還有，地上有水要小心別滑倒。"
+        },
+        {
+          "role": "feifei",
+          "text": "樂樂，我們去看看攀岩區那邊吧，聽說今天有小小比賽。"
+        },
+        {
+          "role": "lele",
+          "text": "好啊！我還想看誰爬得最快。"
+        },
+        {
+          "role": "narrator",
+          "text": "攀岩牆上掛著彩色的繩索，還有貼著星星貼紙的小旗子。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你看那個紅色繩索的旁邊，好像有一個小東西掉下來了。"
+        },
+        {
+          "role": "lele",
+          "text": "真的假的？我去撿看看！"
+        },
+        {
+          "role": "feifei",
+          "text": "小聲點，像小偵探一樣，偷偷用眼睛看清楚！"
+        },
+        {
+          "role": "lele",
+          "text": "我開啟放大鏡模式了！我們去看看那個掉下來的小東西是什麼！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "繼續",
+          "next": "scene_01_warmup_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_2": {
+      "title": "更多運動中心的日常",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "樂樂彎下腰撿起一個亮晶晶的小貼紙。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，好像是星星貼紙耶！"
+        },
+        {
+          "role": "feifei",
+          "text": "貼紙？剛剛攀岩牆上的小旗子也有星星貼紙耶。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：那是我的！我剛剛在練習的時候，不小心掉了。"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：我剛剛看到小黏在攀岩的時候，還踩到一點點黏黏的東西。"
+        },
+        {
+          "role": "lele",
+          "text": "黏黏的？是什麼東西啊？"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，我想像那東西變成小怪獸，黏黏怪獸會黏住手腳，爬山就很難了！"
+        },
+        {
+          "role": "lele",
+          "text": "哈哈，那我不要遇到黏黏怪獸，我怕被黏住，動不了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再繼續",
+          "next": "scene_01_warmup_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_01_warmup_3": {
+      "title": "好奇心轉場：小偵探模式開啟",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "我們先把這個貼紙放一邊，繼續看攀岩區其他地方好了。"
+        },
+        {
+          "role": "lele",
+          "text": "對呀，我想知道黏黏的東西到底是什麼。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們像小偵探一樣，眼睛亮亮的，偷偷看清楚每個細節！"
+        },
+        {
+          "role": "lele",
+          "text": "我開啟放大鏡模式了，準備發現大秘密！"
+        },
+        {
+          "role": "feifei",
+          "text": "不過也不用太緊張啦，說不定只是大家玩得太開心，東西掉了而已。"
+        },
+        {
+          "role": "lele",
+          "text": "好啦好啦，我知道了，我們去看看其他地方！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我們去看看",
+          "next": "scene_02_incident",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_02_incident": {
+      "title": "發現了需要弄清楚的狀況",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到攀岩牆旁邊，發現一塊攀岩板的顏色不太一樣。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這塊攀岩板有點髒髒的，好像被擦過。"
+        },
+        {
+          "role": "feifei",
+          "text": "而且旁邊有水珠滴下來，地上還有濕濕的痕跡。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：我剛剛練習的時候，那裡本來是乾的，怎麼會濕濕的？"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：我也沒看到有人灑水啊。"
+        },
+        {
+          "role": "lele",
+          "text": "而且，我剛才聽到有人說攀岩比賽的道具好像被換過了。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯？什麼？換過了？"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：真的假的？我還沒聽過耶。"
+        },
+        {
+          "role": "lele",
+          "text": "我們一起去問問教練好了，看看他怎麼說。"
+        },
+        {
+          "role": "feifei",
+          "text": "好啊，我們去看看會不會有什麼特別的地方。"
+        },
+        {
+          "role": "lele",
+          "text": "我準備好小偵探模式，眼睛要睜大大！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "一起看看發生什麼事",
+          "next": "scene_03_check_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_03_check_1": {
+      "title": "第一個觀察點：攀岩牆的異狀",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走到攀岩牆邊，看到那塊顏色稍有不同的攀岩板。"
+        },
+        {
+          "role": "lele",
+          "text": "這塊攀岩板摸起來比其他的滑滑的，好像剛擦過油。"
+        },
+        {
+          "role": "feifei",
+          "text": "欸，你剛剛摸了哪裡？"
+        },
+        {
+          "role": "lele",
+          "text": "就在中間靠左邊那塊，摸起來冷冷的，還有點黏黏的感覺。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：我之前沒注意到這裡會黏黏的耶，感覺怪怪的。"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：我剛剛聽到隔壁籃球場有人大喊「快接球！」，聲音很大，差點蓋過我們。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，籃球場那邊好吵，可能沒聽清楚攀岩牆的聲音。"
+        },
+        {
+          "role": "lele",
+          "text": "我想再仔細看看這塊攀岩板，說不定還有別的東西附著著呢。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "再找找看",
+          "next": "scene_04_check_2",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_04_check_2": {
+      "title": "第二個觀察點：教練的說法",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "霏霏和樂樂走向攀岩教練阿雷。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿雷（教練）：欸，這塊攀岩板最近剛換過，因為之前有小裂痕。"
+        },
+        {
+          "role": "lele",
+          "text": "換過？那是不是新的板子才會滑滑的？"
+        },
+        {
+          "role": "narrator",
+          "text": "阿雷（教練）：可能吧，不過我剛剛沒看到有人灑水或弄濕它。"
+        },
+        {
+          "role": "feifei",
+          "text": "阿雷教練，你剛剛有聽到什麼聲音嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "阿雷（教練）：有啊，剛剛有小朋友不小心撞到旁邊的水壺，水潑出來了。"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：是我！我剛剛拿水壺時手滑了一下。"
+        },
+        {
+          "role": "lele",
+          "text": "欸，那水會滴到攀岩板嗎？"
+        },
+        {
+          "role": "narrator",
+          "text": "阿雷（教練）：應該不會太多，水壺在旁邊桌子上，離攀岩板還有點距離。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，聽起來有點複雜耶。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得怪怪的，但還不確定是哪裡怪。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "換個地方看看",
+          "next": "scene_05_check_3",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_05_check_3": {
+      "title": "第三個觀察點：地上的黏黏東西",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "樂樂蹲在地上，盯著攀岩牆旁的地板。"
+        },
+        {
+          "role": "lele",
+          "text": "欸？這裡有黏黏的東西耶，好像糖漿黏在地上。"
+        },
+        {
+          "role": "feifei",
+          "text": "糖漿？誰會帶糖漿來運動中心啊？"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：我剛剛喝了果汁，可能不小心滴出來了。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：哎呀，我差點踩到那黏黏的東西，還好沒滑倒。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得那黏黏的東西可能是黏黏怪獸的腳印！"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，黏黏怪獸？那怪獸會不會還藏在攀岩牆後面啊？"
+        },
+        {
+          "role": "lele",
+          "text": "不會啦，我只是開玩笑。"
+        },
+        {
+          "role": "narrator",
+          "text": "阿雷（教練）：大家小心點，地上濕滑很危險。"
+        },
+        {
+          "role": "feifei",
+          "text": "嗯，這黏黏的東西讓我有點想知道更多。"
+        },
+        {
+          "role": "lele",
+          "text": "我想再找找看別的東西，看看還有沒有什麼怪怪的。"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我有一個猜想",
+          "next": "scene_06_hypothesis_1",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_06_hypothesis_1": {
+      "title": "猜想時間（不下結論）",
+      "narration": [
+        {
+          "role": "lele",
+          "text": "我在想，可能有人剛剛不小心把水壺掉下來，水才會弄濕那塊攀岩板。"
+        },
+        {
+          "role": "feifei",
+          "text": "也許那塊攀岩板剛換過，表面還沒完全乾。"
+        },
+        {
+          "role": "lele",
+          "text": "或者…黏黏怪獸真的有來過，只是我們沒看到。"
+        },
+        {
+          "role": "feifei",
+          "text": "哈哈，你的黏黏怪獸說不定是隱形的呢。"
+        },
+        {
+          "role": "lele",
+          "text": "我還不確定啦，但我覺得有趣。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們先把這些想法放一邊，去問問其他人好了！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "我要指認",
+          "next": "final_accuse",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "final_accuse": {
+      "title": "誰可能和這件事有關呢？",
+      "narration": [
+        {
+          "role": "feifei",
+          "text": "好了，偵探模式開啟！現在要選一個可能和這件事有關的人囉！"
+        },
+        {
+          "role": "lele",
+          "text": "不過也可以說我還不確定，先去問問大人。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，選了也沒關係，不選也沒關係，我們慢慢來！"
+        },
+        {
+          "role": "lele",
+          "text": "加油，我們一起用眼睛和耳朵找答案！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "小黏",
+          "next": "scene_10_ending_clear",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "小脆",
+          "next": "scene_10_ending_nudge",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "阿雷（教練）",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": ""
+        },
+        {
+          "text": "我還不確定，交給大人",
+          "next": "scene_10_ending_defer",
+          "enabled": true,
+          "tag": "",
+          "index": 3
+        }
+      ],
+      "solution_index": 0,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_clear": {
+      "title": "結尾（推理正確）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（老師）：經過大家的觀察和說明，我們發現小黏剛剛在攀岩時，確實踩到了地上的黏黏東西。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（老師）：因為他不小心掉了水壺，水才會濕濕的，攀岩板看起來滑滑的。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（老師）：所以攀岩板的狀況和黏黏東西，是因為這些小意外造成的。"
+        },
+        {
+          "role": "narrator",
+          "text": "小黏：對不起，我不是故意的，下次我會更小心！"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（老師）：沒關係，大家都有不小心的時候，下次記得注意安全，別讓水弄濕地板。"
+        },
+        {
+          "role": "feifei",
+          "text": "這次我們一起用眼睛和耳朵找到答案，真厲害！"
+        },
+        {
+          "role": "lele",
+          "text": "對啊，下次我也要像小偵探一樣仔細觀察！"
+        },
+        {
+          "role": "feifei",
+          "text": "說不定下次黏黏怪獸還會再出現呢！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_nudge": {
+      "title": "結尾（差一點）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（教練）：我們聽到小脆說她剛剛喝果汁時可能滴出一些液體。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（教練）：因為水壺離攀岩板有點距離，應該不會是主要原因。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（教練）：所以攀岩板濕滑的情況可能是多種原因混合造成的。"
+        },
+        {
+          "role": "narrator",
+          "text": "小脆：抱歉，我沒注意到液體滴出來了。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（教練）：沒關係，下次運動時要更小心，不要讓地面變滑。"
+        },
+        {
+          "role": "feifei",
+          "text": "我們用眼睛找了很多細節，真的很棒！"
+        },
+        {
+          "role": "lele",
+          "text": "下次我也要像小偵探一樣，注意每個小地方！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "scene_10_ending_defer": {
+      "title": "結尾（交給大人）",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：大家今天都很認真觀察，遇到不確定的事情，交給大人一起幫忙是很好的選擇。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：其實攀岩板濕滑是因為剛換過新板，還有水壺不小心掉水，大家都有一點點關係。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：對不起，如果有讓大家擔心的地方，我們會提醒所有人注意安全。"
+        },
+        {
+          "role": "narrator",
+          "text": "大人（爸爸）：下次來運動中心，記得多留意周圍的環境，保持安全。"
+        },
+        {
+          "role": "lele",
+          "text": "我覺得交給大人真的很安心。"
+        },
+        {
+          "role": "feifei",
+          "text": "沒錯，我們用眼睛和耳朵找線索，也學會了遇到不懂的事可以問大人。"
+        },
+        {
+          "role": "lele",
+          "text": "下次我也要變得更厲害！"
+        },
+        {
+          "role": "feifei",
+          "text": "說不定黏黏怪獸會變成我們的好朋友也說不定喔！"
+        }
+      ],
+      "choices": [
+        {
+          "text": "故事結束",
+          "next": "quit",
+          "enabled": true,
+          "tag": ""
+        }
+      ],
+      "solution_index": null,
+      "can_replay": null,
+      "can_quit": null
+    },
+    "quit": {
+      "title": "結束",
+      "narration": [
+        {
+          "role": "narrator",
+          "text": "故事先到這裡，謝謝你一起當小偵探！"
+        },
+        {
+          "role": "narrator",
+          "text": "記得，遇到不確定的事情，可以用眼睛和耳朵仔細看看，也可以找大人幫忙。"
+        },
+        {
+          "role": "narrator",
+          "text": "下次再來運動中心，說不定還有更多小秘密等著你發現呢！"
+        }
+      ],
+      "choices": [],
+      "solution_index": null,
+      "can_replay": true,
+      "can_quit": true
+    }
+  }
+}

@@ -130,12 +130,28 @@ def synthesize_to_wav(
             file_path.write_bytes(data)
 
         if not file_path.exists() or file_path.stat().st_size <= 512:
-            print("[tts_service] wrote empty/small wav:", str(file_path), flush=True)
+            print(
+                "[tts_service] wrote empty/small wav:",
+                {"path": str(file_path), "size": file_path.stat().st_size if file_path.exists() else 0,
+                 "model": model, "voice": voice},
+                flush=True,
+            )
             return None
 
 
         return TtsResult(filename=filename, file_path=file_path, cache_hit=False)
 
     except Exception as e:
-        print("[tts_service] synth failed:", repr(e), flush=True)
+        print(
+            "[tts_service] synth failed:",
+            {
+                "err": repr(e),
+                "model": model,
+                "voice": voice,
+                "speed": speed,
+                "text_len": len(text),
+                "out_dir": str(out_dir),
+            },
+            flush=True,
+        )
         return None

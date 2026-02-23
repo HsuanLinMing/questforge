@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-
+from questforge_server.routes_pool import router as pool_router
 # ✅ 本機開發才讀 .env（Render 會用 Dashboard 的 env vars）
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -19,6 +19,11 @@ except Exception:
 
 from questforge_server.routes_game import router as game_router
 from questforge_server.routes_voice_lab import router as tts_router
+from questforge_server.pool.pool_config import PoolConfig
+from questforge_server.pool.pool_manager import StoryPoolManager
+
+# ✅ global pool (keep one instance)
+_pool = StoryPoolManager(PoolConfig())
 
 
 def _commit_sha() -> str:
@@ -37,8 +42,17 @@ def _env_snapshot() -> dict:
         "QF_TTS_ONLY_AI",
         "QF_POOL_DIR",
         "QF_AI_FALLBACK_TO_STATIC",
+        "QF_UPSTASH_REDIS_REST_URL",  # ✅ show only url (no token)
     ]
-    return {k: (os.getenv(k) or "") for k in keys}
+    snap = {k: (os.getenv(k) or "") for k in keys}
+
+    # never expose token
+    if os.getenv("QF_UPSTASH_REDIS_REST_TOKEN"):
+        snap["QF_UPSTASH_REDIS_REST_TOKEN"] = "***set***"
+    else:
+        snap["QF_UPSTASH_REDIS_REST_TOKEN"] = ""
+
+    return snap
 
 
 def create_app() -> FastAPI:
@@ -77,7 +91,13 @@ def create_app() -> FastAPI:
         return {
             "ok": True,
             "service": "questforge_server",
-            "endpoints": ["/health", "/v1/game/start", "/v1/game/choose", "/static/tts"],
+            "endpoints": [
+                "/health",
+                "/v1/game/start",
+                "/v1/game/choose",
+                "/static/tts",
+                "/static/tts_runs",
+            ],
         }
 
     @app.get("/health")
@@ -90,9 +110,10 @@ def create_app() -> FastAPI:
             "env": _env_snapshot(),
         }
 
+    # ✅ IMPORTANT: startup hook must be defined AFTER app exists, inside create_app()
     @app.on_event("startup")
     def _startup_log() -> None:
-        # ✅ 讓你在 Render logs 一眼看出 env 有沒有吃到
+        # ✅ 原本 log 保留
         print("[BOOT] QuestForge Server starting...", flush=True)
         print(f"[BOOT] commit_sha={_commit_sha()}", flush=True)
         for k, v in _env_snapshot().items():
@@ -100,9 +121,29 @@ def create_app() -> FastAPI:
         print(f"[BOOT] tts_dir={tts_dir}", flush=True)
         print(f"[BOOT] runs_dir={runs_dir}", flush=True)
 
+        # ✅ NEW: warmup story pool (enqueue jobs if ready < min_ready)
+        try:
+            _pool.ensure_pool()
+            print("[POOL] warmup ensure_pool ok", flush=True)
+        except Exception as e:
+            print(f"[POOL] warmup ensure_pool fail err={e!r}", flush=True)
+
+    # ✅ routers
     app.include_router(game_router)
     app.include_router(tts_router)
+    app.include_router(pool_router)
+
+    pool_tts_dir = Path(".qf_cache/pool_ai/tts").resolve()
+    pool_tts_dir.mkdir(parents=True, exist_ok=True)
+
+    app.mount(
+        "/static/pool_tts",
+        StaticFiles(directory=str(pool_tts_dir)),
+        name="pool_tts",
+    )
+
     return app
 
 
+# ✅ uvicorn entrypoint
 app = create_app()

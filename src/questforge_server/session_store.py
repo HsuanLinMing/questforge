@@ -18,7 +18,7 @@ from questforge.content.cases import CASES
 
 from questforge.ai.runtime_story_nodes_generator_v1 import RuntimeStoryNodesGeneratorV1
 from questforge.adapters.story_nodes_to_session import build_game_session_from_story_nodes
-from questforge.contracts.story_nodes_v1 import story_nodes_package_from_dict
+from questforge.contracts.story_nodes_v1 import story_nodes_package_from_dict, StoryNodesPackage
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -67,7 +67,7 @@ def _set_story_meta(
         if vars_ is None:
             return
         vars_["qf_story"] = {
-            "source": source,        # "ai" | "static" | "pool"
+            "source": source,        # "ai" | "static" | "sample"
             "status": status,        # "ok" | "generating" | "failed"
             "stage": stage,          # bootstrap_current_tts / bootstrap_ai1 / ...
             "error": error or "",
@@ -154,25 +154,30 @@ def _dump_ai_failure(
 
 
 # ============================================================
-# Pool loader
+# Sample Pool loader (JSON assets)
 # ============================================================
 
-def _pool_dir() -> Path:
-    d = (os.getenv("QF_POOL_DIR") or ".qf_cache/pool").strip()
+def _sample_pool_dir() -> Path:
+    """
+    ✅ Product fallback sample pool.
+    - default points to repo assets: src/questforge/content/sample_pool_json
+    - can override via env for testing.
+    """
+    d = (os.getenv("QF_SAMPLE_POOL_DIR") or "src/questforge/content/sample_pool_json").strip()
     return Path(d).resolve()
 
 
-def _list_pool_files() -> List[Path]:
-    root = _pool_dir()
+def _list_sample_pool_files() -> List[Path]:
+    root = _sample_pool_dir()
     if not root.exists():
         return []
-    files = [p for p in root.glob("*.json") if p.is_file()]
+    files = [p for p in root.glob("*.storynodes.json") if p.is_file()]
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files
 
 
-def _pick_pool_file(seed: Optional[int] = None) -> Optional[Path]:
-    files = _list_pool_files()
+def _pick_sample_pool_file(seed: Optional[int] = None) -> Optional[Path]:
+    files = _list_sample_pool_files()
     if not files:
         return None
     if seed is None:
@@ -192,10 +197,7 @@ class SessionStore:
         self._gen = RuntimeStoryNodesGeneratorV1()
 
         self._ai_enabled = _env_bool("QF_AI_STORY_ENABLED", True)
-        # 目前這個 flag 先留著（你這版流程以 pool 為 current，比較不需要 fallback）
         self._ai_fallback_to_static = _env_bool("QF_AI_FALLBACK_TO_STATIC", False)
-
-        # 先保留，未來如果你想改成 N 個 AI 預生，可以用它
         self._bootstrap_ai_count = max(0, _env_int("QF_BOOTSTRAP_AI_COUNT", 2))
 
     def _cleanup(self) -> None:
@@ -335,24 +337,102 @@ class SessionStore:
         return cid
 
     # ----------------------------
-    # Pool builder (StoryNodesPackage JSON)
+    # Sample Pool builder (StoryNodesPackage JSON)
     # ----------------------------
-    def _build_session_from_pool(self, *, seed: int | None = None, stage: str) -> Tuple[str, GameSession, str]:
+    def _build_session_from_sample_pool(self, *, seed: int | None = None, stage: str) -> Tuple[str, GameSession, str]:
         """
         return: (case_id, session, filename)
         """
-        p = _pick_pool_file(seed=seed)
+        p = _pick_sample_pool_file(seed=seed)
         if p is None:
-            raise RuntimeError("pool_empty")
+            raise RuntimeError("sample_pool_empty")
 
         raw = json.loads(p.read_text(encoding="utf-8"))
         pkg = story_nodes_package_from_dict(raw)
         sess, _solve_rule = build_game_session_from_story_nodes(pkg=pkg, seed=seed)
-        case_id = (pkg.meta.case_id or "").strip() or f"pool_{p.stem}"
+        case_id = (pkg.meta.case_id or "").strip() or f"sample_{p.stem}"
 
         _attach_case_id(sess, case_id)
-        _set_story_meta(sess, source="pool", status="ok", stage=stage, forced_case_id=case_id)
+        _set_story_meta(sess, source="sample", status="ok", stage=stage, forced_case_id=case_id)
         return case_id, sess, p.name
+
+    # ----------------------------
+    # Public: create from a given StoryNodesPackage (used by StoryPoolManager)
+    # ----------------------------
+    def create_from_story_pkg(
+        self,
+        *,
+        pkg: StoryNodesPackage,
+        seed: int | None,
+        source: str,
+    ) -> Tuple[str, GameSession]:
+        """
+        ✅ Create a new session with current story forced to the given pkg.
+
+        - current: pkg (source can be: "sample" | "ai" | "static" | "pool")
+        - next1/next2: static placeholders (will be replaced by AI in background pipeline)
+        """
+        self._cleanup()
+        sid = uuid.uuid4().hex
+        sid6 = sid[:6]
+
+        # Build current from pkg
+        try:
+            sess_a, _solve_rule = build_game_session_from_story_nodes(pkg=pkg, seed=seed)
+        except Exception as e:
+            # Fail-safe: if pkg somehow cannot build, fallback to a static case.
+            case_a = self._pick_static_case_id()
+            case_a, sess_a = self._build_session_from_cases(case_id=case_a, seed=seed)
+            _set_story_meta(sess_a, source="static", status="ok", stage="create_from_pkg_fallback", error=repr(e))
+
+            # create minimal item to avoid crash
+            item = _StoreItem(
+                ts=time.time(),
+                current=_StorySlot(sess=sess_a, case_id=case_a, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+                next1=_StorySlot(sess=sess_a, case_id=case_a, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+                next2=_StorySlot(sess=sess_a, case_id=case_a, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+                bg_lock=threading.Lock(),
+                bg_running=False,
+            )
+            self._items[sid] = item
+            print(f"[START] sid={sid6} create_from_pkg fallback -> STATIC case_id={case_a} err={e!r}", flush=True)
+            return sid, sess_a
+
+        case_a = (pkg.meta.case_id or "").strip() or f"{(source or 'story')}_{sid6}_{int(time.time())}"
+        _attach_case_id(sess_a, case_a)
+        _set_story_meta(sess_a, source=(source or "unknown"), status="ok", stage="create_from_pkg", forced_case_id=case_a)
+
+        # next placeholders (static)
+        case_b = self._pick_static_case_id(exclude=case_a)
+        case_b, sess_b = self._build_session_from_cases(case_id=case_b, seed=seed)
+        _set_story_meta(
+            sess_b,
+            source="static",
+            status="generating" if self._ai_enabled else "ok",
+            stage="create_next1_placeholder",
+        )
+
+        case_c = self._pick_static_case_id(exclude=case_b)
+        case_c, sess_c = self._build_session_from_cases(case_id=case_c, seed=seed)
+        _set_story_meta(
+            sess_c,
+            source="static",
+            status="generating" if self._ai_enabled else "ok",
+            stage="create_next2_placeholder",
+        )
+
+        item = _StoreItem(
+            ts=time.time(),
+            current=_StorySlot(sess=sess_a, case_id=case_a, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+            next1=_StorySlot(sess=sess_b, case_id=case_b, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+            next2=_StorySlot(sess=sess_c, case_id=case_c, run_id=uuid.uuid4().hex, prefetched_bundle=None),
+            bg_lock=threading.Lock(),
+            bg_running=False,
+        )
+        self._items[sid] = item
+
+        print(f"[START] sid={sid6} current={source.upper()} case_id={case_a} next1={case_b} next2={case_c}", flush=True)
+        return sid, sess_a
 
     # ----------------------------
     # AI builder
@@ -388,23 +468,23 @@ class SessionStore:
     # ----------------------------
     def create(self, seed: int | None = None) -> Tuple[str, GameSession]:
         """
-        你的流程：
-        - current：pool（若 pool 空就 static）=> 立刻可玩
-        - next1/next2：static placeholder（立刻有東西），背景會依序換成 AI（routes 做 tts prewarm / prefetch）
+        舊流程保留（你目前 routes_game 已改用 pool_manager + create_from_story_pkg）
+        - current：sample pool（若 sample pool 空就 static）
+        - next1/next2：static placeholder
         """
         self._cleanup()
         sid = uuid.uuid4().hex
         sid6 = sid[:6]
 
-        # current: pool first
+        # current: sample pool first
         try:
-            case_a, sess_a, fname = self._build_session_from_pool(seed=seed, stage="create_current_pool")
-            print(f"[START] sid={sid6} current=POOL file={fname} case_id={case_a}", flush=True)
+            case_a, sess_a, fname = self._build_session_from_sample_pool(seed=seed, stage="create_current_sample")
+            print(f"[START] sid={sid6} current=SAMPLE file={fname} case_id={case_a}", flush=True)
         except Exception as e:
             case_a = self._pick_static_case_id()
             case_a, sess_a = self._build_session_from_cases(case_id=case_a, seed=seed)
             _set_story_meta(sess_a, source="static", status="ok", stage="create_current_static", error=repr(e))
-            print(f"[START] sid={sid6} current=STATIC case_id={case_a} (pool_fail={e!r})", flush=True)
+            print(f"[START] sid={sid6} current=STATIC case_id={case_a} (sample_pool_fail={e!r})", flush=True)
 
         # next placeholders (static)
         case_b = self._pick_static_case_id(exclude=case_a)
@@ -437,11 +517,6 @@ class SessionStore:
         return sid, sess_a
 
     def rotate_to_next1(self, session_id: str, seed: int | None = None) -> Tuple[Optional[GameSession], Optional[str]]:
-        """
-        switch_case 使用：
-        - old current run_id 交給 routes 去刪音檔
-        - current <- next1, next1 <- next2, next2 <- 新 placeholder（static）
-        """
         sid = (session_id or "").strip()
         if not sid:
             return None, None

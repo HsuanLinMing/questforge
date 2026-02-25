@@ -157,17 +157,13 @@ def create_app() -> FastAPI:
             print("[POOL] warmup ensure_pool ok", flush=True)
         except Exception as e:
             print(f"[POOL] warmup ensure_pool fail err={e!r}", flush=True)
-            
+
         try:
             start_worker_in_thread()
             print("[BOOT] Background AI worker thread started", flush=True)
         except Exception as e:
             print(f"[BOOT] Worker thread failed: {e!r}", flush=True)
-        # ✅ start embedded worker thread (no extra Render worker needed)
-        try:
-            start_worker_in_thread()
-        except Exception as e:
-            print(f"[WORKER] start embedded fail err={e!r}", flush=True)
+
 
     # routers
     app.include_router(game_router)

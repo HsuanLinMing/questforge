@@ -1,5 +1,7 @@
 // lib/game/tts/tts_playback_controller.dart
 import 'dart:async';
+import 'dart:convert'; // ✅ utf8
+import 'package:crypto/crypto.dart'; // ✅ sha1
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
@@ -20,6 +22,8 @@ class TtsPlaybackState {
     required this.rate,
     required this.didSpeak,
     required this.didSpeakFp,
+    required this.activeRole,
+    required this.activeVoice,
   });
 
   final bool ready;
@@ -37,6 +41,8 @@ class TtsPlaybackState {
 
   /// ✅ 哪個 viewFp 曾經真的播過（debug 用）
   final String didSpeakFp;
+  final String activeRole;
+  final String activeVoice;
 
   TtsPlaybackState copyWith({
     bool? ready,
@@ -48,6 +54,8 @@ class TtsPlaybackState {
     double? rate,
     bool? didSpeak,
     String? didSpeakFp,
+    String? activeRole,
+    String? activeVoice,
   }) {
     return TtsPlaybackState(
       ready: ready ?? this.ready,
@@ -59,6 +67,8 @@ class TtsPlaybackState {
       rate: rate ?? this.rate,
       didSpeak: didSpeak ?? this.didSpeak,
       didSpeakFp: didSpeakFp ?? this.didSpeakFp,
+      activeRole: activeRole ?? this.activeRole,
+      activeVoice: activeVoice ?? this.activeVoice,
     );
   }
 }
@@ -77,25 +87,31 @@ class _TtsPlaylistItem {
   });
 
   final int index; // paragraph index
-  final String path; // file://...
+  final String path; // file://... or http(s)://...
   final String role;
   final String voice;
   final String text;
   final String format;
 
   static _TtsPlaylistItem? tryFromMap(Map<String, dynamic> m) {
-    final path = '${m['path'] ?? ''}'.trim();
-    if (path.isEmpty) return null;
+    final raw = (m['path'] ?? m['url'] ?? m['href'] ?? '').toString().trim();
+    if (raw.isEmpty) return null;
 
     final idxRaw = m['index'];
     final idx = (idxRaw is int) ? idxRaw : int.tryParse('$idxRaw') ?? 0;
+    final text = (m['text'] ??
+            m['narration'] ??
+            m['content'] ??
+            m['subtitle'] ??
+            '')
+        .toString();
 
     return _TtsPlaylistItem(
       index: idx,
-      path: path,
+      path: raw,
       role: '${m['role'] ?? ''}',
       voice: '${m['voice'] ?? ''}',
-      text: '${m['text'] ?? ''}',
+      text: text,
       format: '${m['format'] ?? ''}',
     );
   }
@@ -105,13 +121,15 @@ class _TtsPlaylistV1 {
   _TtsPlaylistV1({
     required this.scope,
     required this.viewFp,
+    required this.uiViewFp,
     required this.status,
     required this.reason,
     required this.items,
   });
 
   final String scope; // view/end
-  final String viewFp;
+  final String viewFp; // ✅ 後端 pool path key（sha1）
+  final String uiViewFp; // ✅ 後端回傳的 ui_view_fp（可與 viewFp 相同）
   final String status; // ok/unavailable/empty_narration/error
   final String reason;
   final List<_TtsPlaylistItem> items;
@@ -130,9 +148,13 @@ class _TtsPlaylistV1 {
       }
     }
 
+    // ✅ 強制按 index 排序（止血：避免後端 items 順序亂）
+    items.sort((a, b) => a.index.compareTo(b.index));
+
     return _TtsPlaylistV1(
       scope: '${cmd['scope'] ?? 'view'}',
       viewFp: '${cmd['view_fp'] ?? ''}',
+      uiViewFp: '${cmd['ui_view_fp'] ?? ''}',
       status: '${cmd['status'] ?? 'ok'}',
       reason: '${cmd['reason'] ?? ''}',
       items: items,
@@ -169,6 +191,8 @@ class TtsPlaybackController {
       rate: 1.0,
       didSpeak: false,
       didSpeakFp: '',
+      activeRole: '',
+      activeVoice: '',
     ),
   );
 
@@ -223,12 +247,22 @@ class TtsPlaybackController {
   }
 
   // ---------------------------------------------------------------------------
+  // view fingerprint (align with backend)
+  // ---------------------------------------------------------------------------
+  String _computeUiViewFpFromNarration(String narration) {
+    // backend: sha1("v2|"+narration)
+    final n = (narration).toString();
+    final bytes = utf8.encode('v2|$n');
+    return sha1.convert(bytes).toString();
+  }
+
+  // ---------------------------------------------------------------------------
   // view changed integration
   // ---------------------------------------------------------------------------
   Future<void> handleViewChanged({
     required NodeView view,
     required List<StoryParagraph> paragraphs,
-    required String viewFp,
+    required String viewFp, // 你外部算的 fp（現在不用它當真相，只當 fallback）
     required bool autoPlay,
     required ScrollToParagraphFn scrollTo,
     required Map<String, dynamic>? playlistCmd,
@@ -247,24 +281,46 @@ class TtsPlaybackController {
     vn.value = vn.value.copyWith(didSpeak: false, didSpeakFp: '');
 
     _playParagraphs = paragraphs;
-    _playViewFp = viewFp;
+
+    final narration = (view.narration ?? '').toString();
+    final uiFp = narration.trim().isEmpty ? viewFp : _computeUiViewFpFromNarration(narration);
+
+    // ✅ 先把目前 view 的 fp 設成「對齊後端的 fp」
+    _playViewFp = uiFp;
+    vn.value = vn.value.copyWith(viewFp: uiFp);
 
     final pl = (playlistCmd == null) ? null : _TtsPlaylistV1.fromCommand(playlistCmd);
+
+    // ✅ 嚴謹：如果後端有給 view_fp，就必須 match 我們算出來的 uiFp（避免亂播）
+    final plFp = (pl?.viewFp ?? '').trim();
+    if (pl != null && plFp.isNotEmpty && plFp != uiFp.trim()) {
+      _log('PLAYLIST_FP_MISMATCH', {
+        'pl_viewFp': plFp,
+        'ui_viewFp': uiFp.trim(),
+        'status': pl.status,
+        'items': pl.items.length,
+        'note': 'Flutter fp aligned to sha1("v2|narration")',
+      });
+      _playlist = null;
+      return;
+    }
+
     _playlist = pl;
 
     if (!autoPlay) return;
     if (!enabled || !ready) return;
     if (paragraphs.isEmpty) return;
 
-    final dedupeFp = (pl?.viewFp.trim().isNotEmpty ?? false) ? pl!.viewFp.trim() : viewFp;
-    if (_lastAutoPlayedFp == dedupeFp) return;
-    _lastAutoPlayedFp = dedupeFp;
+    // ✅ dedupe：用 uiFp（對齊後端）做去重
+    if (_lastAutoPlayedFp == uiFp) return;
+    _lastAutoPlayedFp = uiFp;
 
     // ✅ playlist 不可播：只 log，不要 onNarrationEnd（避免直接 autoContinue）
     if (pl == null || !pl.playable) {
       _log('PLAYLIST_UNAVAILABLE', {
         'status': pl?.status ?? 'missing',
         'reason': pl?.reason ?? '',
+        'ui_viewFp': uiFp,
       });
       return;
     }
@@ -273,7 +329,7 @@ class TtsPlaybackController {
     await playParagraph(
       index: 0,
       paragraphs: paragraphs,
-      viewFp: viewFp,
+      viewFp: uiFp, // ✅ 用對齊後端的 fp
       stopBeforeFirstChunk: true,
       deferUiUntilSpeak: false,
       scrollTo: scrollTo,
@@ -305,7 +361,7 @@ class TtsPlaybackController {
     await playParagraph(
       index: i,
       paragraphs: paragraphs,
-      viewFp: viewFp,
+      viewFp: _playViewFp.isNotEmpty ? _playViewFp : viewFp,
       stopBeforeFirstChunk: true,
       deferUiUntilSpeak: false,
       scrollTo: scrollTo,
@@ -320,7 +376,7 @@ class TtsPlaybackController {
     await seekTo(
       index: activeParagraphIndex - 1,
       paragraphs: paragraphs,
-      viewFp: viewFp,
+      viewFp: _playViewFp.isNotEmpty ? _playViewFp : viewFp,
       scrollTo: scrollTo,
     );
   }
@@ -333,7 +389,7 @@ class TtsPlaybackController {
     await seekTo(
       index: activeParagraphIndex + 1,
       paragraphs: paragraphs,
-      viewFp: viewFp,
+      viewFp: _playViewFp.isNotEmpty ? _playViewFp : viewFp,
       scrollTo: scrollTo,
     );
   }
@@ -365,7 +421,7 @@ class TtsPlaybackController {
     await playParagraph(
       index: idx,
       paragraphs: paragraphs,
-      viewFp: viewFp,
+      viewFp: _playViewFp.isNotEmpty ? _playViewFp : viewFp,
       stopBeforeFirstChunk: true,
       deferUiUntilSpeak: false,
       scrollTo: scrollTo,
@@ -407,7 +463,7 @@ class TtsPlaybackController {
       await playParagraph(
         index: nextIndex,
         paragraphs: paragraphs,
-        viewFp: viewFp,
+        viewFp: _playViewFp.isNotEmpty ? _playViewFp : viewFp,
         stopBeforeFirstChunk: true,
         deferUiUntilSpeak: false,
         scrollTo: scrollTo,
@@ -555,6 +611,7 @@ class TtsPlaybackController {
 
     _playParagraphs = paragraphs;
     _playViewFp = viewFp;
+    vn.value = vn.value.copyWith(viewFp: viewFp);
 
     final cursor = _firstCursorForParagraph(index);
     if (cursor < 0 || cursor >= pl.items.length) return;
@@ -594,12 +651,16 @@ class TtsPlaybackController {
     _tokenSession = _playSession;
 
     _log('PLAY_ITEM', {
-      'stop': stopBeforePlay,
       'cursor': _playlistCursor,
       'pIndex': item.index,
       'path': item.path,
       'role': item.role,
       'voice': item.voice,
+      'pl_viewFp': pl.viewFp,
+      'ui_viewFp': _playViewFp,
+      'textHead': item.text.trim().isEmpty
+          ? ''
+          : item.text.trim().substring(0, item.text.trim().length.clamp(0, 20)),
     });
 
     try {
@@ -621,7 +682,11 @@ class TtsPlaybackController {
         }
       }
 
-      vn.value = vn.value.copyWith(activeChunkIndex: 0);
+      vn.value = vn.value.copyWith(
+        activeChunkIndex: 0,
+        activeRole: item.role,
+        activeVoice: item.voice,
+      );
 
       _armFallbackTimer(token: token, item: item);
 
@@ -631,16 +696,24 @@ class TtsPlaybackController {
         return;
       }
 
-      // ✅ 只要開始真正 play，標記 didSpeak
+      // ✅ 只有真的開始播才算 didSpeak
       vn.value = vn.value.copyWith(didSpeak: true, didSpeakFp: _playViewFp);
 
-      await _player.setUrl(uri.toString());
+      // 先載入音檔（只做一次）
+      if (uri.scheme == 'file') {
+        await _player.setFilePath(uri.toFilePath());
+      } else {
+        await _player.setUrl(uri.toString());
+      }
 
-// ✅ 用真實 duration 設 fallback（避免截字）
+      // 用 duration(若有) 取代 fallback；duration 沒有就用估算
       final d = _player.duration;
-      final ms = (d == null ? 60000 : (d.inMilliseconds + 800)).clamp(2000, 90000);
+      final timeout = (d == null)
+          ? _estimateAudioTimeout(item)
+          : Duration(milliseconds: (d.inMilliseconds + 800).clamp(2000, 30000));
+
       _fallbackTimer?.cancel();
-      _fallbackTimer = Timer(Duration(milliseconds: ms), () {
+      _fallbackTimer = Timer(timeout, () {
         if (_tokenSession != _playSession) return;
         if (token != _speakToken) return;
         _triggerAdvance('fallback_duration');
@@ -673,13 +746,11 @@ class TtsPlaybackController {
     }
 
     // playlist finished
-    final endSession = _playSession;
     final didSpeak = vn.value.didSpeak;
 
     await stop(resetToStart: false);
 
-    // ✅ 只有真的播過音檔才回呼（避免 missing 時 autoContinue）
-    if (didSpeak && endSession == _playSession) {
+    if (didSpeak) {
       onNarrationEnd?.call();
     }
   }

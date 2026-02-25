@@ -6,7 +6,7 @@ import os
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from questforge.ai.runtime_story_nodes_generator_v1 import RuntimeStoryNodesGeneratorV1
 from questforge.contracts.story_nodes_validator_v1 import validate_story_nodes_v1
@@ -15,7 +15,7 @@ from questforge_server.pool.queue_client_upstash import UpstashRedisRest
 from questforge_server.pool.jobs import GenerateAiStoryJob
 from questforge_server.pool.story_storage_local import LocalStoryStorage, LocalStoryStorageConfig
 
-from questforge_server.tts_service import synthesize_to_wav
+from questforge_server.tts_service import synthesize_to_wav, write_tts_manifest, TtsManifestItem
 from questforge.ai.tts.voice_map import voice_for_role
 
 
@@ -194,7 +194,9 @@ def _safe_validate_pkg(pkg: Any) -> None:
 def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: Any) -> int:
     """
     Generate pooled TTS for all nodes into:
-      .qf_cache/pool_ai/tts/<story_id>/<view_fp>/*.wav
+      .qf_cache/pool_ai/tts/<story_id>/<view_fp>/
+        000.wav, 001.wav, ...
+        manifest.json
 
     view_fp = sha1("v2|<view_narration>")
     """
@@ -206,12 +208,28 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
     nodes_hit = 0
 
     for node_id, node in (nodes or {}).items():
-        items = _iter_narration_items_from_node(node)
-        if not items:
+        raw_items = _iter_narration_items_from_node(node)
+        if not raw_items:
+            continue
+
+        # ✅ 先過濾空文字，並把 voice_key 正規化，確保 index 連續
+        cleaned: List[Tuple[str, str, str]] = []  # (role_raw, voice_key, spoken_text)
+        for role, text in raw_items:
+            spoken_text = (text or "").strip()
+            if not spoken_text:
+                continue
+            voice_key = _voice_key_for_role(role)
+            if voice_key not in _ALLOWED_VOICE_KEYS:
+                voice_key = "旁白"
+            cleaned.append((role or "narrator", voice_key, spoken_text))
+
+        if not cleaned:
             continue
 
         nodes_hit += 1
-        view_narration = _build_view_narration(items)
+
+        # view_narration 用於 view_fp（要跟 routes_game 同一套）
+        view_narration = _build_view_narration([(r, t) for (r, _vk, t) in cleaned])
         if not view_narration.strip():
             continue
 
@@ -219,18 +237,15 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
         out_dir = out_story_dir / view_fp
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        manifest_items: List[TtsManifestItem] = []
         node_clips = 0
-        for role, text in items:
-            voice_key = _voice_key_for_role(role)
-            if voice_key not in _ALLOWED_VOICE_KEYS:
-                voice_key = "旁白"
 
-            spoken_text = (text or "").strip()
-            if not spoken_text:
-                continue
-
+        # ✅ 用 idx 做順序檔名：000.wav, 001.wav...
+        for idx, (role_raw, voice_key, spoken_text) in enumerate(cleaned):
             profile = voice_for_role(voice_key)
             speed = _voice_speed_for_voice_key(voice_key)
+
+            out_name = f"{idx:03d}.wav"
 
             r = synthesize_to_wav(
                 text=spoken_text,
@@ -238,13 +253,30 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
                 voice=profile.voice,
                 instructions=profile.instructions,
                 speed=speed,
+                out_name=out_name,  # ⭐ 關鍵：順序檔名
             )
+
             if r is not None:
                 clips += 1
                 node_clips += 1
+                manifest_items.append(
+                    TtsManifestItem(
+                        index=idx,
+                        file=out_name,
+                        text=spoken_text,
+                        role=role_raw,
+                        voice=profile.voice,
+                        speed=speed,
+                    )
+                )
+
+        # ✅ 寫 manifest（只有有成功生成的 items 才寫）
+        if manifest_items:
+            # 這裡的 ui_view_fp 先存 view_fp（hash），後續你若要對齊 Flutter 那種 ui_viewFp，再擴充即可
+            write_tts_manifest(out_dir=out_dir, ui_view_fp=view_fp, items=manifest_items)
 
         print(
-            f"[WORKER][TTS] node={node_id} view_fp={view_fp[:8]} out={out_dir} clips={node_clips}",
+            f"[WORKER][TTS] node={node_id} view_fp={view_fp[:8]} out={out_dir} clips={node_clips} manifest_items={len(manifest_items)}",
             flush=True,
         )
 

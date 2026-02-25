@@ -1,3 +1,4 @@
+# src/questforge_server/pool/pool_manager.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,7 +6,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from questforge.contracts.story_nodes_v1 import StoryNodesPackage
-
 from questforge_server.pool.pool_config import PoolConfig
 from questforge_server.pool.sample_repo import SampleRepoConfig, SampleStoryRepo
 from questforge_server.pool.queue_client_upstash import UpstashRedisRest
@@ -18,15 +18,12 @@ from questforge_server.pool.story_storage_local import (
 
 @dataclass
 class AcquireResult:
-    source: str  # "ai" or "sample"
+    source: str
     pkg: StoryNodesPackage
     story_id: Optional[str] = None
 
 
 class StoryPoolManager:
-    """
-    Upstash-backed AI story pool
-    """
 
     def __init__(self, cfg: PoolConfig):
         self._cfg = cfg
@@ -42,9 +39,7 @@ class StoryPoolManager:
             LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
         )
 
-    # --------------------------------------------------
-    # small helpers
-    # --------------------------------------------------
+    # ---------------- helpers ----------------
 
     def _ready_count(self) -> int:
         return int(self._redis.llen(self._ready_key) or 0)
@@ -53,39 +48,10 @@ class StoryPoolManager:
         return int(self._redis.llen(self._jobs_key) or 0)
 
     def _log(self, msg: str, **kv) -> None:
-        try:
-            tail = " ".join([f"{k}={v}" for k, v in kv.items()])
-            print(f"[POOL] {msg}" + (f" {tail}" if tail else ""), flush=True)
-        except Exception:
-            pass
-
-    # --------------------------------------------------
-    # pool sizing
-    # --------------------------------------------------
-
-    def _max_enqueue_once(self) -> int:
-        import os
-        raw = (os.getenv("QF_POOL_MAX_ENQUEUE_ONCE") or "").strip()
-        if raw:
-            try:
-                return max(1, min(20, int(raw)))
-            except Exception:
-                pass
-        return 3
-
-    def _max_pending_jobs(self) -> int:
-        import os
-        raw = (os.getenv("QF_POOL_MAX_PENDING_JOBS") or "").strip()
-        if raw:
-            try:
-                return max(0, min(100, int(raw)))
-            except Exception:
-                pass
-        return 6
+        tail = " ".join([f"{k}={v}" for k, v in kv.items()])
+        print(f"[POOL] {msg}" + (f" {tail}" if tail else ""), flush=True)
 
     def _enqueue_jobs(self, n: int) -> int:
-        if n <= 0:
-            return 0
         pushed = 0
         for _ in range(n):
             job = GenerateAiStoryJob.new(seed=None)
@@ -93,33 +59,26 @@ class StoryPoolManager:
             pushed += 1
         return pushed
 
-    # --------------------------------------------------
-    # ensure pool
-    # --------------------------------------------------
+    # ---------------- ensure pool ----------------
 
     def ensure_pool(self) -> None:
-        min_ready = int(getattr(self._cfg, "min_ready", 2) or 2)
+        TARGET_READY = 2
+        MAX_PENDING = 2
+
         ready = self._ready_count()
         pending = self._jobs_count()
 
-        need = max(0, min_ready - ready)
-
-        if need <= 0:
+        if ready >= TARGET_READY:
             self._log("ensure ok", ready=ready, pending=pending)
             return
 
-        max_pending = self._max_pending_jobs()
-        if pending >= max_pending:
-            self._log(
-                "skip enqueue (pending too high)",
-                ready=ready,
-                pending=pending,
-                max_pending=max_pending,
-            )
+        if pending >= MAX_PENDING:
+            self._log("skip enqueue (pending too high)", ready=ready, pending=pending)
             return
 
-        cap = self._max_enqueue_once()
-        enqueue_n = min(need, cap, max_pending - pending)
+        need = TARGET_READY - ready
+        can_push = MAX_PENDING - pending
+        enqueue_n = min(need, can_push)
 
         if enqueue_n <= 0:
             return
@@ -134,9 +93,7 @@ class StoryPoolManager:
             pushed=pushed,
         )
 
-    # --------------------------------------------------
-    # acquire
-    # --------------------------------------------------
+    # ---------------- acquire ----------------
 
     def _try_acquire_ai_ready(
         self,
@@ -150,26 +107,19 @@ class StoryPoolManager:
             pkg = self._storage.get_story_pkg(story_id)
             return story_id, pkg
         except Exception as e:
-            self._log(
-                "drop broken story",
-                story_id=str(story_id)[:12],
-                err=repr(e),
-            )
+            self._log("drop broken story", story_id=str(story_id)[:12], err=repr(e))
             return None
 
     def acquire_story(self) -> AcquireResult:
+        # ✅ 只 ensure 一次
         try:
             self.ensure_pool()
         except Exception:
             pass
 
         got = self._try_acquire_ai_ready()
-        if got is not None:
+        if got:
             story_id, pkg = got
-            try:
-                self.ensure_pool()
-            except Exception:
-                pass
             return AcquireResult(
                 source="ai",
                 pkg=pkg,

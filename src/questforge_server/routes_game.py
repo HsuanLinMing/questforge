@@ -8,6 +8,7 @@ import shutil
 import threading
 import traceback
 import time
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -298,17 +299,16 @@ def _prewarm_story_tts_all_nodes(
         print(f"[PREWARM_ALL] fail sid={session_id[:6]} err={e!r}", flush=True)
 
 
-def _try_make_pooled_tts_cmd(
-    *, request: Request, view_json: Dict[str, Any]
+def _build_ai_playlist(
+    request: Request,
+    view_json: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
 
     runtime = view_json.get("runtime") or {}
     story = runtime.get("story") or {}
 
-    source = str(story.get("source") or "").strip().lower()
     story_id = str(story.get("story_id") or "").strip()
-
-    if source != "ai" or not story_id:
+    if not story_id:
         return None
 
     narration = (view_json.get("narration") or "").strip()
@@ -323,36 +323,148 @@ def _try_make_pooled_tts_cmd(
     if not dirp.exists():
         return None
 
-    files = sorted([p for p in dirp.glob("*.wav") if p.is_file()])
-    if not files:
+    manifest_path = dirp / "manifest.json"
+    if not manifest_path.exists():
+        return None
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    items_raw = manifest.get("items")
+    if not isinstance(items_raw, list) or not items_raw:
         return None
 
     base = str(request.base_url).rstrip("/")
-    items = []
+    items: List[Dict[str, Any]] = []
 
-    for i, f in enumerate(files):
-        url = f"{base}/static/pool_tts/{story_id}/{view_fp}/{f.name}"
+    for it in items_raw:
+        if not isinstance(it, dict):
+            continue
+
+        idx = it.get("index")
+        file = str(it.get("file") or "").strip()
+        if not file:
+            continue
+
+        url = f"{base}/static/pool_tts/{story_id}/{view_fp}/{file}"
+
         items.append(
             {
-                "index": i,
+                "index": int(idx) if isinstance(idx, int) else 0,
                 "format": "wav",
                 "path": url,
+                "text": str(it.get("text") or ""),
+                "role": str(it.get("role") or ""),
+                "voice": str(it.get("voice") or ""),
+                "speed": float(it.get("speed") or 1.0),
+                "story_id": story_id,
+                "ui_view_fp": str(manifest.get("ui_view_fp") or ""),
             }
         )
+
+    if not items:
+        return None
+
+    items.sort(key=lambda x: int(x.get("index") or 0))
 
     return {
         "type": "tts_playlist_v1",
         "scope": "view",
         "status": "ok",
         "source": "pool",
+        "story_id": story_id,
         "view_fp": view_fp,
+        "ui_view_fp": str(manifest.get("ui_view_fp") or ""),
         "items": items,
     }
+
+def _try_make_pooled_tts_cmd(
+    *, request: Request, view_json: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+
+    runtime = view_json.get("runtime") or {}
+    story = runtime.get("story") or {}
+
+    source = str(story.get("source") or "").strip().lower()
+
+    # ✅ AI → 讀 pooled manifest
+    if source == "ai":
+        return _build_ai_playlist(request, view_json)
+
+    # ✅ SAMPLE → 即時第一段語音
+    if source == "sample":
+        return _build_sample_runtime_tts(request, view_json)
+
+    return None
 # ----------------------------
 # Bundle builder
 # ----------------------------
+def _build_sample_runtime_tts(request: Request, view_json: Dict[str, Any]):
+    narration = (view_json.get("narration") or "").strip()
+    if not narration:
+        return None
 
+    paras = _split_paragraphs(narration)
+    if not paras:
+        return None
 
+    # ✅ 只先生成第一段，讓玩家立刻能聽
+    first_para = paras[0]
+    role, text = _parse_paragraph(first_para)
+    spoken_text = (text or "").strip()
+    if not spoken_text:
+        return None
+
+    profile = voice_for_role(role)
+    speed = _voice_speed_for_role(role)
+
+    # ✅ 關鍵：跟 main.py mount 同一個 cache_root/runtime_sample
+    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+    out_dir = (cache_root / "runtime_sample").resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    r = synthesize_to_wav(
+        text=spoken_text,
+        out_dir=out_dir,
+        voice=profile.voice,
+        instructions=profile.instructions,
+        speed=speed,
+    )
+    if not r:
+        return None
+
+    # ✅ 保險：印出實際寫入位置（你看到 log 就能秒確認）
+    try:
+        print(
+            "[RUNTIME_SAMPLE_TTS] wrote",
+            {"file": str(r.file_path), "size": r.file_path.stat().st_size},
+            flush=True,
+        )
+    except Exception:
+        pass
+
+    base = str(request.base_url).rstrip("/")
+    url = f"{base}/static/runtime_sample/{r.filename}"
+
+    return {
+        "type": "tts_playlist_v1",
+        "scope": "view",
+        "status": "ok",
+        "source": "runtime_sample",
+        "items": [
+            {
+                "index": 0,
+                "format": "wav",
+                "path": url,
+                "text": spoken_text,
+                "role": role,
+                "voice": profile.voice,
+                "speed": speed,
+            }
+        ],
+    }
 def _bundle_from_session_and_step(
     *,
     request: Request,
@@ -398,7 +510,7 @@ def _bundle_from_session_and_step(
         )
         if pooled is not None:
             return pooled
-        
+
         # ✅ 只讓 AI case 做 TTS（你如果要 pool 也播：把 env 設為 0）
         if _env_bool("QF_TTS_ONLY_AI", False):
             case_id = str(getattr(session, "case_id", "") or "")
@@ -420,13 +532,15 @@ def _bundle_from_session_and_step(
         # AI：允許完整段落（或之後改成由 worker 預產）
         try:
             # 優先用 runtime.story.source（如果有）
-            runtime = (view_json.get("runtime") or {}) if isinstance(view_json, dict) else {}
+            runtime = (
+                (view_json.get("runtime") or {}) if isinstance(view_json, dict) else {}
+            )
             story = (runtime.get("story") or {}) if isinstance(runtime, dict) else {}
             source = str(story.get("source") or "").strip().lower()
         except Exception:
             source = ""
 
-        is_ai = (source == "ai")
+        is_ai = source == "ai"
         if not is_ai:
             # fallback：用 session.case_id 的習慣命名（ai_...）
             # 這裡拿不到 session，所以用 source 足夠了；source 沒寫時就當非 AI
@@ -875,7 +989,7 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
                     "story_id": acq.story_id,
                 }
             )
-            
+
         p = ProgressLogger(sid=sid, label="START")
         p.log("create_session:ok")
 
@@ -894,7 +1008,7 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
 
         # ✅ 2) B-1 pipeline：背景順序做 current_tts -> ai1+tts -> ai2+tts
         # 先保留（你之後正式接 Queue/Worker 後再把它換掉）
-        #_bootstrap_background_pipeline(request, sid, seed=req.seed)
+        # _bootstrap_background_pipeline(request, sid, seed=req.seed)
 
         p.log("api_start:return", events_count=len(events), is_over=is_over)
         return StepResponse(

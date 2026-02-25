@@ -21,6 +21,7 @@ from questforge_server.routes_game import router as game_router
 from questforge_server.routes_voice_lab import router as tts_router
 from questforge_server.pool.pool_config import PoolConfig
 from questforge_server.pool.pool_manager import StoryPoolManager
+from questforge_server.worker.main import start_worker_in_thread  # ✅ NEW
 
 _pool = StoryPoolManager(PoolConfig())
 
@@ -41,6 +42,7 @@ def _env_snapshot() -> dict:
         "QF_POOL_DIR",
         "QF_AI_FALLBACK_TO_STATIC",
         "QF_UPSTASH_REDIS_REST_URL",
+        "QF_WORKER_ENABLED",  # ✅ NEW
     ]
     snap = {k: (os.getenv(k) or "") for k in keys}
 
@@ -85,7 +87,6 @@ def create_app() -> FastAPI:
     runs_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static/tts_runs", StaticFiles(directory=str(runs_dir)), name="tts_runs")
 
-    # ✅ NEW: sample runtime tts
     runtime_sample_dir = cache_root / "runtime_sample"
     runtime_sample_dir.mkdir(parents=True, exist_ok=True)
     app.mount(
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
         name="runtime_sample",
     )
 
+    # pool tts (keep your existing on-disk location)
     pool_tts_dir = Path(".qf_cache/pool_ai/tts").resolve()
     pool_tts_dir.mkdir(parents=True, exist_ok=True)
     app.mount(
@@ -147,12 +149,20 @@ def create_app() -> FastAPI:
         print(f"[BOOT] tts_dir={tts_dir}", flush=True)
         print(f"[BOOT] runs_dir={runs_dir}", flush=True)
         print(f"[BOOT] runtime_sample_dir={runtime_sample_dir}", flush=True)
+        print(f"[BOOT] pool_tts_dir={pool_tts_dir}", flush=True)
 
+        # ✅ warmup ensure_pool
         try:
             _pool.ensure_pool()
             print("[POOL] warmup ensure_pool ok", flush=True)
         except Exception as e:
             print(f"[POOL] warmup ensure_pool fail err={e!r}", flush=True)
+
+        # ✅ start embedded worker thread (no extra Render worker needed)
+        try:
+            start_worker_in_thread()
+        except Exception as e:
+            print(f"[WORKER] start embedded fail err={e!r}", flush=True)
 
     # routers
     app.include_router(game_router)

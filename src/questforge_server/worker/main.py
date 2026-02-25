@@ -1,3 +1,4 @@
+# src/questforge_server/worker/main.py
 from __future__ import annotations
 
 import hashlib
@@ -5,6 +6,7 @@ import json
 import os
 import time
 import traceback
+import threading
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -13,9 +15,16 @@ from questforge.contracts.story_nodes_validator_v1 import validate_story_nodes_v
 
 from questforge_server.pool.queue_client_upstash import UpstashRedisRest
 from questforge_server.pool.jobs import GenerateAiStoryJob
-from questforge_server.pool.story_storage_local import LocalStoryStorage, LocalStoryStorageConfig
+from questforge_server.pool.story_storage_local import (
+    LocalStoryStorage,
+    LocalStoryStorageConfig,
+)
 
-from questforge_server.tts_service import synthesize_to_wav, write_tts_manifest, TtsManifestItem
+from questforge_server.tts_service import (
+    synthesize_to_wav,
+    write_tts_manifest,
+    TtsManifestItem,
+)
 from questforge.ai.tts.voice_map import voice_for_role
 
 
@@ -49,10 +58,8 @@ def _voice_key_for_role(role: str) -> str:
     r = (role or "").strip()
     if not r:
         return "旁白"
-    # already chinese
     if r in ("旁白", "霏霏", "樂樂", "老師"):
         return r
-    # normalized
     return _ROLE_TO_CN.get(r, "旁白")
 
 
@@ -73,6 +80,11 @@ def _tts_enabled() -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+def _worker_enabled() -> bool:
+    v = (os.getenv("QF_WORKER_ENABLED") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
 # ----------------------------
 # Narration extraction
 # ----------------------------
@@ -87,11 +99,9 @@ def _iter_narration_items_from_node(node: Any) -> List[Tuple[str, str]]:
     if node is None:
         return []
 
-    # 1) StoryNode-like (pydantic model)
     narration = getattr(node, "narration", None)
     if narration is not None:
         out: List[Tuple[str, str]] = []
-        # List[NarrationItem]
         if isinstance(narration, list):
             for it in narration:
                 role = getattr(it, "role", None)
@@ -105,11 +115,9 @@ def _iter_narration_items_from_node(node: Any) -> List[Tuple[str, str]]:
                     out.append((role_s or "narrator", text_s))
             return out
 
-        # if someone stored as string
         if isinstance(narration, str) and narration.strip():
             return _items_from_narration_text(narration)
 
-    # 2) dict node
     if isinstance(node, dict):
         n = node.get("narration")
         if isinstance(n, str) and n.strip():
@@ -163,7 +171,7 @@ def _items_from_narration_text(narration: str) -> List[Tuple[str, str]]:
 def _build_view_narration(items: List[Tuple[str, str]]) -> str:
     """
     Build the view narration string used for view_fp hashing.
-    Must match routes_game’s behavior as much as possible: "旁白：...\\n\\n霏霏：..."
+    Must match routes_game’s behavior: "旁白：...\\n\\n霏霏：..."
     """
     lines: List[str] = []
     for role, text in items:
@@ -176,9 +184,6 @@ def _build_view_narration(items: List[Tuple[str, str]]) -> str:
 
 
 def _safe_validate_pkg(pkg: Any) -> None:
-    """
-    Validator expects a dict-like package.
-    """
     if hasattr(pkg, "to_dict"):
         validate_story_nodes_v1(pkg.to_dict())
         return
@@ -197,8 +202,6 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
       .qf_cache/pool_ai/tts/<story_id>/<view_fp>/
         000.wav, 001.wav, ...
         manifest.json
-
-    view_fp = sha1("v2|<view_narration>")
     """
     out_story_dir = storage.tts_story_dir(story_id)
     out_story_dir.mkdir(parents=True, exist_ok=True)
@@ -212,7 +215,6 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
         if not raw_items:
             continue
 
-        # ✅ 先過濾空文字，並把 voice_key 正規化，確保 index 連續
         cleaned: List[Tuple[str, str, str]] = []  # (role_raw, voice_key, spoken_text)
         for role, text in raw_items:
             spoken_text = (text or "").strip()
@@ -228,7 +230,6 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
 
         nodes_hit += 1
 
-        # view_narration 用於 view_fp（要跟 routes_game 同一套）
         view_narration = _build_view_narration([(r, t) for (r, _vk, t) in cleaned])
         if not view_narration.strip():
             continue
@@ -240,20 +241,18 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
         manifest_items: List[TtsManifestItem] = []
         node_clips = 0
 
-        # ✅ 用 idx 做順序檔名：000.wav, 001.wav...
         for idx, (role_raw, voice_key, spoken_text) in enumerate(cleaned):
             profile = voice_for_role(voice_key)
             speed = _voice_speed_for_voice_key(voice_key)
 
             out_name = f"{idx:03d}.wav"
-
             r = synthesize_to_wav(
                 text=spoken_text,
                 out_dir=out_dir,
                 voice=profile.voice,
                 instructions=profile.instructions,
                 speed=speed,
-                out_name=out_name,  # ⭐ 關鍵：順序檔名
+                out_name=out_name,
             )
 
             if r is not None:
@@ -270,13 +269,11 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
                     )
                 )
 
-        # ✅ 寫 manifest（只有有成功生成的 items 才寫）
         if manifest_items:
-            # 這裡的 ui_view_fp 先存 view_fp（hash），後續你若要對齊 Flutter 那種 ui_viewFp，再擴充即可
             write_tts_manifest(out_dir=out_dir, ui_view_fp=view_fp, items=manifest_items)
 
         print(
-            f"[WORKER][TTS] node={node_id} view_fp={view_fp[:8]} out={out_dir} clips={node_clips} manifest_items={len(manifest_items)}",
+            f"[WORKER][TTS] node={node_id} view_fp={view_fp[:8]} clips={node_clips} manifest_items={len(manifest_items)}",
             flush=True,
         )
 
@@ -284,13 +281,23 @@ def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: An
     return clips
 
 
+# ----------------------------
+# Worker main loop (blocking)
+# ----------------------------
+
 def main() -> None:
+    if not _worker_enabled():
+        print("[WORKER] disabled by QF_WORKER_ENABLED=0", flush=True)
+        return
+
     redis = UpstashRedisRest.from_env()
     jobs_key = "qf:jobs"
     ready_key = "qf:ready_ai"
     dead_key = "qf:dead"
 
-    storage = LocalStoryStorage(LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai")))
+    storage = LocalStoryStorage(
+        LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
+    )
     gen = RuntimeStoryNodesGeneratorV1()
 
     print("[WORKER] start", flush=True)
@@ -358,7 +365,6 @@ def main() -> None:
             print(f"[WORKER] error {e!r}", flush=True)
             print(tb, flush=True)
 
-            # push structured dead payload
             try:
                 dead_payload = {
                     "ts": int(time.time()),
@@ -372,6 +378,36 @@ def main() -> None:
 
             time.sleep(backoff)
             backoff = min(max_backoff, backoff * 1.6)
+
+
+# ----------------------------
+# Embedded worker starter (for FastAPI startup)
+# ----------------------------
+
+_started = False
+_started_lock = threading.Lock()
+
+
+def start_worker_in_thread() -> None:
+    """
+    Start the blocking worker loop in a daemon thread.
+    Safe to call multiple times; will start only once per process.
+    """
+    global _started
+
+    if not _worker_enabled():
+        print("[WORKER] not started (disabled by QF_WORKER_ENABLED=0)", flush=True)
+        return
+
+    with _started_lock:
+        if _started:
+            print("[WORKER] already started (skip)", flush=True)
+            return
+        _started = True
+
+        t = threading.Thread(target=main, name="qf-worker", daemon=True)
+        t.start()
+        print("[WORKER] started in background thread", flush=True)
 
 
 if __name__ == "__main__":

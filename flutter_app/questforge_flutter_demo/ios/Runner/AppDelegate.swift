@@ -8,11 +8,9 @@ import Flutter
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
 
-    let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
-
-    // ✅ 改成 super 之後再註冊
+    // ✅ 先註冊 plugins（Flutter 預設模板順序）避免冷啟動閃退
     GeneratedPluginRegistrant.register(with: self)
 
-    return ok
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

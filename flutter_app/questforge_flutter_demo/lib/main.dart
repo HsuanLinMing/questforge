@@ -1,10 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:questforge_flutter_demo/debug/bridge_dev_shell_page.dart';
-import 'package:questforge_flutter_demo/nav.dart';
-import 'package:questforge_ui_contract/questforge_contract.dart';
 import 'package:flutter/services.dart';
+import 'package:questforge_ui_contract/questforge_contract.dart';
+
+import 'package:questforge_flutter_demo/nav.dart';
+import 'package:questforge_flutter_demo/core/theme/app_colors.dart';
+import 'package:questforge_flutter_demo/ui/splash/splash_page.dart';
 
 void main() {
   runApp(const QuestForgeDemoApp());
@@ -17,10 +19,10 @@ class QuestForgeDemoApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: qfNavKey,
-      title: 'QuestForge Demo',
+      title: '小小偵探',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(useMaterial3: true),
-      home: const BridgeDevShellPage(),
+      theme: AppTheme.light(),
+      home: const SplashPage(),
     );
   }
 }
@@ -44,7 +46,8 @@ class _DemoHomePageState extends State<DemoHomePage> {
       final cmd = SessionCommand.fromJson(obj);
 
       if (cmd is! ShowEndScreenCommand) {
-        setState(() => _error = '這份 JSON 不是 show_end_screen（type=${cmd.type.value}）');
+        setState(() =>
+            _error = '這份 JSON 不是 show_end_screen（type=${cmd.type.value}）');
         return;
       }
 
@@ -115,7 +118,8 @@ class EndScreenPage extends StatelessWidget {
     final meta = command.meta;
 
     return Scaffold(
-      appBar: AppBar(title: Text(command.title.isNotEmpty ? command.title : 'EndScreen')),
+      appBar: AppBar(
+          title: Text(command.title.isNotEmpty ? command.title : 'EndScreen')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -144,9 +148,14 @@ class EndScreenPage extends StatelessWidget {
             ...meta.selectedObservations.take(6).map((x) => Text('• $x')),
           ],
           const SizedBox(height: 8),
-          _Kv('成熟度', '${meta.level}  ${meta.threshold > 0 ? "${meta.score}/${meta.threshold}" : ""}'.trim()),
-          if (meta.matchedEvidence.isNotEmpty) _Kv('有用到的線索', meta.matchedEvidence.take(6).join('、')),
-          if (meta.missingKeyEvidence.isNotEmpty) _Kv('可以再留意', meta.missingKeyEvidence.take(6).join('、')),
+          _Kv(
+              '成熟度',
+              '${meta.level}  ${meta.threshold > 0 ? "${meta.score}/${meta.threshold}" : ""}'
+                  .trim()),
+          if (meta.matchedEvidence.isNotEmpty)
+            _Kv('有用到的線索', meta.matchedEvidence.take(6).join('、')),
+          if (meta.missingKeyEvidence.isNotEmpty)
+            _Kv('可以再留意', meta.missingKeyEvidence.take(6).join('、')),
           const SizedBox(height: 24),
           _SectionTitle('接下來要做什麼？'),
           const SizedBox(height: 8),
@@ -157,9 +166,11 @@ class EndScreenPage extends StatelessWidget {
                 onPressed: () async {
                   final payload = <String, dynamic>{
                     'type': 'flow',
-                    'action': opt.id, // go_epilogue / restart_case / switch_case / quit
+                    'action': opt
+                        .id, // go_epilogue / restart_case / switch_case / quit
                   };
-                  final pretty = const JsonEncoder.withIndent('  ').convert(payload);
+                  final pretty =
+                      const JsonEncoder.withIndent('  ').convert(payload);
 
                   await showDialog<void>(
                     context: context,
@@ -169,7 +180,8 @@ class EndScreenPage extends StatelessWidget {
                       actions: [
                         TextButton(
                           onPressed: () async {
-                            await Clipboard.setData(ClipboardData(text: pretty));
+                            await Clipboard.setData(
+                                ClipboardData(text: pretty));
                             if (!ctx.mounted) return;
 
                             Navigator.of(ctx).pop();
@@ -221,7 +233,10 @@ class _Kv extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 72, child: Text(k, style: const TextStyle(fontWeight: FontWeight.w600))),
+          SizedBox(
+              width: 72,
+              child:
+                  Text(k, style: const TextStyle(fontWeight: FontWeight.w600))),
           Expanded(child: Text(v.isEmpty ? '—' : v)),
         ],
       ),

@@ -292,17 +292,20 @@ class TtsPlaybackController {
         (playlistCmd == null) ? null : _TtsPlaylistV1.fromCommand(playlistCmd);
 
     // ✅ 嚴謹：如果後端有給 view_fp，就必須 match 我們算出來的 uiFp（避免亂播）
+    // 💡 修正：如果算出來不一致，我們只印警告，不要直接拋棄 playlist，因為有時 narration 字串在 flutter / python 會有些微差異
     final plFp = (pl?.viewFp ?? '').trim();
     if (pl != null && plFp.isNotEmpty && plFp != uiFp.trim()) {
-      _log('PLAYLIST_FP_MISMATCH', {
+      _log('PLAYLIST_FP_MISMATCH_WARNING', {
         'pl_viewFp': plFp,
         'ui_viewFp': uiFp.trim(),
         'status': pl.status,
         'items': pl.items.length,
-        'note': 'Flutter fp aligned to sha1("v2|narration")',
+        'note':
+            'Flutter fp aligned to sha1("v2|narration") but mismatched. Continuing anyway.',
       });
-      _playlist = null;
-      return;
+      // 以前這會 return 導致沒有聲音，現在放行
+      // _playlist = null;
+      // return;
     }
 
     _playlist = pl;

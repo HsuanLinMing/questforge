@@ -89,8 +89,10 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   static const double _maxScale = 1.4;
   static const double _step = 0.1;
 
-  void _fontDown() => setState(() => _fontScale = (_fontScale - _step).clamp(_minScale, _maxScale));
-  void _fontUp() => setState(() => _fontScale = (_fontScale + _step).clamp(_minScale, _maxScale));
+  void _fontDown() => setState(
+      () => _fontScale = (_fontScale - _step).clamp(_minScale, _maxScale));
+  void _fontUp() => setState(
+      () => _fontScale = (_fontScale + _step).clamp(_minScale, _maxScale));
 
   // ---------------------------
   // choice highlight
@@ -98,7 +100,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   int? _pressedChoiceIndex;
   Timer? _pressedClearTimer;
 
-  void _setPressedChoice(int index, {Duration autoClear = const Duration(milliseconds: 900)}) {
+  void _setPressedChoice(int index,
+      {Duration autoClear = const Duration(milliseconds: 900)}) {
     _pressedClearTimer?.cancel();
     _pressedClearTimer = Timer(autoClear, () {
       if (!mounted) return;
@@ -124,7 +127,9 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   Map<String, dynamic>? _extractViewPlaylistCmd(BridgeUiStateV2 state) {
     for (final c in state.commands) {
       final t = c.type.trim();
-      final isPlaylist = (t == 'tts_playlist_v1' || t == 'tts_playlist' || t == 'tts_playlist_v2');
+      final isPlaylist = (t == 'tts_playlist_v1' ||
+          t == 'tts_playlist' ||
+          t == 'tts_playlist_v2');
       if (!isPlaylist) continue;
 
       final raw = c.toJson();
@@ -146,7 +151,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
 
   String _lastDumpFp = '';
 
-  void _debugDumpTtsIfMissing(BridgeUiStateV2 state, NodeView view, String fp, Map<String, dynamic>? playlistCmd) {
+  void _debugDumpTtsIfMissing(BridgeUiStateV2 state, NodeView view, String fp,
+      Map<String, dynamic>? playlistCmd) {
     if (playlistCmd != null) return;
     if (_lastDumpFp == fp) return; // 同一個 view 只印一次
     _lastDumpFp = fp;
@@ -166,10 +172,12 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     // ignore: avoid_print
     final rawBundle = (raw?['bundle'] as Map?)?.cast<String, dynamic>();
 
-    print('[GamePageV1][TTS_DUMP] raw.bundle.view.commands=${(rawBundle?['view'] as Map?)?['commands']}');
+    print(
+        '[GamePageV1][TTS_DUMP] raw.bundle.view.commands=${(rawBundle?['view'] as Map?)?['commands']}');
 
     // ✅ 加這行：看 bundle.commands
-    print('[GamePageV1][TTS_DUMP] raw.bundle.commands=${rawBundle?['commands']}');
+    print(
+        '[GamePageV1][TTS_DUMP] raw.bundle.commands=${rawBundle?['commands']}');
   }
 
   // ---------------------------
@@ -243,10 +251,14 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   bool _isAccuseNode(NodeView view) {
     final id = view.nodeId.toLowerCase();
     final title = view.title;
-    return id.contains('accuse') || title.contains('指認') || title.contains('推理') || title.contains('最後');
+    return id.contains('accuse') ||
+        title.contains('指認') ||
+        title.contains('推理') ||
+        title.contains('最後');
   }
 
-  bool _isMidReasonNode(NodeView view) => view.nodeId.toLowerCase().contains('mid_reason');
+  bool _isMidReasonNode(NodeView view) =>
+      view.nodeId.toLowerCase().contains('mid_reason');
 
   bool _isEndingNode(NodeView view) {
     final id = view.nodeId.toLowerCase();
@@ -266,7 +278,9 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   }
 
   bool _overlayShowingFromState(BridgeUiStateV2 s) {
-    return s.bundle.ask != null || s.bundle.quiz != null || s.bundle.end != null;
+    return s.bundle.ask != null ||
+        s.bundle.quiz != null ||
+        s.bundle.end != null;
   }
 
   void _tryAutoContinueAfterTtsEnd() {
@@ -378,7 +392,11 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     _accuseEvalDebounce?.cancel();
     _accuseEvalDebounce = null;
 
-    if (_heardText.isNotEmpty || _voiceMatchedIndex != null || _voiceConfident || _accuseEval != null || _accuseEvalError.isNotEmpty) {
+    if (_heardText.isNotEmpty ||
+        _voiceMatchedIndex != null ||
+        _voiceConfident ||
+        _accuseEval != null ||
+        _accuseEvalError.isNotEmpty) {
       setState(() {
         _heardText = '';
         _voiceMatchedIndex = null;
@@ -466,12 +484,14 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   /// - 先走既有 AccuseMatcher
   /// - 再走「片段」(LCS>=2) / contains
   /// - 回傳 (idx, confident)
-  ({int? idx, bool confident}) _bestEffortMatch(NodeView view, String recognized) {
+  ({int? idx, bool confident}) _bestEffortMatch(
+      NodeView view, String recognized) {
     final raw = recognized.trim();
     if (raw.isEmpty) return (idx: null, confident: false);
 
     // 1) 先用你原本的 matcher（通常最準）
-    final idx0 = AccuseMatcher.matchChoiceIndex(recognized: raw, choices: view.choices);
+    final idx0 =
+        AccuseMatcher.matchChoiceIndex(recognized: raw, choices: view.choices);
     if (idx0 != null) return (idx: idx0, confident: true);
 
     // 2) 如果看起來就是要交給老師
@@ -754,10 +774,15 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                     children: [
                       Text(
                         '功能選單',
-                        style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                        style: Theme.of(ctx)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w900),
                       ),
                       const Spacer(),
-                      IconButton(onPressed: () => Navigator.of(ctx).pop(), icon: const Icon(Icons.close)),
+                      IconButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          icon: const Icon(Icons.close)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -765,12 +790,14 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.replay),
                     title: const Text('重播本段'),
-                    subtitle: Text('從段落 ${(_ttsCtl.activeParagraphIndex + 1)} 開始'),
+                    subtitle:
+                        Text('從段落 ${(_ttsCtl.activeParagraphIndex + 1)} 開始'),
                     onTap: replay,
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    secondary: Icon(_follow ? Icons.my_location : Icons.location_disabled),
+                    secondary: Icon(
+                        _follow ? Icons.my_location : Icons.location_disabled),
                     title: const Text('跟隨段落'),
                     subtitle: const Text('播放時自動捲動到目前段落'),
                     value: _follow,
@@ -829,7 +856,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
-    final inactive = state == AppLifecycleState.inactive || state == AppLifecycleState.paused;
+    final inactive = state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused;
 
     if (inactive) {
       _appInactive = true;
@@ -901,10 +929,15 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                 children: [
                   Text(
                     '要開啟語音朗讀嗎？',
-                    style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                    style: Theme.of(ctx)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w900),
                   ),
                   const Spacer(),
-                  IconButton(onPressed: () => Navigator.of(ctx).pop(false), icon: const Icon(Icons.close)),
+                  IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      icon: const Icon(Icons.close)),
                 ],
               ),
               const SizedBox(height: 8),
@@ -944,16 +977,22 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   // ---------------------------
   // view changed / autoplay
   // ---------------------------
-  String _fingerprint(NodeView v) => '${v.nodeId}|${v.title}|${v.narration.length}|${v.choices.length}';
+  String _fingerprint(NodeView v) =>
+      '${v.nodeId}|${v.title}|${v.narration.length}|${v.choices.length}';
 
-  void _scheduleHandleViewChanged(NodeView view, List<StoryParagraph> paragraphs, {required Map<String, dynamic>? playlistCmd}) {
+  Future<void>? _viewChangeFuture;
+
+  void _scheduleHandleViewChanged(
+      NodeView view, List<StoryParagraph> paragraphs,
+      {required Map<String, dynamic>? playlistCmd}) {
     final fp = _fingerprint(view);
     if (fp == _lastViewFingerprint) return;
     _lastViewFingerprint = fp;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final prevFuture = _viewChangeFuture ?? Future<void>.value();
+
+    _viewChangeFuture = prevFuture.then((_) async {
       if (!mounted) return;
-      if (_handlingViewChange) return;
 
       _handlingViewChange = true;
       try {
@@ -978,7 +1017,9 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           playlistCmd: playlistCmd,
         );
       } finally {
-        _handlingViewChange = false;
+        if (mounted) {
+          _handlingViewChange = false;
+        }
       }
     });
   }
@@ -1102,25 +1143,30 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           },
           endLockVN: widget.controller.endActionLockVN,
           pendingEndVN: widget.controller.pendingEndActionIdVN,
-          onTapEndAction: (action) => widget.controller.sendEndActionSpec(action),
+          onTapEndAction: (action) =>
+              widget.controller.sendEndActionSpec(action),
           onCloseEnd: widget.controller.clearEndOverlayLocal,
         );
 
         final mq = MediaQuery.of(context);
-        final narrationScaled = mq.copyWith(textScaler: TextScaler.linear(_fontScale));
+        final narrationScaled =
+            mq.copyWith(textScaler: TextScaler.linear(_fontScale));
 
         final isAccuse = _isAccuseNode(view);
 
         return ValueListenableBuilder<TtsPlaybackState>(
           valueListenable: _ttsCtl.vn,
           builder: (context, ttsState, __) {
-            final activeNow = paragraphs.isEmpty ? 0 : ttsState.activeParagraphIndex.clamp(0, paragraphs.length - 1);
+            final activeNow = paragraphs.isEmpty
+                ? 0
+                : ttsState.activeParagraphIndex.clamp(0, paragraphs.length - 1);
 
             return Stack(
               children: [
                 ListView(
                   key: _pageRebuildKey,
-                  physics: _pttHolding ? const NeverScrollableScrollPhysics() : null,
+                  physics:
+                      _pttHolding ? const NeverScrollableScrollPhysics() : null,
                   padding: const EdgeInsets.all(16),
                   children: [
                     _PageHeader(
@@ -1153,7 +1199,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                             ? () => _ttsCtl.togglePlay(
                                   paragraphs: paragraphs,
                                   viewFp: viewFp,
-                                  scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
+                                  scrollTo: (i) => _storyKey.currentState
+                                      ?.scrollToParagraph(i),
                                 )
                             : null,
                         onPrev: phase.allowTopActions
@@ -1162,7 +1209,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                 await _ttsCtl.prev(
                                   paragraphs: paragraphs,
                                   viewFp: viewFp,
-                                  scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
+                                  scrollTo: (i) => _storyKey.currentState
+                                      ?.scrollToParagraph(i),
                                 );
                               }
                             : null,
@@ -1172,7 +1220,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                 await _ttsCtl.next(
                                   paragraphs: paragraphs,
                                   viewFp: viewFp,
-                                  scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
+                                  scrollTo: (i) => _storyKey.currentState
+                                      ?.scrollToParagraph(i),
                                 );
                               }
                             : null,
@@ -1183,7 +1232,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                   index: i,
                                   paragraphs: paragraphs,
                                   viewFp: viewFp,
-                                  scrollTo: (idx) => _storyKey.currentState?.scrollToParagraph(idx),
+                                  scrollTo: (idx) => _storyKey.currentState
+                                      ?.scrollToParagraph(idx),
                                 );
                               }
                             : null,
@@ -1232,78 +1282,120 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                             resolvedIdx ??= teacherIdx;
                           }
 
-                          final resolvedChoice = (resolvedIdx == null) ? null : _choiceByIndex(view, resolvedIdx!);
-                          final isTeacher = teacherIdx != null && resolvedIdx == teacherIdx;
+                          final resolvedChoice = (resolvedIdx == null)
+                              ? null
+                              : _choiceByIndex(view, resolvedIdx!);
+                          final isTeacher =
+                              teacherIdx != null && resolvedIdx == teacherIdx;
 
 // ✅ 不要在 evaluator loading 時就送（避免先送 teacher）
-                          final canSubmit =
-                              phase.allowChoiceTap && !_accuseSending && !_accuseEvalLoading && _heardText.isNotEmpty && resolvedIdx != null;
+                          final canSubmit = phase.allowChoiceTap &&
+                              !_accuseSending &&
+                              !_accuseEvalLoading &&
+                              _heardText.isNotEmpty &&
+                              resolvedIdx != null;
 
-                          final fifi = (eval != null && eval.fifiReply.trim().isNotEmpty)
-                              ? eval.fifiReply
-                              : _buildFifiEcho(
-                                  heard: _heardText,
-                                  selectedName: resolvedChoice?.text,
-                                  isTeacher: isTeacher,
-                                  confident: _voiceConfident && !isTeacher,
-                                );
+                          final fifi =
+                              (eval != null && eval.fifiReply.trim().isNotEmpty)
+                                  ? eval.fifiReply
+                                  : _buildFifiEcho(
+                                      heard: _heardText,
+                                      selectedName: resolvedChoice?.text,
+                                      isTeacher: isTeacher,
+                                      confident: _voiceConfident && !isTeacher,
+                                    );
 
                           return Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: Theme.of(context).colorScheme.surface,
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                              border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outlineVariant),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   '用說的回答',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w800),
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  available ? '按下麥克風，說出你覺得是誰（也可以說：交給老師）' : '語音辨識尚未就緒（請確認麥克風/語音辨識權限）',
+                                  available
+                                      ? '按下麥克風，說出你覺得是誰（也可以說：交給老師）'
+                                      : '語音辨識尚未就緒（請確認麥克風/語音辨識權限）',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
 
                                 if (userErr.isNotEmpty) ...[
                                   const SizedBox(height: 6),
-                                  Text('（語音錯誤）$userErr', style: Theme.of(context).textTheme.bodySmall),
+                                  Text('（語音錯誤）$userErr',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
                                 ],
                                 const SizedBox(height: 10),
                                 Row(
                                   children: [
                                     Expanded(
                                       child: IgnorePointer(
-                                        ignoring: (!available || _accuseSending || !phase.allowChoiceTap),
+                                        ignoring: (!available ||
+                                            _accuseSending ||
+                                            !phase.allowChoiceTap),
                                         child: Opacity(
-                                          opacity: (!available || _accuseSending || !phase.allowChoiceTap) ? 0.45 : 1,
+                                          opacity: (!available ||
+                                                  _accuseSending ||
+                                                  !phase.allowChoiceTap)
+                                              ? 0.45
+                                              : 1,
                                           child: Listener(
                                             behavior: HitTestBehavior.opaque,
                                             onPointerDown: (_) async {
-                                              final v = widget.controller.stateVN.value.view;
+                                              final v = widget.controller
+                                                  .stateVN.value.view;
                                               if (v == null) return;
                                               if (!_isAccuseNode(v)) return;
-                                              await _pttStart(v, ttsPlaying: ttsState.playing);
+                                              await _pttStart(v,
+                                                  ttsPlaying: ttsState.playing);
                                             },
-                                            onPointerUp: (_) async => _pttStop(),
-                                            onPointerCancel: (_) async => _pttStop(),
+                                            onPointerUp: (_) async =>
+                                                _pttStop(),
+                                            onPointerCancel: (_) async =>
+                                                _pttStop(),
                                             child: Container(
                                               height: 44,
                                               decoration: BoxDecoration(
-                                                color: (_pttHolding || listening) ? Colors.deepPurple.shade700 : Colors.deepPurple,
-                                                borderRadius: BorderRadius.circular(999),
+                                                color: (_pttHolding ||
+                                                        listening)
+                                                    ? Colors.deepPurple.shade700
+                                                    : Colors.deepPurple,
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
                                               ),
                                               child: Row(
-                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
                                                 children: [
-                                                  Icon((_pttHolding || listening) ? Icons.mic : Icons.mic_none, color: Colors.white),
+                                                  Icon(
+                                                      (_pttHolding || listening)
+                                                          ? Icons.mic
+                                                          : Icons.mic_none,
+                                                      color: Colors.white),
                                                   const SizedBox(width: 8),
                                                   Text(
-                                                    (_pttHolding || listening) ? '錄音中…（放開停止）' : '按住說話',
-                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                                    (_pttHolding || listening)
+                                                        ? '錄音中…（放開停止）'
+                                                        : '按住說話',
+                                                    style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontWeight:
+                                                            FontWeight.w700),
                                                   ),
                                                 ],
                                               ),
@@ -1314,7 +1406,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                     ),
                                     const SizedBox(width: 10),
                                     OutlinedButton(
-                                      onPressed: (_accuseSending || !phase.allowChoiceTap)
+                                      onPressed: (_accuseSending ||
+                                              !phase.allowChoiceTap)
                                           ? null
                                           : () async {
                                               await _pttStop();
@@ -1333,19 +1426,30 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                   if (_accuseEvalLoading) ...[
                                     Row(
                                       children: [
-                                        const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                                        const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2)),
                                         const SizedBox(width: 8),
-                                        Text('菲菲正在幫你整理…', style: Theme.of(context).textTheme.bodySmall),
+                                        Text('菲菲正在幫你整理…',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall),
                                       ],
                                     ),
                                     const SizedBox(height: 8),
                                   ] else if (_accuseEvalError.isNotEmpty) ...[
-                                    Text('（AI 判斷暫時失敗，先用本地比對）$_accuseEvalError', style: Theme.of(context).textTheme.bodySmall),
+                                    Text('（AI 判斷暫時失敗，先用本地比對）$_accuseEvalError',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall),
                                     const SizedBox(height: 8),
                                   ] else if (_accuseEval != null) ...[
                                     Text(
                                       '（AI 分數：${_accuseEval!.score.toStringAsFixed(2)} / 門檻：${_accuseEval!.threshold.toStringAsFixed(2)}）',
-                                      style: Theme.of(context).textTheme.bodySmall,
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
                                     ),
                                     const SizedBox(height: 8),
                                   ],
@@ -1358,7 +1462,9 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                         ? () => _sendAccuseIndex(
                                               view: view,
                                               idx: resolvedIdx!,
-                                              displayText: resolvedChoice?.text ?? '交給老師',
+                                              displayText:
+                                                  resolvedChoice?.text ??
+                                                      '交給老師',
                                               heard: _heardText,
                                             )
                                         : null,
@@ -1366,7 +1472,11 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                                         ? '送出中…'
                                         : (_heardText.isEmpty
                                             ? '先說一句話再送出'
-                                            : (resolvedChoice == null ? '請再說一次或點選' : (isTeacher ? '送出（交給老師）' : '送出這個答案')))),
+                                            : (resolvedChoice == null
+                                                ? '請再說一次或點選'
+                                                : (isTeacher
+                                                    ? '送出（交給老師）'
+                                                    : '送出這個答案')))),
                                   ),
                                 ),
                               ],
@@ -1382,7 +1492,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                     ...view.choices.map((c) {
                       final disabled = !phase.allowChoiceTap || !c.enabled;
                       final highlighted = _pressedChoiceIndex == c.index;
-                      final pendingThis = chooseLocked && _pressedChoiceIndex == c.index;
+                      final pendingThis =
+                          chooseLocked && _pressedChoiceIndex == c.index;
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -1435,9 +1546,10 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                       const SizedBox(height: 4),
                       Text(
                         '送出中…請稍等一下',
-                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -1448,7 +1560,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
                       onPressed: phase.blockAllTap
                           ? null
                           : () async {
-                              if (ttsState.playing) await _ttsCtl.stop(resetToStart: false);
+                              if (ttsState.playing)
+                                await _ttsCtl.stop(resetToStart: false);
                               await _stt.stop();
                               await _confirmQuit(context);
                             },
@@ -1498,7 +1611,8 @@ class _PageHeader extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.textTheme.headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         const SizedBox(width: 8),

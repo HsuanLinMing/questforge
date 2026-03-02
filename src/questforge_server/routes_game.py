@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from questforge_server.progress import ProgressLogger
@@ -381,7 +381,7 @@ def _build_ai_playlist(
     }
 
 def _try_make_pooled_tts_cmd(
-    *, request: Request, view_json: Dict[str, Any]
+    *, request: Request, view_json: Dict[str, Any], background_tasks: Optional[BackgroundTasks] = None
 ) -> Optional[Dict[str, Any]]:
 
     runtime = view_json.get("runtime") or {}
@@ -395,13 +395,15 @@ def _try_make_pooled_tts_cmd(
 
     # ✅ SAMPLE → 即時第一段語音
     if source == "sample":
-        return _build_sample_runtime_tts(request, view_json)
+        return _build_sample_runtime_tts(request, view_json, background_tasks)
 
     return None
 # ----------------------------
 # Bundle builder
 # ----------------------------
-def _build_sample_runtime_tts(request: Request, view_json: Dict[str, Any]):
+def _build_sample_runtime_tts(
+    request: Request, view_json: Dict[str, Any], background_tasks: Optional[BackgroundTasks] = None
+):
     narration = (view_json.get("narration") or "").strip()
     if not narration:
         return None
@@ -410,52 +412,81 @@ def _build_sample_runtime_tts(request: Request, view_json: Dict[str, Any]):
     if not paras:
         return None
 
-    # ✅ 只先生成第一段，讓玩家立刻能聽
-    first_para = paras[0]
-    role, text = _parse_paragraph(first_para)
-    spoken_text = (text or "").strip()
-    if not spoken_text:
-        return None
-
-    profile = voice_for_role(role)
-    speed = _voice_speed_for_role(role)
-
+    # ✅ 生成所有段落，不僅僅是第一段
+    items = []
+    
     # ✅ 關鍵：跟 main.py mount 同一個 cache_root/runtime_sample
     cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
     out_dir = (cache_root / "runtime_sample").resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    r = synthesize_to_wav(
-        text=spoken_text,
-        out_dir=out_dir,
-        voice=profile.voice,
-        instructions=profile.instructions,
-        speed=speed,
-    )
-    if not r:
-        return None
-
-    # ✅ 保險：印出實際寫入位置（你看到 log 就能秒確認）
-    try:
-        print(
-            "[RUNTIME_SAMPLE_TTS] wrote",
-            {"file": str(r.file_path), "size": r.file_path.stat().st_size},
-            flush=True,
-        )
-    except Exception:
-        pass
-
     base = str(request.base_url).rstrip("/")
-    url = f"{base}/static/runtime_sample/{r.filename}"
+    
+    def _synth_para(i: int, p: str):
+        role, text = _parse_paragraph(p)
+        spoken_text = (text or "").strip()
+        if not spoken_text:
+            return None
 
-    return {
-        "type": "tts_playlist_v1",
-        "scope": "view",
-        "status": "ok",
-        "source": "runtime_sample",
-        "items": [
+        profile = voice_for_role(role)
+        speed = _voice_speed_for_role(role)
+
+        r = synthesize_to_wav(
+            text=spoken_text,
+            out_dir=out_dir,
+            voice=profile.voice,
+            instructions=profile.instructions,
+            speed=speed,
+        )
+        if not r:
+            return None
+        
+        try:
+            print(
+                "[RUNTIME_SAMPLE_TTS] wrote",
+                {"file": str(r.file_path), "size": r.file_path.stat().st_size},
+                flush=True,
+            )
+        except Exception:
+            pass
+            
+        return r
+
+    for i, para in enumerate(paras):
+        role, text = _parse_paragraph(para)
+        spoken_text = (text or "").strip()
+        if not spoken_text:
+            continue
+
+        profile = voice_for_role(role)
+        speed = _voice_speed_for_role(role)
+
+        # 🚀 第一段直接合成，後面的放背景（如果有提供 background_tasks）
+        if i == 0 or background_tasks is None:
+            _synth_para(i, para)
+        else:
+            background_tasks.add_task(_synth_para, i, para)
+
+        # 無論如何，先給出未來會產生好的 url
+        # 注意這裡的檔名推導需要跟 synthesize_to_wav 一致。
+        # synthesize_to_wav 使用 MD5 hash。我們可以自己算，或者 _synth_para 回傳。
+        # 但是如果放背景，我們現在拿不到 r.filename。
+        # 讓我們自己算 expected filename。
+        text_for_hash = spoken_text
+        profile_voice = profile.voice
+        instructions = profile.instructions or ""
+        speed_str = str(speed)
+
+        h = hashlib.md5()
+        h.update(text_for_hash.encode("utf-8"))
+        h.update(profile_voice.encode("utf-8"))
+        h.update(instructions.encode("utf-8"))
+        h.update(speed_str.encode("utf-8"))
+        expected_filename = f"{h.hexdigest()}.wav"
+
+        url = f"{base}/static/runtime_sample/{expected_filename}"
+        items.append(
             {
-                "index": 0,
+                "index": i,
                 "format": "wav",
                 "path": url,
                 "text": spoken_text,
@@ -463,7 +494,17 @@ def _build_sample_runtime_tts(request: Request, view_json: Dict[str, Any]):
                 "voice": profile.voice,
                 "speed": speed,
             }
-        ],
+        )
+        
+    if not items:
+        return None
+
+    return {
+        "type": "tts_playlist_v1",
+        "scope": "view",
+        "status": "ok",
+        "source": "runtime_sample",
+        "items": items,
     }
 def _bundle_from_session_and_step(
     *,
@@ -472,6 +513,7 @@ def _bundle_from_session_and_step(
     run_id: str,
     session: GameSession,
     step: Optional[StepResult],
+    background_tasks: Optional[BackgroundTasks] = None,
 ) -> Tuple[BundleResponse, List[str], bool]:
     """
     產出 Flutter 端吃的 bundle：
@@ -500,6 +542,7 @@ def _bundle_from_session_and_step(
 
     def _make_tts_cmd_from_view_json(
         view_json: Optional[Dict[str, Any]],
+        bg_tasks: Optional[BackgroundTasks] = None,
     ) -> Optional[Dict[str, Any]]:
         # ✅ TTS 總開關
         if not _env_bool("QF_TTS_ENABLED", True):
@@ -507,6 +550,7 @@ def _bundle_from_session_and_step(
         pooled = _try_make_pooled_tts_cmd(
             request=request,
             view_json=view_json,
+            background_tasks=bg_tasks,
         )
         if pooled is not None:
             return pooled
@@ -541,10 +585,8 @@ def _bundle_from_session_and_step(
             source = ""
 
         is_ai = source == "ai"
-        if not is_ai:
-            # fallback：用 session.case_id 的習慣命名（ai_...）
-            # 這裡拿不到 session，所以用 source 足夠了；source 沒寫時就當非 AI
-            raw_paras = raw_paras[:1]
+        # ✅ 移除: if not is_ai: raw_paras = raw_paras[:1]
+        # 讓這段與 AI 一樣，都產出完整的 TTS playlist 給使用者聽
 
         view_fp = _view_fp_for_narration(narration)
 
@@ -606,7 +648,7 @@ def _bundle_from_session_and_step(
         view_json = _to_json_dict(view_obj)
         view_json = _inject_story_meta(view_json)
 
-        tts_cmd = _make_tts_cmd_from_view_json(view_json)
+        tts_cmd = _make_tts_cmd_from_view_json(view_json, background_tasks)
         commands_out = [tts_cmd] if tts_cmd else []
 
         if view_json is not None:
@@ -646,7 +688,7 @@ def _bundle_from_session_and_step(
         elif t in ("show_end_screen", "show_reasoning_feedback"):
             end = cmd
 
-    tts_cmd = _make_tts_cmd_from_view_json(view_json)
+    tts_cmd = _make_tts_cmd_from_view_json(view_json, background_tasks)
     commands_out = [tts_cmd] if tts_cmd else []
 
     if view_json is not None:
@@ -669,6 +711,7 @@ def _step_and_build_response(
     session_id: str,
     session: GameSession,
     action: PlayerAction,
+    background_tasks: Optional[BackgroundTasks] = None,
 ) -> StepResponse:
     step = session.step(action)
     run_id = store.get_current_run_id(session_id) or ""
@@ -678,6 +721,7 @@ def _step_and_build_response(
         run_id=run_id,
         session=session,
         step=step,
+        background_tasks=background_tasks,
     )
     return StepResponse(
         session_id=session_id, bundle=bundle, events=events, is_over=is_over
@@ -960,7 +1004,9 @@ def _best_effort_match_choice(
 
 
 @router.post("/start", response_model=StepResponse)
-def api_start(req: StartRequest, request: Request) -> StepResponse:
+def start_session(
+    req: StartRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
     sid = "pending"
     p = ProgressLogger(sid="pending", label="START")
 
@@ -1004,6 +1050,7 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
                 run_id=run_id,
                 session=session,
                 step=None,
+                background_tasks=background_tasks,
             )
 
         # ✅ 2) B-1 pipeline：背景順序做 current_tts -> ai1+tts -> ai2+tts
@@ -1025,7 +1072,9 @@ def api_start(req: StartRequest, request: Request) -> StepResponse:
 
 
 @router.post("/choose", response_model=StepResponse)
-def api_choose(req: ChooseRequest, request: Request) -> StepResponse:
+def choose_action(
+    req: ChooseRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
     session = _get_session_or_404(req.session_id)
     action = PlayerAction(type="choose", choice_index=req.choice_index)
     return _step_and_build_response(
@@ -1033,11 +1082,14 @@ def api_choose(req: ChooseRequest, request: Request) -> StepResponse:
         session_id=req.session_id,
         session=session,
         action=action,
+        background_tasks=background_tasks,
     )
 
 
 @router.post("/replay", response_model=StepResponse)
-def api_replay(req: ReplayRequest, request: Request) -> StepResponse:
+def replay_action(
+    req: ReplayRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
     session = _get_session_or_404(req.session_id)
     action = PlayerAction(type="replay")
     return _step_and_build_response(
@@ -1045,11 +1097,14 @@ def api_replay(req: ReplayRequest, request: Request) -> StepResponse:
         session_id=req.session_id,
         session=session,
         action=action,
+        background_tasks=background_tasks,
     )
 
 
 @router.post("/end_flow", response_model=StepResponse)
-def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
+def end_flow_action(
+    req: EndFlowRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
     session_id = (req.session_id or "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
@@ -1071,6 +1126,7 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
             run_id=run_id,
             session=session,
             step=None,
+            background_tasks=background_tasks,
         )
         return StepResponse(
             session_id=session_id,
@@ -1112,6 +1168,7 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
             run_id=run_id,
             session=new_current,
             step=None,
+            background_tasks=background_tasks,
         )
         _bootstrap_background_pipeline(request, session_id, seed=None)
         return StepResponse(
@@ -1141,6 +1198,7 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
         run_id=run_id,
         session=session,
         step=step,
+        background_tasks=background_tasks,
     )
     return StepResponse(
         session_id=session_id, bundle=bundle, events=events, is_over=is_over
@@ -1148,7 +1206,9 @@ def api_end_flow(req: EndFlowRequest, request: Request) -> StepResponse:
 
 
 @router.post("/set_reasons", response_model=StepResponse)
-def api_set_reasons(req: SetReasonsRequest, request: Request) -> StepResponse:
+def set_reasons_action(
+    req: SetReasonsRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
     session = _get_session_or_404(req.session_id)
     action = PlayerAction(
         type="set_reasons",
@@ -1160,11 +1220,14 @@ def api_set_reasons(req: SetReasonsRequest, request: Request) -> StepResponse:
         session_id=req.session_id,
         session=session,
         action=action,
+        background_tasks=background_tasks,
     )
 
 
 @router.post("/confirm_quiz", response_model=StepResponse)
-def api_confirm_quiz(req: ConfirmQuizRequest, request: Request) -> StepResponse:
+def confirm_quiz_action(
+    req: ConfirmQuizRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
     session = _get_session_or_404(req.session_id)
     action = PlayerAction(
         type="confirm_quiz_answer",
@@ -1176,11 +1239,12 @@ def api_confirm_quiz(req: ConfirmQuizRequest, request: Request) -> StepResponse:
         session_id=req.session_id,
         session=session,
         action=action,
+        background_tasks=background_tasks,
     )
 
 
 @router.post("/quit", response_model=StepResponse)
-def api_quit(req: QuitRequest, request: Request) -> StepResponse:
+def api_quit(req: QuitRequest, request: Request, background_tasks: BackgroundTasks) -> StepResponse:
     session = _get_session_or_404(req.session_id)
     action = PlayerAction(type="quit")
     resp = _step_and_build_response(
@@ -1188,6 +1252,7 @@ def api_quit(req: QuitRequest, request: Request) -> StepResponse:
         session_id=req.session_id,
         session=session,
         action=action,
+        background_tasks=background_tasks,
     )
     store.delete(req.session_id)
     _safe_rmtree(_runs_root() / req.session_id)
@@ -1195,7 +1260,9 @@ def api_quit(req: QuitRequest, request: Request) -> StepResponse:
 
 
 @router.post("/accuse_evaluate", response_model=AccuseEvaluateResponse)
-def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
+def accuse_evaluate_action(
+    req: AccuseEvaluateRequest, request: Request, background_tasks: BackgroundTasks
+) -> AccuseEvaluateResponse:
     threshold = 0.6
     nudge_margin = 0.12
     auto_submit_delta = 0.15
@@ -1340,3 +1407,83 @@ def api_accuse_evaluate(req: AccuseEvaluateRequest) -> AccuseEvaluateResponse:
             ending_kind="defer",
             debug={"case": "exception", "error": repr(e)},
         )
+
+
+class InitializeStoriesResponse(BaseModel):
+    has_ai_stories: bool
+    sample_stories: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+@router.post("/initialize_stories", response_model=InitializeStoriesResponse)
+def initialize_stories(request: Request, background_tasks: BackgroundTasks) -> InitializeStoriesResponse:
+    # 檢查是否有 AI 故事
+    pool_mgr = _pool
+    ready_count = pool_mgr._ready_count()
+    if ready_count > 0:
+        return InitializeStoriesResponse(has_ai_stories=True)
+
+    # 沒有 AI 故事，回傳 sample 故事
+    samples = []
+    # 走訪 sample_repo._paths，把 title, brief 等塞進去
+    for p in pool_mgr._sample_repo._paths:
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            meta = raw.get("meta") or {}
+            samples.append({
+                "source": "sample",
+                "title": meta.get("title") or "Unknown Title",
+                "brief": meta.get("brief") or "",
+                "file_name": p.name,
+            })
+        except Exception:
+            pass
+
+    # 當 Flutter 呼叫這個，代表剛起始。我們在這裡不預生成語音，而是等 frontend 再打 /v1/game/start 來做 (因為 start 裡已經有完整的 _bundle_from_session_and_step 背景邏輯了)
+    return InitializeStoriesResponse(has_ai_stories=False, sample_stories=samples)
+
+
+class GenerateAiStoryRequest(BaseModel):
+    # just an empty request for now, can accept params if needed
+    pass
+
+
+class GenerateAiStoryResponse(BaseModel):
+    status: str
+    message: str
+
+
+@router.post("/generate_ai_story", response_model=GenerateAiStoryResponse)
+def generate_ai_story(req: GenerateAiStoryRequest, background_tasks: BackgroundTasks) -> GenerateAiStoryResponse:
+    # 強制觸發一次 AI 故事背景產生
+    _pool.ensure_pool()
+    return GenerateAiStoryResponse(status="ok", message="AI story generation started in background.")
+
+
+class CleanupAiStoryRequest(BaseModel):
+    story_id: str
+
+
+class CleanupAiStoryResponse(BaseModel):
+    status: str
+    message: str
+
+
+@router.post("/cleanup_ai_story", response_model=CleanupAiStoryResponse)
+def cleanup_ai_story(req: CleanupAiStoryRequest) -> CleanupAiStoryResponse:
+    story_id = req.story_id
+    if not story_id:
+        raise HTTPException(status_code=400, detail="Missing story_id")
+    
+    # 移除 local storage 的 story
+    try:
+        store_path = _pool._storage._cfg.root_dir / f"{story_id}.json"
+        if store_path.exists():
+            store_path.unlink()
+            
+        # 移除 tts pool 裡面的檔案
+        tts_dir = Path(".qf_cache/pool_tts") / story_id
+        _safe_rmtree(tts_dir)
+        
+        return CleanupAiStoryResponse(status="ok", message="Story cleaned up.")
+    except Exception as e:
+        return CleanupAiStoryResponse(status="error", message=str(e))

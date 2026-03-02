@@ -30,8 +30,10 @@ class GameStepResp {
   factory GameStepResp.fromJson(Map<String, dynamic> json) {
     return GameStepResp(
       sessionId: (json['session_id'] ?? '').toString(),
-      bundle: (json['bundle'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{},
-      events: (json['events'] as List?)?.map((e) => e.toString()).toList() ?? <String>[],
+      bundle: (json['bundle'] as Map?)?.cast<String, dynamic>() ??
+          <String, dynamic>{},
+      events: (json['events'] as List?)?.map((e) => e.toString()).toList() ??
+          <String>[],
       isOver: (json['is_over'] as bool?) ?? false,
     );
   }
@@ -53,6 +55,40 @@ class GameStartResp extends GameStepResp {
       bundle: base.bundle,
       events: base.events,
       isOver: base.isOver,
+    );
+  }
+}
+
+class InitializeStoriesResp {
+  InitializeStoriesResp({
+    required this.hasAiStories,
+    required this.sampleStories,
+  });
+  final bool hasAiStories;
+  final List<Map<String, dynamic>> sampleStories;
+
+  factory InitializeStoriesResp.fromJson(Map<String, dynamic> json) {
+    return InitializeStoriesResp(
+      hasAiStories: (json['has_ai_stories'] as bool?) ?? false,
+      sampleStories:
+          (json['sample_stories'] as List?)?.cast<Map<String, dynamic>>() ??
+              <Map<String, dynamic>>[],
+    );
+  }
+}
+
+class ActionStatusResp {
+  ActionStatusResp({
+    required this.status,
+    required this.message,
+  });
+  final String status;
+  final String message;
+
+  factory ActionStatusResp.fromJson(Map<String, dynamic> json) {
+    return ActionStatusResp(
+      status: (json['status'] ?? '').toString(),
+      message: (json['message'] ?? '').toString(),
     );
   }
 }
@@ -82,7 +118,9 @@ class FastApiBridge {
   FastApiBridge({
     required String baseUrl,
     http.Client? client,
-  })  : baseUrl = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl,
+  })  : baseUrl = baseUrl.endsWith('/')
+            ? baseUrl.substring(0, baseUrl.length - 1)
+            : baseUrl,
         _client = client ?? http.Client();
 
   final String baseUrl;
@@ -142,22 +180,50 @@ class FastApiBridge {
     }
 
     if (resp.statusCode != 200) {
-      throw ApiException('request failed', statusCode: resp.statusCode, body: resp.body);
+      throw ApiException('request failed',
+          statusCode: resp.statusCode, body: resp.body);
     }
 
     try {
       final json = jsonDecode(resp.body);
       if (json is Map<String, dynamic>) return json;
       if (json is Map) return json.cast<String, dynamic>();
-      throw ApiException('invalid json (not a map)', statusCode: resp.statusCode, body: resp.body);
+      throw ApiException('invalid json (not a map)',
+          statusCode: resp.statusCode, body: resp.body);
     } catch (e) {
-      throw ApiException('invalid json decode: $e', statusCode: resp.statusCode, body: resp.body);
+      throw ApiException('invalid json decode: $e',
+          statusCode: resp.statusCode, body: resp.body);
     }
   }
 
   // ----------------------------
   // APIs (全部回 GameStepResp)
   // ----------------------------
+
+  Future<InitializeStoriesResp> initializeStories() async {
+    final json = await _postJson(
+      '/v1/game/initialize_stories',
+      clearSidOnNotFound: false,
+    );
+    return InitializeStoriesResp.fromJson(json);
+  }
+
+  Future<ActionStatusResp> generateAiStory() async {
+    final json = await _postJson(
+      '/v1/game/generate_ai_story',
+      clearSidOnNotFound: false,
+    );
+    return ActionStatusResp.fromJson(json);
+  }
+
+  Future<ActionStatusResp> cleanupAiStory(String storyId) async {
+    final json = await _postJson(
+      '/v1/game/cleanup_ai_story',
+      body: <String, dynamic>{'story_id': storyId},
+      clearSidOnNotFound: false,
+    );
+    return ActionStatusResp.fromJson(json);
+  }
 
   Future<GameStartResp> start({int? seed}) async {
     final json = await _postJson(
@@ -168,7 +234,8 @@ class FastApiBridge {
 
     final data = GameStartResp.fromJson(json);
     if (data.sessionId.isEmpty) {
-      throw ApiException('start missing session_id', statusCode: 200, body: jsonEncode(json));
+      throw ApiException('start missing session_id',
+          statusCode: 200, body: jsonEncode(json));
     }
     await saveSessionId(data.sessionId);
     return data;
@@ -176,7 +243,8 @@ class FastApiBridge {
 
   Future<GameStepResp> choose({required int choiceIndex}) async {
     final sid = await loadSessionId();
-    if (sid == null) throw ApiException('choose failed: no session_id (call start first)');
+    if (sid == null)
+      throw ApiException('choose failed: no session_id (call start first)');
 
     final json = await _postJson(
       '/v1/game/choose',
@@ -187,7 +255,8 @@ class FastApiBridge {
 
   Future<GameStepResp> replay() async {
     final sid = await loadSessionId();
-    if (sid == null) throw ApiException('replay failed: no session_id (call start first)');
+    if (sid == null)
+      throw ApiException('replay failed: no session_id (call start first)');
 
     final json = await _postJson(
       '/v1/game/replay',
@@ -198,7 +267,8 @@ class FastApiBridge {
 
   Future<GameStepResp> endFlow({required String endAction}) async {
     final sid = await loadSessionId();
-    if (sid == null) throw ApiException('end_flow failed: no session_id (call start first)');
+    if (sid == null)
+      throw ApiException('end_flow failed: no session_id (call start first)');
 
     final json = await _postJson(
       '/v1/game/end_flow',
@@ -212,7 +282,9 @@ class FastApiBridge {
     String reasonText = '',
   }) async {
     final sid = await loadSessionId();
-    if (sid == null) throw ApiException('set_reasons failed: no session_id (call start first)');
+    if (sid == null)
+      throw ApiException(
+          'set_reasons failed: no session_id (call start first)');
 
     final json = await _postJson(
       '/v1/game/set_reasons',
@@ -234,9 +306,12 @@ class FastApiBridge {
     String? nodeId,
   }) async {
     final sid = await loadSessionId();
-    if (sid == null) throw ApiException('accuse_evaluate failed: no session_id (call start first)');
+    if (sid == null)
+      throw ApiException(
+          'accuse_evaluate failed: no session_id (call start first)');
 
-    final req = AccuseEvaluateRequestV2(sessionId: sid, recognizedText: recognizedText, nodeId: nodeId);
+    final req = AccuseEvaluateRequestV2(
+        sessionId: sid, recognizedText: recognizedText, nodeId: nodeId);
 
     final json = await _postJson(
       '/v1/game/accuse_evaluate',
@@ -251,7 +326,9 @@ class FastApiBridge {
     bool skipped = false,
   }) async {
     final sid = await loadSessionId();
-    if (sid == null) throw ApiException('confirm_quiz failed: no session_id (call start first)');
+    if (sid == null)
+      throw ApiException(
+          'confirm_quiz failed: no session_id (call start first)');
 
     final json = await _postJson(
       '/v1/game/confirm_quiz',

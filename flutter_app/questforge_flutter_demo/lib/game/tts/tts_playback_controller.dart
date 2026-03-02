@@ -99,12 +99,9 @@ class _TtsPlaylistItem {
 
     final idxRaw = m['index'];
     final idx = (idxRaw is int) ? idxRaw : int.tryParse('$idxRaw') ?? 0;
-    final text = (m['text'] ??
-            m['narration'] ??
-            m['content'] ??
-            m['subtitle'] ??
-            '')
-        .toString();
+    final text =
+        (m['text'] ?? m['narration'] ?? m['content'] ?? m['subtitle'] ?? '')
+            .toString();
 
     return _TtsPlaylistItem(
       index: idx,
@@ -283,13 +280,16 @@ class TtsPlaybackController {
     _playParagraphs = paragraphs;
 
     final narration = (view.narration ?? '').toString();
-    final uiFp = narration.trim().isEmpty ? viewFp : _computeUiViewFpFromNarration(narration);
+    final uiFp = narration.trim().isEmpty
+        ? viewFp
+        : _computeUiViewFpFromNarration(narration);
 
     // ✅ 先把目前 view 的 fp 設成「對齊後端的 fp」
     _playViewFp = uiFp;
     vn.value = vn.value.copyWith(viewFp: uiFp);
 
-    final pl = (playlistCmd == null) ? null : _TtsPlaylistV1.fromCommand(playlistCmd);
+    final pl =
+        (playlistCmd == null) ? null : _TtsPlaylistV1.fromCommand(playlistCmd);
 
     // ✅ 嚴謹：如果後端有給 view_fp，就必須 match 我們算出來的 uiFp（避免亂播）
     final plFp = (pl?.viewFp ?? '').trim();
@@ -443,7 +443,8 @@ class TtsPlaybackController {
     final nextIndex = index.clamp(0, paragraphs.length - 1);
 
     if (pl == null || !pl.playable) {
-      vn.value = vn.value.copyWith(activeParagraphIndex: nextIndex, activeChunkIndex: 0);
+      vn.value = vn.value
+          .copyWith(activeParagraphIndex: nextIndex, activeChunkIndex: 0);
       scrollTo(nextIndex);
       return;
     }
@@ -621,7 +622,8 @@ class TtsPlaybackController {
       playing: true,
       viewFp: viewFp,
       activeChunkIndex: 0,
-      activeParagraphIndex: deferUiUntilSpeak ? vn.value.activeParagraphIndex : index,
+      activeParagraphIndex:
+          deferUiUntilSpeak ? vn.value.activeParagraphIndex : index,
     );
 
     _pendingActiveParagraphIndex = deferUiUntilSpeak ? index : null;
@@ -630,7 +632,8 @@ class TtsPlaybackController {
       scrollTo(index);
     }
 
-    await _playCurrentItem(stopBeforePlay: stopBeforeFirstChunk, scrollTo: scrollTo);
+    await _playCurrentItem(
+        stopBeforePlay: stopBeforeFirstChunk, scrollTo: scrollTo);
   }
 
   Future<void> _playCurrentItem({
@@ -663,66 +666,83 @@ class TtsPlaybackController {
           : item.text.trim().substring(0, item.text.trim().length.clamp(0, 20)),
     });
 
-    try {
-      if (stopBeforePlay) {
-        _fallbackTimer?.cancel();
-        _fallbackTimer = null;
-        await _player.stop();
-      }
-
-      final pending = _pendingActiveParagraphIndex;
-      if (pending != null) {
-        vn.value = vn.value.copyWith(activeParagraphIndex: pending);
-        scrollTo(pending);
-        _pendingActiveParagraphIndex = null;
-      } else {
-        if (vn.value.activeParagraphIndex != item.index) {
-          vn.value = vn.value.copyWith(activeParagraphIndex: item.index);
-          scrollTo(item.index);
+    int retryCount = 0;
+    while (retryCount < 5) {
+      try {
+        if (stopBeforePlay && retryCount == 0) {
+          _fallbackTimer?.cancel();
+          _fallbackTimer = null;
+          await _player.stop();
         }
+
+        final pending = _pendingActiveParagraphIndex;
+        if (pending != null) {
+          vn.value = vn.value.copyWith(activeParagraphIndex: pending);
+          scrollTo(pending);
+          _pendingActiveParagraphIndex = null;
+        } else {
+          if (vn.value.activeParagraphIndex != item.index) {
+            vn.value = vn.value.copyWith(activeParagraphIndex: item.index);
+            scrollTo(item.index);
+          }
+        }
+
+        vn.value = vn.value.copyWith(
+          activeChunkIndex: 0,
+          activeRole: item.role,
+          activeVoice: item.voice,
+        );
+
+        _armFallbackTimer(token: token, item: item);
+
+        final uri = Uri.tryParse(item.path);
+        if (uri == null) {
+          _triggerAdvance('bad_uri');
+          return;
+        }
+
+        // 先載入音檔（只做一次）
+        if (uri.scheme == 'file') {
+          await _player.setFilePath(uri.toFilePath());
+        } else {
+          await _player.setUrl(uri.toString());
+        }
+
+        // ✅ 只有真的載入成功且開始播才算 didSpeak
+        vn.value = vn.value.copyWith(didSpeak: true, didSpeakFp: _playViewFp);
+
+        // 用 duration(若有) 取代 fallback；duration 沒有就用估算
+        final d = _player.duration;
+        final timeout = (d == null)
+            ? _estimateAudioTimeout(item)
+            : Duration(
+                milliseconds: (d.inMilliseconds + 800).clamp(2000, 30000));
+
+        _fallbackTimer?.cancel();
+        _fallbackTimer = Timer(timeout, () {
+          if (_tokenSession != _playSession) return;
+          if (token != _speakToken) return;
+          _triggerAdvance('fallback_duration');
+        });
+
+        await _player.play();
+        break; // Success!
+      } catch (e) {
+        retryCount++;
+        _log('AUDIO_RETRY', {'err': e.toString(), 'retry': retryCount});
+
+        if (retryCount >= 5) {
+          _log('AUDIO_ERROR', {'err': e.toString()});
+          _triggerAdvance('audio_error');
+          return;
+        }
+
+        // Wait before retrying (gives background task time to finish)
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+
+        // If state changed while waiting, abort retry loop
+        if (_tokenSession != _playSession || token != _speakToken) return;
       }
-
-      vn.value = vn.value.copyWith(
-        activeChunkIndex: 0,
-        activeRole: item.role,
-        activeVoice: item.voice,
-      );
-
-      _armFallbackTimer(token: token, item: item);
-
-      final uri = Uri.tryParse(item.path);
-      if (uri == null) {
-        _triggerAdvance('bad_uri');
-        return;
-      }
-
-      // ✅ 只有真的開始播才算 didSpeak
-      vn.value = vn.value.copyWith(didSpeak: true, didSpeakFp: _playViewFp);
-
-      // 先載入音檔（只做一次）
-      if (uri.scheme == 'file') {
-        await _player.setFilePath(uri.toFilePath());
-      } else {
-        await _player.setUrl(uri.toString());
-      }
-
-      // 用 duration(若有) 取代 fallback；duration 沒有就用估算
-      final d = _player.duration;
-      final timeout = (d == null)
-          ? _estimateAudioTimeout(item)
-          : Duration(milliseconds: (d.inMilliseconds + 800).clamp(2000, 30000));
-
-      _fallbackTimer?.cancel();
-      _fallbackTimer = Timer(timeout, () {
-        if (_tokenSession != _playSession) return;
-        if (token != _speakToken) return;
-        _triggerAdvance('fallback_duration');
-      });
-
-      await _player.play();
-    } catch (e) {
-      _log('AUDIO_ERROR', {'err': e.toString()});
-      _triggerAdvance('audio_error');
     }
   }
 
@@ -738,7 +758,8 @@ class TtsPlaybackController {
     final nextCursor = _playlistCursor + 1;
     if (nextCursor < pl.items.length) {
       _playlistCursor = nextCursor;
-      vn.value = vn.value.copyWith(activeChunkIndex: vn.value.activeChunkIndex + 1);
+      vn.value =
+          vn.value.copyWith(activeChunkIndex: vn.value.activeChunkIndex + 1);
 
       final scroll = _scrollTo ?? (_) {};
       await _playCurrentItem(stopBeforePlay: false, scrollTo: scroll);

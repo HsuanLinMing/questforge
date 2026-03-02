@@ -42,6 +42,26 @@ class BridgeUiStateV2 {
     );
   }
 
+  String? get currentStoryId {
+    try {
+      final v = lastRaw?['bundle']?['view'];
+      if (v is Map) {
+        return v['runtime']?['story']?['story_id']?.toString();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  String? get currentStorySource {
+    try {
+      final v = lastRaw?['bundle']?['view'];
+      if (v is Map) {
+        return v['runtime']?['story']?['source']?.toString();
+      }
+    } catch (_) {}
+    return null;
+  }
+
   static BridgeUiStateV2 empty() {
     final snap = DebugSnapshotV2(
       nodeId: '',
@@ -112,7 +132,8 @@ class BridgeControllerV2 {
   // EndScreen lock/unlock
   // ------------------------------------------------------------
   final ValueNotifier<bool> endActionLockVN = ValueNotifier<bool>(false);
-  final ValueNotifier<String?> pendingEndActionIdVN = ValueNotifier<String?>(null);
+  final ValueNotifier<String?> pendingEndActionIdVN =
+      ValueNotifier<String?>(null);
 
   final Duration _endActionTimeoutDur;
   Timer? _endActionTimeoutTimer;
@@ -165,6 +186,8 @@ class BridgeControllerV2 {
 
   Future<void> _startNewSession() async {
     try {
+      debugPrint('[BridgeControllerV2] Calling _api.initializeStories()...');
+      await _api.initializeStories();
       final r = await _api.start();
       _applyApiBundle(
         bundle: r.bundle,
@@ -345,16 +368,31 @@ class BridgeControllerV2 {
         : _kindToWire(action.kind).trim();
 
     if (wireKind != 'end_flow') {
-      debugPrint('[BridgeControllerV2] end action ignored: wireKind=$wireKind id=$id');
+      debugPrint(
+          '[BridgeControllerV2] end action ignored: wireKind=$wireKind id=$id');
       return false;
     }
 
     final actionId = '$wireKind/$id';
     lockEndAction(actionId, pendingLabel: action.text);
 
+    final String? oldStoryId = stateVN.value.currentStoryId;
+    final String? oldSource = stateVN.value.currentStorySource;
+    final bool isFinishedStory =
+        (id == 'switch_case' || id == 'restart_case' || id == 'quit');
+
     unawaited(() async {
       try {
         final r = await _api.endFlow(endAction: id);
+
+        // 如果之前的還是 ai 而且我們換案件了，把舊的刪了
+        if (isFinishedStory &&
+            oldSource == 'ai' &&
+            oldStoryId != null &&
+            oldStoryId.isNotEmpty) {
+          debugPrint('[BridgeControllerV2] cleaning up AI story: $oldStoryId');
+          _api.cleanupAiStory(oldStoryId).ignore();
+        }
 
         unlockEndAction();
         unlockChoose();
@@ -502,7 +540,8 @@ class BridgeControllerV2 {
     final out = <String, dynamic>{};
     out['type'] = (raw['type'] ?? '').toString();
     if (raw.containsKey('session_id')) out['session_id'] = raw['session_id'];
-    if (raw.containsKey('choice_index')) out['choice_index'] = raw['choice_index'];
+    if (raw.containsKey('choice_index'))
+      out['choice_index'] = raw['choice_index'];
     if (raw.containsKey('end_action')) out['end_action'] = raw['end_action'];
 
     final b = raw['bundle'];
@@ -518,7 +557,8 @@ class BridgeControllerV2 {
         out['view'] = <String, dynamic>{
           'nodeId': vm['nodeId'],
           'title': vm['title'],
-          'choices_count': (vm['choices'] is List) ? (vm['choices'] as List).length : null,
+          'choices_count':
+              (vm['choices'] is List) ? (vm['choices'] as List).length : null,
         };
         final vcmds = vm['commands'];
         if (vcmds is List) out['view_commands_count'] = vcmds.length;
@@ -546,14 +586,17 @@ class BridgeControllerV2 {
     final out = <CommandV2>[];
 
     void addIfMap(dynamic v) {
-      if (v is Map) out.add(WireCommandV2(Map<String, dynamic>.from(v.cast<String, dynamic>())));
+      if (v is Map)
+        out.add(WireCommandV2(
+            Map<String, dynamic>.from(v.cast<String, dynamic>())));
     }
 
     void addIfMapList(dynamic v) {
       if (v is! List) return;
       for (final it in v) {
         if (it is Map) {
-          out.add(WireCommandV2(Map<String, dynamic>.from(it.cast<String, dynamic>())));
+          out.add(WireCommandV2(
+              Map<String, dynamic>.from(it.cast<String, dynamic>())));
         }
       }
     }

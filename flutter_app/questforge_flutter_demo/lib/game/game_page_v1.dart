@@ -230,7 +230,6 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     },
   );
 
-  bool _ttsAskShown = false;
   bool _appInactive = false;
 
   // story card key
@@ -902,77 +901,6 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   // ---------------------------
   // ask once dialog
   // ---------------------------
-  Future<void> _maybeAskTtsOnce() async {
-    if (_ttsAskShown) return;
-    _ttsAskShown = true;
-
-    if (!mounted) return;
-    final enabled = await showModalBottomSheet<bool>(
-      context: context,
-      useSafeArea: true,
-      builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Theme.of(ctx).colorScheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Text(
-                    '要開啟語音朗讀嗎？',
-                    style: Theme.of(ctx)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w900),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      icon: const Icon(Icons.close)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('可以隨時用播放按鈕朗讀故事。'),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: const Text('先不用'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      child: const Text('開啟語音'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (!mounted) return;
-    final on = enabled ?? false;
-    _ttsCtl.setEnabled(on);
-  }
 
   // ---------------------------
   // view changed / autoplay
@@ -1091,13 +1019,6 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           view: view,
           hasEnd: end != null,
         );
-
-        if (view != null && !_ttsAskShown) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            // ignore: discarded_futures
-            _maybeAskTtsOnce();
-          });
-        }
 
         if (view == null) {
           return const Center(child: Text('尚未開始（請由 Dev Shell Start+Hello）'));

@@ -210,13 +210,13 @@ class TtsPlaybackController {
     } catch (_) {}
   }
 
-  Future<void> init() async {
+  void init() {
     if (_inited) return;
     _inited = true;
 
-    try {
-      await _player.setSpeed(vn.value.rate);
-    } catch (_) {}
+    vn.value = vn.value.copyWith(ready: true);
+
+    _player.setSpeed(vn.value.rate).catchError((_) {});
 
     _stateSub?.cancel();
     _stateSub = _player.playerStateStream.listen((st) {
@@ -225,8 +225,6 @@ class TtsPlaybackController {
         _triggerAdvance('audio_completed');
       }
     });
-
-    vn.value = vn.value.copyWith(ready: true);
   }
 
   Future<void> dispose() async {
@@ -237,7 +235,7 @@ class TtsPlaybackController {
     _stateSub = null;
 
     try {
-      await _player.dispose();
+      await _player.stop();
     } catch (_) {}
 
     vn.dispose();
@@ -502,7 +500,11 @@ class TtsPlaybackController {
   // ---------------------------
   final LogFn? _logFn;
 
-  final AudioPlayer _player = AudioPlayer();
+  // ✅ Share a single AudioPlayer instance to avoid race condition where
+  // the old controller's dispose() deactivates the AudioSession while the new one is playing
+  static final AudioPlayer _sharedPlayer = AudioPlayer();
+  AudioPlayer get _player => _sharedPlayer;
+
   StreamSubscription<PlayerState>? _stateSub;
 
   bool _inited = false;

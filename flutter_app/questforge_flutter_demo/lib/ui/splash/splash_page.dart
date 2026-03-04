@@ -16,7 +16,9 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
     _initApp();
+  });
   }
 
   Future<void> _initApp() async {

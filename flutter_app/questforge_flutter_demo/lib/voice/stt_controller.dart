@@ -49,8 +49,12 @@ class SttState {
 }
 
 class SttController {
-  final stt.SpeechToText _stt = stt.SpeechToText();
-  final ValueNotifier<SttState> vn = ValueNotifier<SttState>(const SttState.initial());
+  // ✅ Share a single instance to prevent STT channel collision
+  static final stt.SpeechToText _sharedStt = stt.SpeechToText();
+  stt.SpeechToText get _stt => _sharedStt;
+
+  final ValueNotifier<SttState> vn =
+      ValueNotifier<SttState>(const SttState.initial());
 
   bool _inited = false;
 
@@ -148,7 +152,8 @@ class SttController {
       }
       if (!s.listening) {
         vn.removeListener(sub);
-        final out = (s.finalText.isNotEmpty ? s.finalText : s.recognizedText).trim();
+        final out =
+            (s.finalText.isNotEmpty ? s.finalText : s.recognizedText).trim();
         completer.complete(out.isEmpty ? null : out);
       }
     };
@@ -209,7 +214,8 @@ class SttController {
 
           final now = DateTime.now();
           final dt = now.difference(_lastEmitAt);
-          final shouldEmit = (text != _lastEmitted) && (dt.inMilliseconds >= 120 || r.finalResult);
+          final shouldEmit = (text != _lastEmitted) &&
+              (dt.inMilliseconds >= 120 || r.finalResult);
           if (!shouldEmit) return;
 
           _lastEmitted = text;
@@ -291,7 +297,8 @@ class SttController {
 
     for (final l in locales) {
       final id = l.localeId.toLowerCase();
-      if (id.contains('zh') && (id.contains('tw') || id.contains('hant'))) return l.localeId;
+      if (id.contains('zh') && (id.contains('tw') || id.contains('hant')))
+        return l.localeId;
     }
 
     return locales.isNotEmpty ? locales.first.localeId : preferred;

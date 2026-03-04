@@ -7,8 +7,20 @@ import 'package:questforge_ui_contract/questforge_contract.dart';
 import 'package:questforge_flutter_demo/nav.dart';
 import 'package:questforge_flutter_demo/core/theme/app_colors.dart';
 import 'package:questforge_flutter_demo/ui/splash/splash_page.dart';
+import 'package:audio_session/audio_session.dart'; // ✅ 引入 audio_session
 
-void main() {
+void main() async {
+  // ✅ 確保底層初始化
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ 強制 iOS 即使在「硬體靜音模式（撥片切換）」依然可以發出遊戲聲音
+  try {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
+  } catch (e) {
+    debugPrint('AudioSession init error: $e');
+  }
+
   runApp(const QuestForgeDemoApp());
 }
 

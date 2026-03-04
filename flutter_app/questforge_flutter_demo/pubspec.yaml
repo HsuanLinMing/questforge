@@ -35,7 +35,6 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_tts: ^4.2.5
   shared_preferences: ^2.5.3
   http: ^1.2.2
   speech_to_text: ^7.3.0
@@ -51,7 +50,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.7
 
@@ -125,9 +124,12 @@ flutter_launcher_icons:
   adaptive_icon_foreground: "assets/app_icon.png"
 
 flutter_native_splash:
-  # 將原本的 color / image 組合（會把圖當作置中 Logo）
-  # 改為 background_image （會把圖片當成全螢幕背景）
-  background_image: "assets/splash/splash_launch.png"
+  # 加入與 SplashPage 相同的背景色（天空藍），避免圖片讀取前的一瞬間閃白屏
+  color: "#BFE6FF"
+  color_dark: "#BFE6FF"  # ✅ 新增：防止手機用深色模式時背景變成黑色的
+  # 將圖當作全螢幕背景
+  image: "assets/splash/splash_launch.png"
+  image_dark: "assets/splash/splash_launch.png" # ✅ 新增：深色模式也用同一張圖
   android_12:
     image: "assets/splash/splash_launch.png"
     icon_background_color: "#FFFFFF"

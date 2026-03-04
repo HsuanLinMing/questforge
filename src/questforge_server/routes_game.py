@@ -412,20 +412,36 @@ def _build_sample_runtime_tts(
     if not paras:
         return None
 
-    # ✅ 生成所有段落，不僅僅是第一段
-    items = []
-    
-    # ✅ 關鍵：跟 main.py mount 同一個 cache_root/runtime_sample
+    # ✅ 生成所有段落：
+    # - 同步只做前 N 段（讓 API 秒回）
+    # - 其餘段落用 BackgroundTasks 補齊
+    # - 檔名固定為 000.wav / 001.wav ...（避免預測 hash 出錯）
+    sync_limit = int(os.getenv("QF_TTS_SYNC_LIMIT", "1") or "1")
+    if sync_limit < 1:
+        sync_limit = 1
+
+    items: List[Dict[str, Any]] = []
+
+    # ✅ 跟 main.py mount 同一個 cache_root/runtime_sample
     cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
-    out_dir = (cache_root / "runtime_sample").resolve()
+    base_root = (cache_root / "runtime_sample").resolve()
+    base_root.mkdir(parents=True, exist_ok=True)
+
+    # ✅ 每個 view 用自己的資料夾（避免互相覆蓋）
+    ui_view_fp = _view_fp_for_narration(narration)
+    out_dir = (base_root / ui_view_fp).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
     base = str(request.base_url).rstrip("/")
-    
-    def _synth_para(i: int, p: str):
+
+    def _out_name(i: int) -> str:
+        return f"{i:03d}.wav"
+
+    def _synth_para(i: int, p: str) -> None:
         role, text = _parse_paragraph(p)
         spoken_text = (text or "").strip()
         if not spoken_text:
-            return None
+            return
 
         profile = voice_for_role(role)
         speed = _voice_speed_for_role(role)
@@ -433,13 +449,14 @@ def _build_sample_runtime_tts(
         r = synthesize_to_wav(
             text=spoken_text,
             out_dir=out_dir,
+            out_name=_out_name(i),
             voice=profile.voice,
             instructions=profile.instructions,
             speed=speed,
         )
         if not r:
-            return None
-        
+            return
+
         try:
             print(
                 "[RUNTIME_SAMPLE_TTS] wrote",
@@ -448,8 +465,6 @@ def _build_sample_runtime_tts(
             )
         except Exception:
             pass
-            
-        return r
 
     for i, para in enumerate(paras):
         role, text = _parse_paragraph(para)
@@ -460,30 +475,17 @@ def _build_sample_runtime_tts(
         profile = voice_for_role(role)
         speed = _voice_speed_for_role(role)
 
-        # 🚀 第一段直接合成，後面的放背景（如果有提供 background_tasks）
-        if i == 0 or background_tasks is None:
+        # 🚀 同步只做前 sync_limit 段；其餘段落放背景
+        if i < sync_limit or background_tasks is None:
             _synth_para(i, para)
         else:
             background_tasks.add_task(_synth_para, i, para)
 
-        # 無論如何，先給出未來會產生好的 url
-        # 注意這裡的檔名推導需要跟 synthesize_to_wav 一致。
-        # synthesize_to_wav 使用 MD5 hash。我們可以自己算，或者 _synth_para 回傳。
-        # 但是如果放背景，我們現在拿不到 r.filename。
-        # 讓我們自己算 expected filename。
-        text_for_hash = spoken_text
-        profile_voice = profile.voice
-        instructions = profile.instructions or ""
-        speed_str = str(speed)
+        filename = _out_name(i)
+        url = f"{base}/static/runtime_sample/{ui_view_fp}/{filename}"
 
-        h = hashlib.md5()
-        h.update(text_for_hash.encode("utf-8"))
-        h.update(profile_voice.encode("utf-8"))
-        h.update(instructions.encode("utf-8"))
-        h.update(speed_str.encode("utf-8"))
-        expected_filename = f"{h.hexdigest()}.wav"
-
-        url = f"{base}/static/runtime_sample/{expected_filename}"
+        # ✅ ready: 讓前端知道目前檔案是否已存在（可用來等待，不要直接 skip）
+        ready = (out_dir / filename).exists()
         items.append(
             {
                 "index": i,
@@ -493,6 +495,7 @@ def _build_sample_runtime_tts(
                 "role": role,
                 "voice": profile.voice,
                 "speed": speed,
+                "ready": bool(ready),
             }
         )
         
@@ -504,7 +507,93 @@ def _build_sample_runtime_tts(
         "scope": "view",
         "status": "ok",
         "source": "runtime_sample",
+        "view_fp": ui_view_fp,
+        "ui_view_fp": ui_view_fp,
         "items": items,
+    }
+
+
+def _mark_ready_for_existing_files(cmd: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure each item has a boolean 'ready' field based on file existence."""
+    try:
+        items = cmd.get("items")
+        if not isinstance(items, list):
+            return cmd
+
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            path = str(it.get("path") or "")
+            if "ready" in it:
+                continue
+
+            # We can only reliably check for our known static dirs.
+            # - /static/runtime_sample/<fp>/<nnn>.wav
+            # - /static/pool_tts/<story>/<view_fp>/<file>
+            ready = None
+            if "/static/runtime_sample/" in path:
+                try:
+                    rel = path.split("/static/runtime_sample/", 1)[1]
+                    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+                    p = (cache_root / "runtime_sample" / rel).resolve()
+                    ready = p.exists() and p.stat().st_size > 512
+                except Exception:
+                    ready = False
+            elif "/static/pool_tts/" in path:
+                try:
+                    rel = path.split("/static/pool_tts/", 1)[1]
+                    p = (Path(".qf_cache/pool_ai/tts").resolve() / rel).resolve()
+                    ready = p.exists() and p.stat().st_size > 512
+                except Exception:
+                    ready = False
+
+            if ready is not None:
+                it["ready"] = bool(ready)
+
+        return cmd
+    except Exception:
+        return cmd
+
+
+@router.get("/tts_status")
+def tts_status(session_id: str, request: Request) -> Dict[str, Any]:
+    """
+    Return latest TTS playlist status for the current view.
+    - Does NOT block on synthesis.
+    - Includes per-item 'ready' flags.
+    """
+    sess = _get_session_or_404(session_id)
+    view_obj = sess.get_view()
+    view_json = _to_json_dict(view_obj) or {}
+
+    # Inject story meta for pooled AI/sample routing
+    try:
+        story_meta = getattr(sess.state, "vars", {}).get("qf_story")
+        if story_meta:
+            runtime = dict(view_json.get("runtime") or {})
+            runtime["story"] = story_meta
+            view_json["runtime"] = runtime
+    except Exception:
+        pass
+
+    cmd = _try_make_pooled_tts_cmd(request=request, view_json=view_json, background_tasks=None)
+    if cmd is None:
+        return {"ok": True, "status": "missing", "command": None}
+
+    cmd = _mark_ready_for_existing_files(cmd)
+
+    items = cmd.get("items") if isinstance(cmd, dict) else None
+    ready_n = 0
+    total_n = 0
+    if isinstance(items, list):
+        total_n = len(items)
+        ready_n = sum(1 for it in items if isinstance(it, dict) and it.get("ready") is True)
+
+    return {
+        "ok": True,
+        "status": "ok",
+        "progress": {"ready": ready_n, "total": total_n},
+        "command": cmd,
     }
 def _bundle_from_session_and_step(
     *,

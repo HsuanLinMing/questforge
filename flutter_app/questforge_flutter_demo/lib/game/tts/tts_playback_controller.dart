@@ -84,6 +84,7 @@ class _TtsPlaylistItem {
     required this.voice,
     required this.text,
     required this.format,
+    required this.ready,
   });
 
   final int index; // paragraph index
@@ -92,6 +93,7 @@ class _TtsPlaylistItem {
   final String voice;
   final String text;
   final String format;
+  final bool ready;
 
   static _TtsPlaylistItem? tryFromMap(Map<String, dynamic> m) {
     final raw = (m['path'] ?? m['url'] ?? m['href'] ?? '').toString().trim();
@@ -110,6 +112,7 @@ class _TtsPlaylistItem {
       voice: '${m['voice'] ?? ''}',
       text: text,
       format: '${m['format'] ?? ''}',
+      ready: (m['ready'] == true),
     );
   }
 }
@@ -261,6 +264,7 @@ class TtsPlaybackController {
     required bool autoPlay,
     required ScrollToParagraphFn scrollTo,
     required Map<String, dynamic>? playlistCmd,
+    Future<Map<String, dynamic>?> Function()? fetchPlaylistCmd,
   }) async {
     _scrollTo = scrollTo;
 
@@ -271,6 +275,8 @@ class TtsPlaybackController {
     _playViewFp = '';
     _playlist = null;
     _playlistCursor = 0;
+
+    _fetchPlaylistCmd = fetchPlaylistCmd;
 
     // ✅ reset didSpeak for this view
     vn.value = vn.value.copyWith(didSpeak: false, didSpeakFp: '');
@@ -531,6 +537,41 @@ class TtsPlaybackController {
 
   Timer? _fallbackTimer;
 
+  Future<Map<String, dynamic>?> Function()? _fetchPlaylistCmd;
+
+  Future<void> _refreshPlaylistIfPossible() async {
+    final fetch = _fetchPlaylistCmd;
+    if (fetch == null) return;
+    try {
+      final raw = await fetch();
+      if (raw == null) return;
+
+      // If view already changed, ignore.
+      if (_tokenSession != _playSession) return;
+
+      final next = _TtsPlaylistV1.fromCommand(raw);
+      if (!next.playable) return;
+
+      // Keep cursor roughly aligned by paragraph index.
+      final cur = _playlist;
+      final curIdx = (cur != null && _playlistCursor >= 0 && _playlistCursor < cur.items.length)
+          ? cur.items[_playlistCursor].index
+          : vn.value.activeParagraphIndex;
+
+      _playlist = next;
+      _playlistCursor = _firstCursorForParagraph(curIdx);
+
+      _log('PLAYLIST_REFRESHED', {
+        'items': next.items.length,
+        'cursor': _playlistCursor,
+        'pIndex': curIdx,
+        'status': next.status,
+      });
+    } catch (e) {
+      _log('PLAYLIST_REFRESH_FAILED', {'err': e.toString()});
+    }
+  }
+
   void _log(String tag, Map<String, Object?> extra) {
     _logFn?.call(tag, <String, Object?>{
       'play': vn.value.playing,
@@ -672,6 +713,9 @@ class TtsPlaybackController {
     });
 
     int retryCount = 0;
+    int waitPollCount = 0;
+
+    // If backend marks this item as not-ready, we prefer to wait/poll.
     while (retryCount < 5) {
       try {
         if (stopBeforePlay && retryCount == 0) {
@@ -706,7 +750,31 @@ class TtsPlaybackController {
           return;
         }
 
-        // 先載入音檔（只做一次）
+        // ✅ 如果後端告訴我們檔案尚未 ready，就先等它生成好
+        if (!item.ready) {
+          waitPollCount++;
+          if (waitPollCount <= 40) {
+            _log('AUDIO_WAIT_NOT_READY', {
+              'cursor': _playlistCursor,
+              'pIndex': item.index,
+              'waitPoll': waitPollCount,
+            });
+            await _refreshPlaylistIfPossible();
+            await Future<void>.delayed(const Duration(milliseconds: 900));
+            if (_tokenSession != _playSession || token != _speakToken) return;
+            // refresh playlist reference
+            final pl2 = _playlist;
+            if (pl2 == null || !pl2.playable) return;
+            if (_playlistCursor < 0 || _playlistCursor >= pl2.items.length) return;
+            final newItem = pl2.items[_playlistCursor];
+            if (!newItem.ready) {
+              // continue waiting without counting as retry
+              continue;
+            }
+          }
+        }
+
+        // 先載入音檔
         if (uri.scheme == 'file') {
           await _player.setFilePath(uri.toFilePath());
         } else {
@@ -733,6 +801,9 @@ class TtsPlaybackController {
         await _player.play();
         break; // Success!
       } catch (e) {
+        // If remote file is still being generated, prefer polling status.
+        await _refreshPlaylistIfPossible();
+
         retryCount++;
         _log('AUDIO_RETRY', {'err': e.toString(), 'retry': retryCount});
 
@@ -743,7 +814,7 @@ class TtsPlaybackController {
         }
 
         // Wait before retrying (gives background task time to finish)
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        await Future<void>.delayed(const Duration(milliseconds: 1200));
 
         // If state changed while waiting, abort retry loop
         if (_tokenSession != _playSession || token != _speakToken) return;

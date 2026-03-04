@@ -151,6 +151,9 @@ class BridgeControllerV2 {
   bool get endActionLocked => endActionLockVN.value;
   bool get chooseLocked => chooseLockVN.value;
 
+  /// ✅ 給 TTS controller 用：查目前 view 的 playlist readiness
+  Future<Map<String, dynamic>?> fetchTtsStatusCmd() => _api.fetchTtsStatusCmd();
+
   bool get isUiBlocked {
     final b = stateVN.value.bundle;
     return b.end != null || b.ask != null || b.quiz != null;

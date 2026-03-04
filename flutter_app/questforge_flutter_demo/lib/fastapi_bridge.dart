@@ -261,6 +261,19 @@ class FastApiBridge {
     return PoolStatus.fromJson(json);
   }
 
+  /// ✅ 查詢目前 view 的 TTS playlist 進度（避免音檔還在生成時直接 skip）
+  /// 回傳後端的 command（tts_playlist_v1）或 null。
+  Future<Map<String, dynamic>?> fetchTtsStatusCmd() async {
+    final sid = await loadSessionId();
+    if (sid == null || sid.isEmpty) return null;
+
+    final json = await _getJson('/v1/game/tts_status?session_id=$sid');
+    final cmd = json['command'];
+    if (cmd is Map<String, dynamic>) return cmd;
+    if (cmd is Map) return cmd.cast<String, dynamic>();
+    return null;
+  }
+
   Future<void> ensurePoolFilledIfNeeded() async {
     try {
       final s = await fetchPoolStatus();

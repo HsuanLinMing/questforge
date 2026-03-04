@@ -186,8 +186,6 @@ class BridgeControllerV2 {
 
   Future<void> _startNewSession() async {
     try {
-      debugPrint('[BridgeControllerV2] Calling _api.initializeStories()...');
-      await _api.initializeStories();
       final r = await _api.start();
       _applyApiBundle(
         bundle: r.bundle,

@@ -1042,7 +1042,17 @@ def start_session(
         run_id = store.get_current_run_id(sid) or ""
         p.log("run_id", run_id=run_id[:6] if run_id else "")
 
-        # ✅ 1) 先回第一頁 bundle（第一頁語音也會在這裡產）
+        # ✅ 2) 保底背景補故事（非阻塞），確保一直玩也有一直補
+        ready = _pool._ready_count()
+        pending = _pool._jobs_count()
+        if (ready + pending) < 2:
+            try:
+                # 這裡可以用 background_tasks 來非同步執行確保池子
+                background_tasks.add_task(_pool.ensure_pool)
+            except Exception as e:
+                print(f"[start] bg ensure_pool error: {e}", flush=True)
+
+        # ✅ 3) 先回第一頁 bundle（第一頁語音也會在這裡產）
         with p.timed("build_bundle_first_view"):
             bundle, events, is_over = _bundle_from_session_and_step(
                 request=request,
@@ -1412,34 +1422,85 @@ def accuse_evaluate_action(
 class InitializeStoriesResponse(BaseModel):
     has_ai_stories: bool
     sample_stories: List[Dict[str, Any]] = Field(default_factory=list)
+    skipped: Optional[bool] = None
+    reason: Optional[str] = None
+    queued: Optional[int] = None
 
+class PoolStatusResponse(BaseModel):
+    ready_count: int
+    generating_count: int
+    tts_ready_count: int
+    target: int = 2
+
+@router.get("/pool_status", response_model=PoolStatusResponse)
+def pool_status() -> PoolStatusResponse:
+    ready = _pool._ready_count()
+    pending = _pool._jobs_count()
+    
+    tts_ready = 0
+    tts_dir = Path(".qf_cache/pool_ai/tts")
+    if tts_dir.exists():
+        tts_ready = sum(1 for x in tts_dir.iterdir() if x.is_dir() and not x.name.startswith("."))
+        
+    return PoolStatusResponse(
+        ready_count=ready,
+        generating_count=pending,
+        tts_ready_count=tts_ready,
+        target=2,
+    )
+
+from questforge_server.redis_lock import get_redis_lock
+LOCK_KEY = "qf:pool:lock"
 
 @router.post("/initialize_stories", response_model=InitializeStoriesResponse)
 def initialize_stories(request: Request, background_tasks: BackgroundTasks) -> InitializeStoriesResponse:
-    # 檢查是否有 AI 故事
-    pool_mgr = _pool
-    ready_count = pool_mgr._ready_count()
-    if ready_count > 0:
-        return InitializeStoriesResponse(has_ai_stories=True)
+    lock = get_redis_lock()
+    lock_token = None
+    if lock:
+        lock_token = lock.acquire(LOCK_KEY, ttl_seconds=15)
+        if not lock_token:
+            return InitializeStoriesResponse(has_ai_stories=False, skipped=True, reason="pool_lock_redis")
 
-    # 沒有 AI 故事，回傳 sample 故事
-    samples = []
-    # 走訪 sample_repo._paths，把 title, brief 等塞進去
-    for p in pool_mgr._sample_repo._paths:
-        try:
-            raw = json.loads(p.read_text(encoding="utf-8"))
-            meta = raw.get("meta") or {}
-            samples.append({
-                "source": "sample",
-                "title": meta.get("title") or "Unknown Title",
-                "brief": meta.get("brief") or "",
-                "file_name": p.name,
-            })
-        except Exception:
-            pass
+    try:
+        pool_mgr = _pool
+        ready_count = pool_mgr._ready_count()
+        generating_count = pool_mgr._jobs_count()
+        target = 2
+        
+        # ✅ 防呆: 數量夠就不排新的
+        if (ready_count + generating_count) >= target:
+            # 沒有 AI 故事時回傳 sample, 如果已經有了就回傳 true
+            if ready_count > 0:
+                return InitializeStoriesResponse(has_ai_stories=True, skipped=True, reason="pool_full")
 
-    # 當 Flutter 呼叫這個，代表剛起始。我們在這裡不預生成語音，而是等 frontend 再打 /v1/game/start 來做 (因為 start 裡已經有完整的 _bundle_from_session_and_step 背景邏輯了)
-    return InitializeStoriesResponse(has_ai_stories=False, sample_stories=samples)
+        missing = target - (ready_count + generating_count)
+        missing = max(0, missing)
+        
+        # 觸發 pool 確保排隊
+        _pool.ensure_pool()
+        
+        if ready_count > 0:
+            return InitializeStoriesResponse(has_ai_stories=True, queued=missing)
+
+        # 沒有 AI 故事，回傳 sample 故事
+        samples = []
+        for p in pool_mgr._sample_repo._paths:
+            try:
+                raw = json.loads(p.read_text(encoding="utf-8"))
+                meta = raw.get("meta") or {}
+                samples.append({
+                    "source": "sample",
+                    "title": meta.get("title") or "Unknown Title",
+                    "brief": meta.get("brief") or "",
+                    "file_name": p.name,
+                })
+            except Exception:
+                pass
+
+        return InitializeStoriesResponse(has_ai_stories=False, sample_stories=samples, queued=missing)
+    finally:
+        if lock and lock_token:
+            lock.release(LOCK_KEY, lock_token)
 
 
 class GenerateAiStoryRequest(BaseModel):

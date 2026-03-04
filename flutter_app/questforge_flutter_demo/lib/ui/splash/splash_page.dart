@@ -17,18 +17,24 @@ class _SplashPageState extends State<SplashPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-    _initApp();
-  });
+      _initApp();
+    });
   }
 
   Future<void> _initApp() async {
     // 這裡可以做 TTS 預熱、呼叫 backend initialize_stories 等等
     try {
       final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
-      final resp = await api.initializeStories();
 
-      // 假設有 AI 故事就傳 true，沒有就 false
-      final hasAiStory = resp.hasAiStories;
+      // ✅ 1) 查詢當前狀態，決定是否顯示 AI 專屬按鈕（例如 Resume）
+      final status = await api.fetchPoolStatus();
+      final hasAiStory = status.readyCount > 0;
+
+      // ✅ 2) 如果不足，背景呼叫補貨，這裡不需要 await 卡住 splash
+      // 這邊用 unawaited 的方式執行
+      api.ensurePoolFilledIfNeeded().catchError((e) {
+        debugPrint('[SplashPage] Background initialize error: $e');
+      });
 
       if (!mounted) return;
 

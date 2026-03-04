@@ -63,9 +63,15 @@ class InitializeStoriesResp {
   InitializeStoriesResp({
     required this.hasAiStories,
     required this.sampleStories,
+    this.skipped,
+    this.reason,
+    this.queued,
   });
   final bool hasAiStories;
   final List<Map<String, dynamic>> sampleStories;
+  final bool? skipped;
+  final String? reason;
+  final int? queued;
 
   factory InitializeStoriesResp.fromJson(Map<String, dynamic> json) {
     return InitializeStoriesResp(
@@ -73,8 +79,32 @@ class InitializeStoriesResp {
       sampleStories:
           (json['sample_stories'] as List?)?.cast<Map<String, dynamic>>() ??
               <Map<String, dynamic>>[],
+      skipped: json['skipped'] as bool?,
+      reason: json['reason']?.toString(),
+      queued: json['queued'] as int?,
     );
   }
+}
+
+class PoolStatus {
+  final int readyCount;
+  final int generatingCount;
+  final int ttsReadyCount;
+  final int target;
+
+  PoolStatus({
+    required this.readyCount,
+    required this.generatingCount,
+    required this.ttsReadyCount,
+    required this.target,
+  });
+
+  factory PoolStatus.fromJson(Map<String, dynamic> j) => PoolStatus(
+        readyCount: (j['ready_count'] ?? 0) as int,
+        generatingCount: (j['generating_count'] ?? 0) as int,
+        ttsReadyCount: (j['tts_ready_count'] ?? 0) as int,
+        target: (j['target'] ?? 2) as int,
+      );
 }
 
 class ActionStatusResp {
@@ -196,6 +226,24 @@ class FastApiBridge {
     }
   }
 
+  Future<Map<String, dynamic>> _getJson(String path) async {
+    final resp = await _client.get(_u(path));
+    if (resp.statusCode != 200) {
+      throw ApiException('request failed',
+          statusCode: resp.statusCode, body: resp.body);
+    }
+    try {
+      final json = jsonDecode(resp.body);
+      if (json is Map<String, dynamic>) return json;
+      if (json is Map) return json.cast<String, dynamic>();
+      throw ApiException('invalid json (not a map)',
+          statusCode: resp.statusCode, body: resp.body);
+    } catch (e) {
+      throw ApiException('invalid json decode: $e',
+          statusCode: resp.statusCode, body: resp.body);
+    }
+  }
+
   // ----------------------------
   // APIs (全部回 GameStepResp)
   // ----------------------------
@@ -206,6 +254,53 @@ class FastApiBridge {
       clearSidOnNotFound: false,
     );
     return InitializeStoriesResp.fromJson(json);
+  }
+
+  Future<PoolStatus> fetchPoolStatus() async {
+    final json = await _getJson('/v1/game/pool_status');
+    return PoolStatus.fromJson(json);
+  }
+
+  Future<void> ensurePoolFilledIfNeeded() async {
+    try {
+      final s = await fetchPoolStatus();
+      final total = s.readyCount + s.generatingCount;
+      if (total < s.target) {
+        await initializeStoriesOnce(force: true);
+      }
+    } catch (e) {
+      // Ignore if it fails
+      print('ensurePoolFilledIfNeeded failed: $e');
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // initializeStories guard (avoid duplicate background generation)
+  // --------------------------------------------------------------------------
+  static Future<InitializeStoriesResp>? _initStoriesInFlight;
+  static InitializeStoriesResp? _initStoriesCache;
+
+  /// ✅ Call initialize_stories only once per app run (unless force=true).
+  /// - If a request is already in-flight, awaits the same future.
+  /// - If it has succeeded before, returns cached result.
+  Future<InitializeStoriesResp> initializeStoriesOnce(
+      {bool force = false}) async {
+    if (!force && _initStoriesCache != null) return _initStoriesCache!;
+    final inflight = _initStoriesInFlight;
+    if (!force && inflight != null) return await inflight;
+
+    final fut = initializeStories();
+    _initStoriesInFlight = fut;
+    try {
+      final resp = await fut;
+      _initStoriesCache = resp;
+      return resp;
+    } finally {
+      // only clear if it's still the same future
+      if (identical(_initStoriesInFlight, fut)) {
+        _initStoriesInFlight = null;
+      }
+    }
   }
 
   Future<ActionStatusResp> generateAiStory() async {

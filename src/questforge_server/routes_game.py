@@ -170,7 +170,8 @@ def _safe_rmtree(p: Path) -> None:
 
 
 def _runs_root() -> Path:
-    return Path(".qf_cache/tts_runs").resolve()
+    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+    return (cache_root / "tts_runs").resolve()
 
 
 def _bundle_to_raw_dict(bundle: BundleResponse) -> Dict[str, Any]:

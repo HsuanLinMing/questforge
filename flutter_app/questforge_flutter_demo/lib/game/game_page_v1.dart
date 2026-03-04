@@ -571,6 +571,17 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     // 開始說前：清掉上一句（你想保留也可以拿掉這行）
     _clearAccuseVoiceLocal();
 
+    // ✅ 先確保麥克風有權限，使用者第一次按才跳視窗
+    final ok = await _stt.ensureReady(preferredLocaleId: 'zh_TW');
+    if (!ok) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('需要麥克風與語音辨識權限')),
+      );
+      setState(() => _pttHolding = false);
+      return;
+    }
+
     // 若已在聽，先停掉
     if (_stt.vn.value.listening) {
       await _stt.stop();
@@ -708,10 +719,6 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     // ✅ init TTS
     // ignore: discarded_futures
     _ttsCtl.init();
-
-    // ✅ init STT
-    // ignore: discarded_futures
-    _stt.init(preferredLocaleId: 'zh_TW');
 
     // ✅ 載入記憶語速
     WidgetsBinding.instance.addPostFrameCallback((_) async {

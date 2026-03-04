@@ -25,6 +25,7 @@ class MainMenuPage extends StatefulWidget {
 
 class _MainMenuPageState extends State<MainMenuPage> {
   bool _entering = false;
+  bool _starting = false;
 
   Future<void> _enterGame() async {
     if (_entering) return;
@@ -58,7 +59,13 @@ class _MainMenuPageState extends State<MainMenuPage> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _entering = false);
+      if (mounted){
+           setState(() {
+          _entering = false;
+          _starting = false;
+        });
+      }
+     
     }
   }
 
@@ -139,14 +146,22 @@ class _MainMenuPageState extends State<MainMenuPage> {
                         _buildGlassButton(
                           text: '繼續遊玩',
                           imagePath: 'assets/menu/btn_glass_green.png',
-                          onTap: _enterGame,
+                          onTap: () {
+                            if (_starting) return;
+                            setState(() => _starting = true);
+                            _enterGame();
+                          },
                         ),
                         const SizedBox(height: 16),
                       ],
                       _buildGlassButton(
                         text: widget.hasAiStory ? '新遊戲' : '開始遊戲',
                         imagePath: 'assets/menu/btn_glass_blue.png',
-                        onTap: _enterGame,
+                        onTap: () {
+                          if (_starting) return;
+                          setState(() => _starting = true);
+                          _enterGame();
+                        },
                       ),
                       const SizedBox(height: 16),
                       _buildGlassButton(

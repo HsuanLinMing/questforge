@@ -18,10 +18,11 @@ class SplashPage extends StatefulWidget {
 class _SplashPageState extends State<SplashPage> {
   // ── poll config ──────────────────────────────────────────────
   static const _pollInterval = Duration(seconds: 2);
-  static const _pollTimeout = Duration(seconds: 40);
+  static const _pollTimeout = Duration(seconds: 120);
   static const _minSplashDur = Duration(milliseconds: 1200);
 
   String _status = '初始化中…';
+  bool _showRetryButton = false;
 
   @override
   void initState() {
@@ -33,6 +34,7 @@ class _SplashPageState extends State<SplashPage> {
   // Main init flow
   // ─────────────────────────────────────────────────────────────
   Future<void> _initApp() async {
+    setState(() => _showRetryButton = false);
     final startTime = DateTime.now();
 
     final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
@@ -65,11 +67,16 @@ class _SplashPageState extends State<SplashPage> {
       // ③ Poll until scene_01_start TTS fully ready (or timeout)
       if (preload.viewFp.isNotEmpty && preload.preloadCount > 0) {
         _setStatus('準備語音…');
-        await _pollUntilTtsReady(
+        final ok = await _pollUntilTtsReady(
           api: api,
           viewFp: preload.viewFp,
           count: preload.preloadCount,
         );
+        if (!ok) {
+          _setStatus('語音準備超時，請檢查網路');
+          setState(() => _showRetryButton = true);
+          return; // Stop flow, let user retry
+        }
       }
 
       // ④ Apply bundle directly – no extra /start call required
@@ -81,7 +88,9 @@ class _SplashPageState extends State<SplashPage> {
       );
     } catch (e) {
       debugPrint('[Splash] Init error: $e');
-      // Fall through — open menu anyway
+      _setStatus('初始化失敗，請重試\n$e');
+      setState(() => _showRetryButton = true);
+      return; // Stop flow on hard error
     }
 
     // ⑤ Ensure minimum splash display time
@@ -111,7 +120,7 @@ class _SplashPageState extends State<SplashPage> {
   // ─────────────────────────────────────────────────────────────
   // Poll /tts_status until ready or timeout
   // ─────────────────────────────────────────────────────────────
-  Future<void> _pollUntilTtsReady({
+  Future<bool> _pollUntilTtsReady({
     required FastApiBridge api,
     required String viewFp,
     required int count,
@@ -127,14 +136,15 @@ class _SplashPageState extends State<SplashPage> {
 
         if (s.ready || s.readyCount >= count) {
           debugPrint('[Splash] TTS all ready ✅');
-          return;
+          return true;
         }
       } catch (e) {
         debugPrint('[Splash] TTS poll error: $e');
       }
       await Future<void>.delayed(_pollInterval);
     }
-    debugPrint('[Splash] TTS poll timeout – proceeding anyway');
+    debugPrint('[Splash] TTS poll timeout – wait failed');
+    return false;
   }
 
   void _setStatus(String s) {
@@ -173,14 +183,24 @@ class _SplashPageState extends State<SplashPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                  if (!_showRetryButton)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white70),
+                      ),
                     ),
-                  ),
+                  if (_showRetryButton)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0, top: 16.0),
+                      child: ElevatedButton(
+                        onPressed: _initApp,
+                        child: const Text('重試'),
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   Text(
                     _status,

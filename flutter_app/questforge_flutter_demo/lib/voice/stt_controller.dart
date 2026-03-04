@@ -125,6 +125,14 @@ class SttController {
     }
   }
 
+  /// ✅ Lazy init 麥克風：只有按下去時才跳權限
+  Future<bool> ensureReady({String preferredLocaleId = 'zh_TW'}) async {
+    if (!_inited) {
+      await init(preferredLocaleId: preferredLocaleId);
+    }
+    return vn.value.available;
+  }
+
   /// ✅ 點一下錄一段：等 final/done 自動停，回傳最後文字
   Future<String?> listenOnce({
     Duration listenFor = _onceListenFor,

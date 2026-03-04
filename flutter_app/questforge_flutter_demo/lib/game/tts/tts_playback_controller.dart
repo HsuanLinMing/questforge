@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart'; // ✅ sha1
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:questforge_flutter_demo/game/widgets/story_card_v2.dart';
+import 'package:questforge_flutter_demo/fastapi_bridge.dart';
 import 'package:questforge_ui_contract/questforge_contract.dart';
 
 typedef LogFn = void Function(String tag, Map<String, Object?> extra);
@@ -122,6 +123,7 @@ class _TtsPlaylistV1 {
     required this.scope,
     required this.viewFp,
     required this.uiViewFp,
+    required this.totalCount,
     required this.status,
     required this.reason,
     required this.items,
@@ -130,6 +132,7 @@ class _TtsPlaylistV1 {
   final String scope; // view/end
   final String viewFp; // ✅ 後端 pool path key（sha1）
   final String uiViewFp; // ✅ 後端回傳的 ui_view_fp（可與 viewFp 相同）
+  final int totalCount; // ✅ 這頁總共有幾段 (用來給前端輪詢等待用)
   final String status; // ok/unavailable/empty_narration/error
   final String reason;
   final List<_TtsPlaylistItem> items;
@@ -155,6 +158,9 @@ class _TtsPlaylistV1 {
       scope: '${cmd['scope'] ?? 'view'}',
       viewFp: '${cmd['view_fp'] ?? ''}',
       uiViewFp: '${cmd['ui_view_fp'] ?? ''}',
+      totalCount: (cmd['total_count'] is int)
+          ? (cmd['total_count'] as int)
+          : items.length,
       status: '${cmd['status'] ?? 'ok'}',
       reason: '${cmd['reason'] ?? ''}',
       items: items,
@@ -265,8 +271,11 @@ class TtsPlaybackController {
     required ScrollToParagraphFn scrollTo,
     required Map<String, dynamic>? playlistCmd,
     Future<Map<String, dynamic>?> Function()? fetchPlaylistCmd,
+    Future<TtsStatus> Function({required String viewFp, required int count})?
+        fetchTtsStatus,
   }) async {
     _scrollTo = scrollTo;
+    _fetchTtsStatus = fetchTtsStatus;
 
     _playSession++; // cut callbacks
     await stop(resetToStart: true);
@@ -538,6 +547,8 @@ class TtsPlaybackController {
   Timer? _fallbackTimer;
 
   Future<Map<String, dynamic>?> Function()? _fetchPlaylistCmd;
+  Future<TtsStatus> Function({required String viewFp, required int count})?
+      _fetchTtsStatus;
 
   Future<void> _refreshPlaylistIfPossible() async {
     final fetch = _fetchPlaylistCmd;
@@ -554,7 +565,9 @@ class TtsPlaybackController {
 
       // Keep cursor roughly aligned by paragraph index.
       final cur = _playlist;
-      final curIdx = (cur != null && _playlistCursor >= 0 && _playlistCursor < cur.items.length)
+      final curIdx = (cur != null &&
+              _playlistCursor >= 0 &&
+              _playlistCursor < cur.items.length)
           ? cur.items[_playlistCursor].index
           : vn.value.activeParagraphIndex;
 
@@ -765,7 +778,8 @@ class TtsPlaybackController {
             // refresh playlist reference
             final pl2 = _playlist;
             if (pl2 == null || !pl2.playable) return;
-            if (_playlistCursor < 0 || _playlistCursor >= pl2.items.length) return;
+            if (_playlistCursor < 0 || _playlistCursor >= pl2.items.length)
+              return;
             final newItem = pl2.items[_playlistCursor];
             if (!newItem.ready) {
               // continue waiting without counting as retry
@@ -801,19 +815,63 @@ class TtsPlaybackController {
         await _player.play();
         break; // Success!
       } catch (e) {
-        // If remote file is still being generated, prefer polling status.
-        await _refreshPlaylistIfPossible();
-
         retryCount++;
         _log('AUDIO_RETRY', {'err': e.toString(), 'retry': retryCount});
 
         if (retryCount >= 5) {
-          _log('AUDIO_ERROR', {'err': e.toString()});
+          // 如果真的播不到，不要再直接 abort，我們試著去等 tts_status ready
+          final fetchStatus = _fetchTtsStatus;
+          if (fetchStatus != null &&
+              pl.totalCount > 0 &&
+              pl.viewFp.isNotEmpty) {
+            _log('AUDIO_POLLING_STATUS', {'err': 'fallback to tts polling'});
+            final deadline =
+                DateTime.now().add(const Duration(seconds: 20)); // 最多等20秒
+            bool recovered = false;
+            while (DateTime.now().isBefore(deadline)) {
+              await Future<void>.delayed(const Duration(milliseconds: 600));
+              if (_tokenSession != _playSession || token != _speakToken) return;
+
+              try {
+                final status =
+                    await fetchStatus(viewFp: pl.viewFp, count: pl.totalCount);
+                if (status.readyCount > _playlistCursor) {
+                  // ready 了，更新 URL 後重新進入 retry 的外層
+                  if (status.paths.length > _playlistCursor) {
+                    final url = status.paths[_playlistCursor];
+                    // 不去改 class parameter, 只要不丟 error 就會重試進下一圈
+                    // 這邊我們手動把 playlistItem 更新
+                    pl.items[_playlistCursor] = _TtsPlaylistItem(
+                      index: item.index,
+                      path: url,
+                      role: item.role,
+                      voice: item.voice,
+                      text: item.text,
+                      format: item.format,
+                      ready: true,
+                    );
+                    retryCount = 0; // 重置 retry
+                    recovered = true;
+                    break;
+                  }
+                }
+              } catch (e2) {
+                // ignore polling error
+              }
+            }
+
+            if (recovered) {
+              continue; // 重新跑一次 loop
+            }
+          }
+
+          _log('AUDIO_ERROR',
+              {'err': e.toString(), 'timeout': 'failed and polling timeout'});
           _triggerAdvance('audio_error');
           return;
         }
 
-        // Wait before retrying (gives background task time to finish)
+        // Wait before retrying
         await Future<void>.delayed(const Duration(milliseconds: 1200));
 
         // If state changed while waiting, abort retry loop

@@ -123,6 +123,26 @@ class ActionStatusResp {
   }
 }
 
+class TtsStatus {
+  final bool ready;
+  final int readyCount;
+  final List<String> paths;
+  final List<int> missing;
+
+  TtsStatus(
+      {required this.ready,
+      required this.readyCount,
+      required this.paths,
+      required this.missing});
+
+  factory TtsStatus.fromJson(Map<String, dynamic> j) => TtsStatus(
+        ready: j['ready'] == true,
+        readyCount: (j['ready_count'] ?? 0) as int,
+        paths: (j['paths'] as List? ?? []).cast<String>(),
+        missing: (j['missing'] as List? ?? []).map((e) => e as int).toList(),
+      );
+}
+
 /// ----------------------------
 /// Errors
 /// ----------------------------
@@ -259,6 +279,14 @@ class FastApiBridge {
   Future<PoolStatus> fetchPoolStatus() async {
     final json = await _getJson('/v1/game/pool_status');
     return PoolStatus.fromJson(json);
+  }
+
+  Future<TtsStatus> fetchTtsStatus(
+      {required String viewFp, required int count}) async {
+    final sid = await loadSessionId();
+    final json = await _getJson(
+        '/v1/game/tts_status?view_fp=$viewFp&count=$count${sid != null ? '&session_id=$sid' : ''}');
+    return TtsStatus.fromJson(json);
   }
 
   /// ✅ 查詢目前 view 的 TTS playlist 進度（避免音檔還在生成時直接 skip）

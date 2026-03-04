@@ -126,9 +126,9 @@ class StoryPoolManager:
                 story_id=story_id,
             )
 
-        sample_pkg = self._sample_repo.acquire_random()
+        sample_pkg, sample_id = self._sample_repo.acquire_random()
         return AcquireResult(
             source="sample",
             pkg=sample_pkg,
-            story_id=None,
+            story_id=sample_id,
         )

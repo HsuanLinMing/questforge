@@ -944,6 +944,7 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
           playlistCmd: playlistCmd,
           fetchPlaylistCmd: () => widget.controller.fetchTtsStatusCmd(),
+          fetchTtsStatus: widget.controller.fetchTtsStatus,
         );
       } finally {
         if (mounted) {

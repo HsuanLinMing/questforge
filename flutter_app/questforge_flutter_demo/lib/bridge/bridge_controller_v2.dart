@@ -154,6 +154,11 @@ class BridgeControllerV2 {
   /// ✅ 給 TTS controller 用：查目前 view 的 playlist readiness
   Future<Map<String, dynamic>?> fetchTtsStatusCmd() => _api.fetchTtsStatusCmd();
 
+  /// ✅ 給 TTS controller 用：polling 段落是否生成完成
+  Future<TtsStatus> fetchTtsStatus(
+          {required String viewFp, required int count}) =>
+      _api.fetchTtsStatus(viewFp: viewFp, count: count);
+
   bool get isUiBlocked {
     final b = stateVN.value.bundle;
     return b.end != null || b.ask != null || b.quiz != null;
@@ -522,6 +527,13 @@ class BridgeControllerV2 {
       bundle: parsedBundle,
       lastRaw: raw,
       snapshot: snap,
+    );
+
+    // ✅ Debug: 每次 bundle apply 都印出故事來源，方便驗證 sample → AI 切換
+    debugPrint(
+      '[QF] story source=${stateVN.value.currentStorySource ?? "-"} '
+      'id=${stateVN.value.currentStoryId ?? "-"} '
+      'node=${stateVN.value.view?.nodeId ?? "-"}',
     );
   }
 

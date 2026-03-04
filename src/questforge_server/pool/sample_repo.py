@@ -5,7 +5,7 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from questforge.contracts.story_nodes_v1 import (
     StoryNodesPackage,
@@ -63,9 +63,10 @@ class SampleStoryRepo:
     def count(self) -> int:
         return len(self._paths)
 
-    def acquire_random(self) -> StoryNodesPackage:
+    def acquire_random(self) -> Tuple[StoryNodesPackage, str]:
         """
         Pick a random sample storynodes json -> StoryNodesPackage -> validate.
+        Returns (pkg, filename) so callers can use filename as sample story_id.
         Raises RuntimeError if no valid sample exists.
         """
         if not self._paths:
@@ -85,7 +86,7 @@ class SampleStoryRepo:
                 # ✅ 這裡要丟「StoryNodesPackage」不是 dict
                 validate_story_nodes_v1(pkg)
 
-                return pkg
+                return pkg, p.name
             except (OSError, json.JSONDecodeError, StoryNodesValidationError) as e:
                 last_err = e
                 continue

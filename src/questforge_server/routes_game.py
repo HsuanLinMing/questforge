@@ -555,46 +555,52 @@ def _mark_ready_for_existing_files(cmd: Dict[str, Any]) -> Dict[str, Any]:
         return cmd
 
 
-@router.get("/tts_status")
-def tts_status(session_id: str, request: Request) -> Dict[str, Any]:
-    """
-    Return latest TTS playlist status for the current view.
-    - Does NOT block on synthesis.
-    - Includes per-item 'ready' flags.
-    """
-    sess = _get_session_or_404(session_id)
-    view_obj = sess.get_view()
-    view_json = _to_json_dict(view_obj) or {}
+class TtsStatusResp(BaseModel):
+    ready: bool
+    ready_count: int
+    paths: List[str]
+    missing: List[int]
 
-    # Inject story meta for pooled AI/sample routing
-    try:
-        story_meta = getattr(sess.state, "vars", {}).get("qf_story")
-        if story_meta:
-            runtime = dict(view_json.get("runtime") or {})
-            runtime["story"] = story_meta
-            view_json["runtime"] = runtime
-    except Exception:
-        pass
+@router.get("/tts_status", response_model=TtsStatusResp)
+def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optional[str] = None):
+    # This checks in both potential locations (AI pools and runs) and returns status
+    base = str(request.base_url).rstrip("/")
+    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+    
+    # Check runtime_sample location first
+    out_dir_sample = (cache_root / "runtime_sample" / view_fp).resolve()
+    
+    # If session_id is provided, check tts_runs too
+    out_dir_runs = None
+    if session_id:
+        run_id = store.get_current_run_id(session_id) or ""
+        out_dir_runs = _runs_root() / session_id / run_id / view_fp
 
-    cmd = _try_make_pooled_tts_cmd(request=request, view_json=view_json, background_tasks=None)
-    if cmd is None:
-        return {"ok": True, "status": "missing", "command": None}
-
-    cmd = _mark_ready_for_existing_files(cmd)
-
-    items = cmd.get("items") if isinstance(cmd, dict) else None
-    ready_n = 0
-    total_n = 0
-    if isinstance(items, list):
-        total_n = len(items)
-        ready_n = sum(1 for it in items if isinstance(it, dict) and it.get("ready") is True)
-
-    return {
-        "ok": True,
-        "status": "ok",
-        "progress": {"ready": ready_n, "total": total_n},
-        "command": cmd,
-    }
+    ready_paths = []
+    missing = []
+    
+    for i in range(count):
+        filename = f"{i:03d}.wav"
+        found = False
+        
+        # Check sample dir
+        if out_dir_sample.exists() and (out_dir_sample / filename).exists():
+            ready_paths.append(f"{base}/static/runtime_sample/{view_fp}/{filename}")
+            found = True
+        # Check runs dir
+        elif out_dir_runs and out_dir_runs.exists() and (out_dir_runs / filename).exists():
+            ready_paths.append(f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}")
+            found = True
+            
+        if not found:
+            missing.append(i)
+            
+    return TtsStatusResp(
+        ready=(len(missing) == 0),
+        ready_count=len(ready_paths),
+        paths=ready_paths,
+        missing=missing,
+    )
 def _bundle_from_session_and_step(
     *,
     request: Request,
@@ -685,6 +691,33 @@ def _bundle_from_session_and_step(
         base = str(request.base_url).rstrip("/")
         items: List[Dict[str, Any]] = []
 
+        sync_limit = int(os.getenv("QF_TTS_SYNC_LIMIT", "1") or "1")
+        if sync_limit < 1:
+            sync_limit = 1
+
+        def _out_name(i: int) -> str:
+            return f"{i:03d}.wav"
+
+        def _synth_para(i: int, p: str) -> None:
+            role, text = _parse_paragraph(p)
+            spoken_text = (text or "").strip()
+            if not spoken_text:
+                return
+
+            profile = voice_for_role(role)
+            speed = _voice_speed_for_role(role)
+
+            r = synthesize_to_wav(
+                text=spoken_text,
+                out_dir=out_dir,
+                out_name=_out_name(i),
+                voice=profile.voice,
+                instructions=profile.instructions,
+                speed=speed,
+            )
+            if not r:
+                return
+
         for i, p in enumerate(raw_paras):
             role, text = _parse_paragraph(p)
             spoken_text = (text or "").strip()
@@ -694,17 +727,15 @@ def _bundle_from_session_and_step(
             profile = voice_for_role(role)
             speed = _voice_speed_for_role(role)
 
-            r = synthesize_to_wav(
-                text=spoken_text,
-                out_dir=out_dir,
-                voice=profile.voice,
-                instructions=profile.instructions,
-                speed=speed,
-            )
-            if r is None:
-                continue
+            # 🚀 同步只做前 sync_limit 段；其餘段落放背景
+            if i < sync_limit or bg_tasks is None:
+                _synth_para(i, p)
+            else:
+                bg_tasks.add_task(_synth_para, i, p)
 
-            url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{r.filename}"
+            filename = _out_name(i)
+            url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}"
+            ready = (out_dir / filename).exists()
 
             items.append(
                 {
@@ -715,6 +746,7 @@ def _bundle_from_session_and_step(
                     "speed": speed,  # debug
                     "format": "wav",
                     "path": url,
+                    "ready": bool(ready),
                 }
             )
 
@@ -726,6 +758,7 @@ def _bundle_from_session_and_step(
             "scope": "view",
             "status": "ok",
             "view_fp": view_fp,
+            "total_count": len(raw_paras),
             "items": items,
         }
 

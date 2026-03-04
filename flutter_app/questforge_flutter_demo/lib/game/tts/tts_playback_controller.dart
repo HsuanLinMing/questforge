@@ -285,8 +285,6 @@ class TtsPlaybackController {
     _playlist = null;
     _playlistCursor = 0;
 
-    _fetchPlaylistCmd = fetchPlaylistCmd;
-
     // ✅ reset didSpeak for this view
     vn.value = vn.value.copyWith(didSpeak: false, didSpeakFp: '');
 
@@ -546,39 +544,65 @@ class TtsPlaybackController {
 
   Timer? _fallbackTimer;
 
-  Future<Map<String, dynamic>?> Function()? _fetchPlaylistCmd;
   Future<TtsStatus> Function({required String viewFp, required int count})?
       _fetchTtsStatus;
 
   Future<void> _refreshPlaylistIfPossible() async {
-    final fetch = _fetchPlaylistCmd;
-    if (fetch == null) return;
+    final fetchStatus = _fetchTtsStatus;
+    final pl = _playlist;
+
+    // ✅ Only use the correct API (fetchTtsStatus with viewFp+count); no more fetchPlaylistCmd.
+    if (fetchStatus == null ||
+        pl == null ||
+        pl.viewFp.isEmpty ||
+        pl.totalCount <= 0) {
+      return;
+    }
+
     try {
-      final raw = await fetch();
-      if (raw == null) return;
+      final status = await fetchStatus(viewFp: pl.viewFp, count: pl.totalCount);
 
-      // If view already changed, ignore.
+      // If view already changed, ignore
       if (_tokenSession != _playSession) return;
+      if (status.readyCount == 0) return;
 
-      final next = _TtsPlaylistV1.fromCommand(raw);
-      if (!next.playable) return;
+      // Patch ready flags / paths from status without replacing the whole playlist
+      final updatedItems = List<_TtsPlaylistItem>.from(pl.items);
+      for (var i = 0; i < status.paths.length && i < updatedItems.length; i++) {
+        if (!updatedItems[i].ready && status.paths[i].isNotEmpty) {
+          updatedItems[i] = _TtsPlaylistItem(
+            index: updatedItems[i].index,
+            path: status.paths[i],
+            role: updatedItems[i].role,
+            voice: updatedItems[i].voice,
+            text: updatedItems[i].text,
+            format: updatedItems[i].format,
+            ready: true,
+          );
+        }
+      }
 
-      // Keep cursor roughly aligned by paragraph index.
-      final cur = _playlist;
-      final curIdx = (cur != null &&
-              _playlistCursor >= 0 &&
-              _playlistCursor < cur.items.length)
-          ? cur.items[_playlistCursor].index
-          : vn.value.activeParagraphIndex;
+      final curIdx =
+          (_playlistCursor >= 0 && _playlistCursor < updatedItems.length)
+              ? updatedItems[_playlistCursor].index
+              : vn.value.activeParagraphIndex;
 
-      _playlist = next;
+      _playlist = _TtsPlaylistV1(
+        scope: pl.scope,
+        viewFp: pl.viewFp,
+        uiViewFp: pl.uiViewFp,
+        totalCount: pl.totalCount,
+        status: pl.status,
+        reason: pl.reason,
+        items: updatedItems,
+      );
       _playlistCursor = _firstCursorForParagraph(curIdx);
 
       _log('PLAYLIST_REFRESHED', {
-        'items': next.items.length,
+        'ready': status.readyCount,
+        'total': pl.totalCount,
         'cursor': _playlistCursor,
         'pIndex': curIdx,
-        'status': next.status,
       });
     } catch (e) {
       _log('PLAYLIST_REFRESH_FAILED', {'err': e.toString()});

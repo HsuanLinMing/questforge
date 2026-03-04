@@ -60,3 +60,19 @@ class LocalStoryStorage:
                 return StoryNodesPackage.parse_obj(pkg)  # type: ignore[attr-defined]
             return StoryNodesPackage(**pkg)  # type: ignore[arg-type]
         return pkg
+
+    def delete_story(self, story_id: str) -> None:
+        """Remove story JSON and its TTS folder if they exist (cleanup broken AI stories)."""
+        import shutil as _shutil
+        try:
+            p = self.story_json_path(story_id)
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            tts_dir = self._tts / story_id
+            if tts_dir.exists():
+                _shutil.rmtree(tts_dir, ignore_errors=True)
+        except Exception:
+            pass

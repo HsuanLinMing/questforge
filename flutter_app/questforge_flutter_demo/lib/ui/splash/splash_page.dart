@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:questforge_flutter_demo/bridge/bridge_controller_v2.dart';
 import 'package:questforge_flutter_demo/config/app_env.dart';
 import 'package:questforge_flutter_demo/fastapi_bridge.dart';
 import 'package:questforge_flutter_demo/ui/menu/main_menu_page.dart';
@@ -17,8 +18,8 @@ class SplashPage extends StatefulWidget {
 class _SplashPageState extends State<SplashPage> {
   // ── poll config ──────────────────────────────────────────────
   static const _pollInterval = Duration(seconds: 2);
-  static const _pollTimeout = Duration(seconds: 40); // 最長等 40 秒
-  static const _minSplashDur = Duration(milliseconds: 1200); // 至少顯示 1.2s
+  static const _pollTimeout = Duration(seconds: 40);
+  static const _minSplashDur = Duration(milliseconds: 1200);
 
   String _status = '初始化中…';
 
@@ -32,36 +33,58 @@ class _SplashPageState extends State<SplashPage> {
   // Main init flow
   // ─────────────────────────────────────────────────────────────
   Future<void> _initApp() async {
-    final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
     final startTime = DateTime.now();
 
+    final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
+
+    // ① Build the controller ONCE here – it will be passed all the way to GamePage
+    final controller = BridgeControllerV2(
+      api: api,
+      kindToWire: (k) {
+        final s = k?.toString() ?? '';
+        if (s.contains('end_flow') || s.contains('endFlow')) return 'end_flow';
+        return s.split('.').last;
+      },
+    );
+
     PreloadResp? preload;
+    bool hasAiStory = false;
 
     try {
-      // ① Call /preload → picks story, creates session, kicks off TTS
+      // ② /preload: picks story (AI-first), creates session, kicks off TTS
       _setStatus('選取故事…');
       preload = await api.preload();
+
+      hasAiStory = preload.storySource == 'ai';
 
       debugPrint(
         '[Splash] preload ok source=${preload.storySource} '
         'id=${preload.storyId} fp=${preload.viewFp} count=${preload.preloadCount}',
       );
 
-      // ② Poll /tts_status until scene_01_start is fully ready (or timeout)
+      // ③ Poll until scene_01_start TTS fully ready (or timeout)
       if (preload.viewFp.isNotEmpty && preload.preloadCount > 0) {
         _setStatus('準備語音…');
-        await _pollUntilReady(
+        await _pollUntilTtsReady(
           api: api,
           viewFp: preload.viewFp,
           count: preload.preloadCount,
         );
       }
+
+      // ④ Apply bundle directly – no extra /start call required
+      controller.applyPreload(
+        bundle: preload.bundle,
+        sessionId: preload.sessionId,
+        events: preload.events,
+        isOver: preload.isOver,
+      );
     } catch (e) {
       debugPrint('[Splash] Init error: $e');
-      // Fall through – open menu anyway so user isn't stuck
+      // Fall through — open menu anyway
     }
 
-    // ③ Ensure minimum splash display time (UX)
+    // ⑤ Ensure minimum splash display time
     final elapsed = DateTime.now().difference(startTime);
     if (elapsed < _minSplashDur) {
       await Future<void>.delayed(_minSplashDur - elapsed);
@@ -69,15 +92,14 @@ class _SplashPageState extends State<SplashPage> {
 
     if (!mounted) return;
 
-    _setStatus('進入選單…');
-
-    final hasAiStory = preload?.storySource == 'ai';
+    debugPrint(
+        '[Splash] handoff controller hash=${identityHashCode(controller)} sess=${controller.sessionId}');
 
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 800),
         pageBuilder: (_, __, ___) => MainMenuPage(
-          api: api,
+          controller: controller,
           hasAiStory: hasAiStory,
         ),
         transitionsBuilder: (_, anim, __, child) =>
@@ -87,9 +109,9 @@ class _SplashPageState extends State<SplashPage> {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Poll /tts_status until ready_count == count or timeout
+  // Poll /tts_status until ready or timeout
   // ─────────────────────────────────────────────────────────────
-  Future<void> _pollUntilReady({
+  Future<void> _pollUntilTtsReady({
     required FastApiBridge api,
     required String viewFp,
     required int count,
@@ -98,27 +120,20 @@ class _SplashPageState extends State<SplashPage> {
 
     while (DateTime.now().isBefore(deadline)) {
       try {
-        final status = await api.fetchTtsStatus(viewFp: viewFp, count: count);
-        debugPrint(
-          '[Splash] TTS poll ready=${status.readyCount}/$count '
-          'missing=${status.missing.length}',
-        );
+        final s = await api.fetchTtsStatus(viewFp: viewFp, count: count);
+        debugPrint('[Splash] TTS poll ready=${s.readyCount}/$count');
 
-        if (mounted) {
-          _setStatus('語音準備中（${status.readyCount}/$count）…');
-        }
+        if (mounted) _setStatus('語音準備中（${s.readyCount}/$count）…');
 
-        if (status.ready || status.readyCount >= count) {
+        if (s.ready || s.readyCount >= count) {
           debugPrint('[Splash] TTS all ready ✅');
           return;
         }
       } catch (e) {
         debugPrint('[Splash] TTS poll error: $e');
       }
-
       await Future<void>.delayed(_pollInterval);
     }
-
     debugPrint('[Splash] TTS poll timeout – proceeding anyway');
   }
 
@@ -137,14 +152,11 @@ class _SplashPageState extends State<SplashPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ① Background fill (cover)
           Image.asset(
             'assets/splash/splash_launch.png',
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
           ),
-
-          // ② Crisp top-aligned version (no H-crop)
           Align(
             alignment: Alignment.topCenter,
             child: Image.asset(
@@ -153,8 +165,7 @@ class _SplashPageState extends State<SplashPage> {
               width: MediaQuery.of(context).size.width,
             ),
           ),
-
-          // ③ Status bar at the bottom
+          // Status indicator
           Align(
             alignment: Alignment.bottomCenter,
             child: Padding(

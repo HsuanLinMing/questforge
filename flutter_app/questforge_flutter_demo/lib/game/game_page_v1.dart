@@ -693,6 +693,11 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    debugPrint(
+        '[Game] enter controller hash=${identityHashCode(widget.controller)}');
+    debugPrint(
+        '[Game] current story meta=${widget.controller.stateVN.value.currentStorySource} id=${widget.controller.stateVN.value.currentStoryId}');
+
     WidgetsBinding.instance.addObserver(this);
 
     _ttsCtl.onNarrationEnd = () {
@@ -943,10 +948,8 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           autoPlay: doAutoPlay,
           scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
           playlistCmd: playlistCmd,
-          fetchPlaylistCmd: () => widget.controller.fetchTtsStatusCmd(
-            viewFp: fp2,
-            count: paragraphs.length,
-          ),
+          fetchPlaylistCmd:
+              null, // ✅ polling uses fetchTtsStatus with explicit params
           fetchTtsStatus: widget.controller.fetchTtsStatus,
         );
       } finally {

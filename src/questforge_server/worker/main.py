@@ -19,6 +19,10 @@ from questforge_server.pool.story_storage_local import (
     LocalStoryStorage,
     LocalStoryStorageConfig,
 )
+from questforge_server.pool.story_storage_redis import (
+    RedisStoryStorage,
+    RedisStoryStorageConfig,
+)
 
 from questforge_server.tts_service import (
     synthesize_to_wav,
@@ -196,7 +200,7 @@ def _safe_validate_pkg(pkg: Any) -> None:
     validate_story_nodes_v1(pkg)
 
 
-def _prewarm_tts_for_story(*, storage: LocalStoryStorage, story_id: str, pkg: Any) -> int:
+def _prewarm_tts_for_story(*, storage: Any, story_id: str, pkg: Any) -> int:
     """
     Generate pooled TTS for all nodes into:
       .qf_cache/pool_ai/tts/<story_id>/<view_fp>/
@@ -295,9 +299,13 @@ def main() -> None:
     ready_key = "qf:ready_ai"
     dead_key = "qf:dead"
 
-    storage = LocalStoryStorage(
-        LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
-    )
+    use_redis = os.getenv("QF_POOL_STORAGE", "redis").lower() == "redis"
+    if use_redis:
+        storage = RedisStoryStorage(RedisStoryStorageConfig())
+    else:
+        storage = LocalStoryStorage(
+            LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
+        )
     gen = RuntimeStoryNodesGeneratorV1()
 
     print("[WORKER] start", flush=True)
@@ -334,8 +342,14 @@ def main() -> None:
             print(f"[WORKER] job story_id={sid8} seed={job.seed}", flush=True)
 
             # ----- de-dupe -----
-            story_path = storage.story_json_path(story_id)
-            if story_path.exists():
+            story_exists = False
+            try:
+                storage.get_story_pkg(story_id)
+                story_exists = True
+            except (FileNotFoundError, Exception):
+                pass
+            
+            if story_exists:
                 print(f"[WORKER] story exists, publish ready story_id={sid8}", flush=True)
                 redis.lpush(ready_key, story_id)
                 continue

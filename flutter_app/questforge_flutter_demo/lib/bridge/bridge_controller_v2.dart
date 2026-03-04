@@ -127,6 +127,7 @@ class BridgeControllerV2 {
       ValueNotifier<BridgeUiStateV2>(BridgeUiStateV2.empty());
 
   bool _started = false;
+  String? sessionId;
 
   // ------------------------------------------------------------
   // EndScreen lock/unlock
@@ -177,6 +178,30 @@ class BridgeControllerV2 {
     unawaited(_startNewSession());
   }
 
+  /// ✅ Called by Splash after /preload has already created a session.
+  /// Applies the preloaded bundle directly without calling /start again.
+  void applyPreload({
+    required Map<String, dynamic> bundle,
+    required String sessionId,
+    required List<String> events,
+    required bool isOver,
+  }) {
+    if (_started) return;
+    _started = true;
+    this.sessionId = sessionId;
+    _applyApiBundle(
+      bundle: bundle,
+      isOver: isOver,
+      raw: <String, dynamic>{
+        'type': 'preload',
+        'session_id': sessionId,
+        'bundle': bundle,
+        'events': events,
+        'is_over': isOver,
+      },
+    );
+  }
+
   void stop() {
     _started = false;
 
@@ -199,6 +224,7 @@ class BridgeControllerV2 {
   Future<void> _startNewSession() async {
     try {
       final r = await _api.start();
+      this.sessionId = r.sessionId;
       _applyApiBundle(
         bundle: r.bundle,
         isOver: r.isOver,

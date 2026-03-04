@@ -14,6 +14,10 @@ from questforge_server.pool.story_storage_local import (
     LocalStoryStorage,
     LocalStoryStorageConfig,
 )
+from questforge_server.pool.story_storage_redis import (
+    RedisStoryStorage,
+    RedisStoryStorageConfig,
+)
 
 
 @dataclass
@@ -35,9 +39,16 @@ class StoryPoolManager:
         self._jobs_key = "qf:jobs"
         self._ready_key = "qf:ready_ai"
 
-        self._storage = LocalStoryStorage(
-            LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
-        )
+        import os
+        use_redis = os.getenv("QF_POOL_STORAGE", "redis").lower() == "redis"
+        if use_redis:
+            self._storage = RedisStoryStorage(RedisStoryStorageConfig())
+        else:
+            self._storage = LocalStoryStorage(
+                LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
+            )
+
+        self._log(f"storage={type(self._storage).__name__} mode={os.getenv('QF_POOL_STORAGE', 'not set')}")
 
     # ---------------- helpers ----------------
 
@@ -98,17 +109,26 @@ class StoryPoolManager:
     def _try_acquire_ai_ready(
         self,
     ) -> Optional[Tuple[str, StoryNodesPackage]]:
+        # ✅ loop: skip broken ids instead of falling back immediately
+        while True:
+            story_id = self._redis.rpop(self._ready_key)
+            if not story_id:
+                return None
 
-        story_id = self._redis.rpop(self._ready_key)
-        if not story_id:
-            return None
+            try:
+                pkg = self._storage.get_story_pkg(story_id)
+                return story_id, pkg
+            except Exception as e:
+                # file missing / corrupted -> drop & try next
+                self._drop_broken_story(str(story_id), reason=repr(e))
+                continue
 
+    def _drop_broken_story(self, story_id: str, reason: str = "") -> None:
+        self._log("drop_broken_ai_story", story_id=story_id[:12], reason=reason[:80])
         try:
-            pkg = self._storage.get_story_pkg(story_id)
-            return story_id, pkg
-        except Exception as e:
-            self._log("drop broken story", story_id=str(story_id)[:12], err=repr(e))
-            return None
+            self._storage.delete_story(story_id)
+        except Exception:
+            pass
 
     def acquire_story(self) -> AcquireResult:
         # ✅ 只 ensure 一次

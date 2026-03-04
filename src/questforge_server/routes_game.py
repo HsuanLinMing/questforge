@@ -1767,6 +1767,25 @@ class PoolStatusResponse(BaseModel):
     tts_ready_count: int
     target: int = 2
 
+@router.get("/debug/story_exists")
+def debug_story_exists(story_id: str):
+    storage_type = type(_pool._storage).__name__
+    try:
+        if storage_type == "RedisStoryStorage":
+            raw = getattr(_pool._storage, "_redis").get(getattr(_pool._storage, "_key")(story_id))
+            if raw is None:
+                return {"storage": storage_type, "exists": False, "byte_len": 0}
+            return {"storage": storage_type, "exists": True, "byte_len": len(raw)}
+        elif storage_type == "LocalStoryStorage":
+            p = _pool._storage.story_json_path(story_id)
+            if not p.exists():
+                return {"storage": storage_type, "exists": False, "byte_len": 0}
+            raw = p.read_text(encoding="utf-8")
+            return {"storage": storage_type, "exists": True, "byte_len": len(raw)}
+    except Exception as e:
+        return {"storage": storage_type, "exists": False, "byte_len": 0, "error": str(e)}
+    return {"storage": storage_type, "exists": False, "byte_len": 0}
+
 @router.get("/pool_status", response_model=PoolStatusResponse)
 def pool_status() -> PoolStatusResponse:
     ready = _pool._ready_count()

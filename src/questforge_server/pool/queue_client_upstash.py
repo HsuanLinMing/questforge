@@ -17,10 +17,16 @@ class UpstashConfig:
 class UpstashRedisRest:
     """
     Minimal Upstash Redis REST client.
-    Uses GET requests:
-      GET <REST_URL>/<COMMAND>/<arg1>/<arg2>...
-    Response JSON:
-      {"result": ...}
+
+    - For small commands, we use GET:
+        GET <REST_URL>/<COMMAND>/<arg1>/<arg2>...
+      Response JSON: {"result": ...}
+
+    - For large payloads (e.g. SET big JSON value), we use POST with JSON body:
+        POST <REST_URL>  body: ["SET", "key", "value"]
+      Response JSON: {"result": ...}
+
+    This avoids URL length limits when storing big StoryNodes JSON.
     """
 
     def __init__(self, cfg: UpstashConfig):
@@ -35,8 +41,12 @@ class UpstashRedisRest:
         token = (os.getenv("QF_UPSTASH_REDIS_REST_TOKEN") or os.getenv("UPSTASH_REDIS_REST_TOKEN") or "").strip()
         return UpstashRedisRest(UpstashConfig(rest_url=url, rest_token=token))
 
-    def _call(self, path: str) -> Any:
-        # ✅ Upstash REST most stable: GET with bearer header, no body
+    # -------------------------
+    # Low-level calls
+    # -------------------------
+
+    def _call_get(self, path: str) -> Any:
+        # ✅ Upstash REST: GET with bearer header, no body
         req = urllib.request.Request(
             url=f"{self._url}/{path.lstrip('/')}",
             method="GET",
@@ -47,24 +57,71 @@ class UpstashRedisRest:
             data = json.loads(raw)
             return data.get("result")
 
+    def _call_post_cmd(self, cmd: list[str]) -> Any:
+        # ✅ Upstash REST: POST body is a JSON array, e.g. ["SET","k","v"]
+        payload = json.dumps(cmd, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            url=f"{self._url}",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+            },
+            data=payload,
+        )
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            raw = resp.read().decode("utf-8")
+            data = json.loads(raw)
+            return data.get("result")
+
+    @staticmethod
+    def _q(s: str) -> str:
+        return urllib.parse.quote(s, safe="")
+
+    # -------------------------
+    # List ops (GET)
+    # -------------------------
+
     def llen(self, key: str) -> int:
-        r = self._call(f"LLEN/{urllib.parse.quote(key, safe='')}")
+        r = self._call_get(f"LLEN/{self._q(key)}")
         try:
             return int(r or 0)
         except Exception:
             return 0
 
     def lpush(self, key: str, value: str) -> int:
-        r = self._call(
-            f"LPUSH/{urllib.parse.quote(key, safe='')}/{urllib.parse.quote(value, safe='')}"
-        )
+        r = self._call_get(f"LPUSH/{self._q(key)}/{self._q(value)}")
         try:
             return int(r or 0)
         except Exception:
             return 0
 
     def rpop(self, key: str) -> Optional[str]:
-        r = self._call(f"RPOP/{urllib.parse.quote(key, safe='')}")
+        r = self._call_get(f"RPOP/{self._q(key)}")
         if r is None:
             return None
         return str(r)
+
+    # -------------------------
+    # KV ops
+    # -------------------------
+
+    def get(self, key: str) -> Optional[str]:
+        r = self._call_get(f"GET/{self._q(key)}")
+        if r is None:
+            return None
+        # Upstash returns raw string or JSON-encoded string depending on stored value
+        return str(r)
+
+    def set(self, key: str, value: str) -> bool:
+        # ✅ use POST to avoid URL length limits
+        r = self._call_post_cmd(["SET", key, value])
+        # Upstash returns "OK" on success
+        return str(r).upper() == "OK"
+
+    def delete(self, key: str) -> int:
+        r = self._call_get(f"DEL/{self._q(key)}")
+        try:
+            return int(r or 0)
+        except Exception:
+            return 0

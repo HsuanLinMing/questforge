@@ -633,15 +633,6 @@ class TtsPlaybackController {
     return Duration(milliseconds: ms);
   }
 
-  void _armFallbackTimer({required int token, required _TtsPlaylistItem item}) {
-    _fallbackTimer?.cancel();
-    _fallbackTimer = Timer(_estimateAudioTimeout(item), () {
-      if (_tokenSession != _playSession) return;
-      if (token != _speakToken) return;
-      _triggerAdvance('fallback_timeout');
-    });
-  }
-
   void _triggerAdvance(String source) {
     if (!vn.value.playing) return;
     if (_tokenSession != _playSession) return;
@@ -779,8 +770,6 @@ class TtsPlaybackController {
           activeVoice: item.voice,
         );
 
-        _armFallbackTimer(token: token, item: item);
-
         final uri = Uri.tryParse(item.path);
         if (uri == null) {
           _triggerAdvance('bad_uri');
@@ -788,7 +777,12 @@ class TtsPlaybackController {
         }
 
         // ✅ 如果後端告訴我們檔案尚未 ready，就先等它生成好
+        // ⚠️ 重要：不要在這裡 arm fallback，否則 timer 會提前觸發 advance
         if (!item.ready) {
+          // Cancel any stale timer while we wait
+          _fallbackTimer?.cancel();
+          _fallbackTimer = null;
+
           waitPollCount++;
           if (waitPollCount <= 40) {
             _log('AUDIO_WAIT_NOT_READY', {
@@ -802,8 +796,9 @@ class TtsPlaybackController {
             // refresh playlist reference
             final pl2 = _playlist;
             if (pl2 == null || !pl2.playable) return;
-            if (_playlistCursor < 0 || _playlistCursor >= pl2.items.length)
+            if (_playlistCursor < 0 || _playlistCursor >= pl2.items.length) {
               return;
+            }
             final newItem = pl2.items[_playlistCursor];
             if (!newItem.ready) {
               // continue waiting without counting as retry
@@ -819,10 +814,11 @@ class TtsPlaybackController {
           await _player.setUrl(uri.toString());
         }
 
-        // ✅ 只有真的載入成功且開始播才算 didSpeak
+        // ✅ 只有真的載入成功才算 didSpeak
         vn.value = vn.value.copyWith(didSpeak: true, didSpeakFp: _playViewFp);
 
-        // 用 duration(若有) 取代 fallback；duration 沒有就用估算
+        // ✅ Audio loaded: now arm the duration-based fallback
+        // (replaces any previous raw estimate timer)
         final d = _player.duration;
         final timeout = (d == null)
             ? _estimateAudioTimeout(item)
@@ -837,6 +833,8 @@ class TtsPlaybackController {
         });
 
         await _player.play();
+        _log(
+            'AUDIO_STARTED', {'cursor': _playlistCursor, 'pIndex': item.index});
         break; // Success!
       } catch (e) {
         retryCount++;

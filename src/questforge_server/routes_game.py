@@ -318,8 +318,17 @@ def _build_ai_playlist(
 
     view_fp = _view_fp_for_narration(narration)
 
-    pool_root = Path(".qf_cache/pool_ai").resolve()
+    # ✅ Use QF_CACHE_DIR to be consistent with tts_status & StaticFiles mount
+    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+    pool_root = (cache_root / "pool_ai").resolve()
     dirp = pool_root / "tts" / story_id / view_fp
+
+    # ✅ Also check old .qf_cache/pool_ai path as secondary lookup
+    if not dirp.exists():
+        legacy_pool = Path(".qf_cache/pool_ai").resolve()
+        dirp_legacy = legacy_pool / "tts" / story_id / view_fp
+        if dirp_legacy.exists():
+            dirp = dirp_legacy
 
     if not dirp.exists():
         return None
@@ -392,7 +401,12 @@ def _try_make_pooled_tts_cmd(
 
     # ✅ AI → 讀 pooled manifest
     if source == "ai":
-        return _build_ai_playlist(request, view_json)
+        cmd = _build_ai_playlist(request, view_json)
+        if cmd is not None:
+            return cmd
+        # ✅ Pool TTS not found (Render restarted) → fallback to runtime_sample for AI story too
+        print(f"[TTS] AI story pool TTS not found, fallback to runtime_sample", flush=True)
+        return _build_sample_runtime_tts(request, view_json, background_tasks)
 
     # ✅ SAMPLE → 即時第一段語音
     if source == "sample":
@@ -601,6 +615,15 @@ def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optio
 
         if not found:
             missing.append(i)
+
+    # Debug: log for first poll only (when no files ready yet)
+    if not ready_paths:
+        print(
+            f"[TTS_STATUS] view_fp={view_fp[:8]} count={count} "
+            f"sample_dir={out_dir_sample} sample_exists={out_dir_sample.exists()} "
+            f"runs_dir={out_dir_runs}",
+            flush=True,
+        )
 
         items.append({
             "index": i,
@@ -1300,22 +1323,34 @@ def preload_session(
             background_tasks=background_tasks,
         )
 
-        # ④ Figure out view_fp and preload_count from scene_01_start
+        # ③ Figure out view_fp and preload_count from the ACTUAL bundle narration
+        # (not from pkg nodes list – they can differ!)
         view_json = bundle.view or {}
         narration = (view_json.get("narration") or "").strip()
         view_fp = _view_fp_for_narration(narration) if narration else ""
-        preload_count = _count_scene01_start_narration(acq.pkg)
+        paras = _split_paragraphs(narration) if narration else []
+        preload_count = len([p for p in paras if _parse_paragraph(p)[1].strip()])
 
-        # ⑤ Trigger remaining paragraphs beyond what _bundle_from_session_and_step already started
-        # (It already does para 0 sync + rest async via _build_sample_runtime_tts,
-        #  so we just ensure the count cap is applied correctly)
+        # ④ Explicitly kick TTS for ALL remaining paragraphs via runtime_sample path
+        # (bundle building only does para 0 sync + may have already enqueued rest via
+        # _build_sample_runtime_tts; this ensures we cover the AI fallback case too)
+        if narration and preload_count > 0:
+            _trigger_scene01_tts(
+                request=request,
+                session_id=sid,
+                run_id=run_id,
+                view_json=view_json,
+                count=preload_count,
+                background_tasks=background_tasks,
+            )
+
         print(
             f"[PRELOAD] sid={sid[:6]} source={acq.source} "
-            f"view_fp={view_fp[:8]} preload_count={preload_count}",
+            f"view_fp={view_fp[:8] if view_fp else 'EMPTY'} preload_count={preload_count}",
             flush=True,
         )
 
-        # ⑥ Background ensure pool for next players
+        # ⑤ Background ensure pool for next players
         background_tasks.add_task(_pool.ensure_pool)
 
         return PreloadResponse(

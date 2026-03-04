@@ -1,4 +1,6 @@
 // lib/ui/splash/splash_page.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:questforge_flutter_demo/config/app_env.dart';
@@ -13,83 +15,172 @@ class SplashPage extends StatefulWidget {
 }
 
 class _SplashPageState extends State<SplashPage> {
+  // ── poll config ──────────────────────────────────────────────
+  static const _pollInterval = Duration(seconds: 2);
+  static const _pollTimeout = Duration(seconds: 40); // 最長等 40 秒
+  static const _minSplashDur = Duration(milliseconds: 1200); // 至少顯示 1.2s
+
+  String _status = '初始化中…';
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initApp();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initApp());
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Main init flow
+  // ─────────────────────────────────────────────────────────────
   Future<void> _initApp() async {
-    // 這裡可以做 TTS 預熱、呼叫 backend initialize_stories 等等
+    final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
+    final startTime = DateTime.now();
+
+    PreloadResp? preload;
+
     try {
-      final api = FastApiBridge(baseUrl: AppEnv.apiBaseUrl);
+      // ① Call /preload → picks story, creates session, kicks off TTS
+      _setStatus('選取故事…');
+      preload = await api.preload();
 
-      // ✅ 1) 查詢當前狀態，決定是否顯示 AI 專屬按鈕（例如 Resume）
-      final status = await api.fetchPoolStatus();
-      final hasAiStory = status.readyCount > 0;
-
-      // ✅ 2) 如果不足，背景呼叫補貨，這裡不需要 await 卡住 splash
-      // 這邊用 unawaited 的方式執行
-      api.ensurePoolFilledIfNeeded().catchError((e) {
-        debugPrint('[SplashPage] Background initialize error: $e');
-      });
-
-      if (!mounted) return;
-
-      // 動畫過渡到 MainMenuPage
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 800),
-          pageBuilder: (_, __, ___) => MainMenuPage(
-            api: api,
-            hasAiStory: hasAiStory,
-          ),
-          transitionsBuilder: (_, anim, __, child) {
-            return FadeTransition(opacity: anim, child: child);
-          },
-        ),
+      debugPrint(
+        '[Splash] preload ok source=${preload.storySource} '
+        'id=${preload.storyId} fp=${preload.viewFp} count=${preload.preloadCount}',
       );
-    } catch (e) {
-      debugPrint('[SplashPage] Init error: $e');
-      // 如果失敗也進主畫面，可以讓主畫面顯示錯誤或重試
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => MainMenuPage(
-              api: FastApiBridge(baseUrl: AppEnv.apiBaseUrl),
-              hasAiStory: false,
-            ),
-          ),
+
+      // ② Poll /tts_status until scene_01_start is fully ready (or timeout)
+      if (preload.viewFp.isNotEmpty && preload.preloadCount > 0) {
+        _setStatus('準備語音…');
+        await _pollUntilReady(
+          api: api,
+          viewFp: preload.viewFp,
+          count: preload.preloadCount,
         );
       }
+    } catch (e) {
+      debugPrint('[Splash] Init error: $e');
+      // Fall through – open menu anyway so user isn't stuck
     }
+
+    // ③ Ensure minimum splash display time (UX)
+    final elapsed = DateTime.now().difference(startTime);
+    if (elapsed < _minSplashDur) {
+      await Future<void>.delayed(_minSplashDur - elapsed);
+    }
+
+    if (!mounted) return;
+
+    _setStatus('進入選單…');
+
+    final hasAiStory = preload?.storySource == 'ai';
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 800),
+        pageBuilder: (_, __, ___) => MainMenuPage(
+          api: api,
+          hasAiStory: hasAiStory,
+        ),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+      ),
+    );
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Poll /tts_status until ready_count == count or timeout
+  // ─────────────────────────────────────────────────────────────
+  Future<void> _pollUntilReady({
+    required FastApiBridge api,
+    required String viewFp,
+    required int count,
+  }) async {
+    final deadline = DateTime.now().add(_pollTimeout);
+
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final status = await api.fetchTtsStatus(viewFp: viewFp, count: count);
+        debugPrint(
+          '[Splash] TTS poll ready=${status.readyCount}/$count '
+          'missing=${status.missing.length}',
+        );
+
+        if (mounted) {
+          _setStatus('語音準備中（${status.readyCount}/$count）…');
+        }
+
+        if (status.ready || status.readyCount >= count) {
+          debugPrint('[Splash] TTS all ready ✅');
+          return;
+        }
+      } catch (e) {
+        debugPrint('[Splash] TTS poll error: $e');
+      }
+
+      await Future<void>.delayed(_pollInterval);
+    }
+
+    debugPrint('[Splash] TTS poll timeout – proceeding anyway');
+  }
+
+  void _setStatus(String s) {
+    if (!mounted) return;
+    setState(() => _status = s);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // UI
+  // ─────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ 不要白色，先用接近天空的顏色（你也可以改成 Color(0xFFBFE6FF) 之類）
       backgroundColor: const Color(0xFFBFE6FF),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ① 底層：用 cover 填滿整個螢幕（允許裁切）
-          //    目的：把上下空白補起來，視覺不會白邊
+          // ① Background fill (cover)
           Image.asset(
             'assets/splash/splash_launch.png',
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
           ),
 
-          // ② 上層：用 fitWidth 保證「左右不裁切」
+          // ② Crisp top-aligned version (no H-crop)
           Align(
             alignment: Alignment.topCenter,
             child: Image.asset(
               'assets/splash/splash_launch.png',
               fit: BoxFit.fitWidth,
-              width: MediaQuery.of(context).size.width, // ✅ 關鍵：確保用螢幕寬
+              width: MediaQuery.of(context).size.width,
+            ),
+          ),
+
+          // ③ Status bar at the bottom
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 48),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _status,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      shadows: [Shadow(blurRadius: 4)],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

@@ -943,7 +943,10 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
           autoPlay: doAutoPlay,
           scrollTo: (i) => _storyKey.currentState?.scrollToParagraph(i),
           playlistCmd: playlistCmd,
-          fetchPlaylistCmd: () => widget.controller.fetchTtsStatusCmd(),
+          fetchPlaylistCmd: () => widget.controller.fetchTtsStatusCmd(
+            viewFp: fp2,
+            count: paragraphs.length,
+          ),
           fetchTtsStatus: widget.controller.fetchTtsStatus,
         );
       } finally {

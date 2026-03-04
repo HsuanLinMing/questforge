@@ -560,46 +560,75 @@ class TtsStatusResp(BaseModel):
     ready_count: int
     paths: List[str]
     missing: List[int]
+    command: Optional[Dict[str, Any]] = None
 
 @router.get("/tts_status", response_model=TtsStatusResp)
 def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optional[str] = None):
     # This checks in both potential locations (AI pools and runs) and returns status
     base = str(request.base_url).rstrip("/")
     cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
-    
+
     # Check runtime_sample location first
     out_dir_sample = (cache_root / "runtime_sample" / view_fp).resolve()
-    
+
     # If session_id is provided, check tts_runs too
-    out_dir_runs = None
+    out_dir_runs: Optional[Path] = None
+    run_id = ""
     if session_id:
         run_id = store.get_current_run_id(session_id) or ""
         out_dir_runs = _runs_root() / session_id / run_id / view_fp
 
     ready_paths = []
     missing = []
-    
+    items: List[Dict[str, Any]] = []
+
     for i in range(count):
         filename = f"{i:03d}.wav"
         found = False
-        
+        url = f"{base}/static/runtime_sample/{view_fp}/{filename}"  # default
+
         # Check sample dir
         if out_dir_sample.exists() and (out_dir_sample / filename).exists():
-            ready_paths.append(f"{base}/static/runtime_sample/{view_fp}/{filename}")
+            url = f"{base}/static/runtime_sample/{view_fp}/{filename}"
+            ready_paths.append(url)
             found = True
         # Check runs dir
         elif out_dir_runs and out_dir_runs.exists() and (out_dir_runs / filename).exists():
-            ready_paths.append(f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}")
+            url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}"
+            ready_paths.append(url)
             found = True
-            
+
         if not found:
             missing.append(i)
-            
+
+        items.append({
+            "index": i,
+            "format": "wav",
+            "path": url,
+            "role": "",
+            "voice": "",
+            "text": "",
+            "speed": 1.0,
+            "ready": found,
+        })
+
+    cmd: Dict[str, Any] = {
+        "type": "tts_playlist_v1",
+        "scope": "view",
+        "status": "ok",
+        "source": "tts_status",
+        "view_fp": view_fp,
+        "ui_view_fp": view_fp,
+        "total_count": count,
+        "items": items,
+    }
+
     return TtsStatusResp(
         ready=(len(missing) == 0),
         ready_count=len(ready_paths),
         paths=ready_paths,
         missing=missing,
+        command=cmd,
     )
 def _bundle_from_session_and_step(
     *,
@@ -1121,8 +1150,192 @@ def _best_effort_match_choice(
 
 
 # ----------------------------
+# Preload helpers
+# ----------------------------
+
+
+def _count_scene01_start_narration(pkg: Any) -> int:
+    """Return number of TTS-speakable narration paragraphs in scene_01_start node."""
+    try:
+        nodes = getattr(pkg, "nodes", None)
+        if not isinstance(nodes, dict):
+            return 0
+        node = nodes.get("scene_01_start")
+        if node is None:
+            return 0
+
+        # StoryNode.narration is List[NarrationItem]
+        narration = getattr(node, "narration", None)
+        if isinstance(narration, list):
+            return sum(1 for item in narration if (getattr(item, "text", "") or "").strip())
+
+        # Fallback: narration might be a raw string in edge cases
+        if isinstance(narration, str):
+            return len(_split_paragraphs(narration))
+
+    except Exception as e:
+        print(f"[PRELOAD] _count_scene01_start_narration err: {e!r}", flush=True)
+    return 0
+
+
+def _trigger_scene01_tts(
+    *,
+    request: Request,
+    session_id: str,
+    run_id: str,
+    view_json: Dict[str, Any],
+    count: int,
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> None:
+    """
+    Kick off TTS generation for scene_01_start paragraphs 0..count-1.
+    First paragraph is synchronous (so Flutter can start playing fast),
+    the rest are queued as background tasks.
+    """
+    narration = (view_json.get("narration") or "").strip()
+    if not narration or count == 0:
+        return
+
+    paras = _split_paragraphs(narration)
+    if not paras:
+        return
+
+    # Use the per-session tts_runs location so /tts_status can find them
+    cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
+    view_fp = _view_fp_for_narration(narration)
+
+    # Try sample path first (runtime_sample) since this is where _build_sample_runtime_tts writes
+    base_root = (cache_root / "runtime_sample").resolve()
+    out_dir = (base_root / view_fp).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def _synth(i: int, p: str) -> None:
+        role, text = _parse_paragraph(p)
+        spoken_text = (text or "").strip()
+        if not spoken_text:
+            return
+        profile = voice_for_role(role)
+        speed = _voice_speed_for_role(role)
+        try:
+            synthesize_to_wav(
+                text=spoken_text,
+                out_dir=out_dir,
+                out_name=f"{i:03d}.wav",
+                voice=profile.voice,
+                instructions=profile.instructions,
+                speed=speed,
+            )
+        except Exception as e:
+            print(f"[PRELOAD_TTS] synth err i={i} err={e!r}", flush=True)
+
+    # Sync: first paragraph (so Flutter can start immediately)
+    if paras:
+        _synth(0, paras[0])
+
+    # Async: remaining paragraphs up to count
+    if background_tasks is not None:
+        for i, p in enumerate(paras[1:count], start=1):
+            background_tasks.add_task(_synth, i, p)
+    else:
+        # No background tasks: do them inline (e.g., called without FastAPI context)
+        for i, p in enumerate(paras[1:count], start=1):
+            _synth(i, p)
+
+
+class PreloadResponse(BaseModel):
+    session_id: str
+    bundle: BundleResponse
+    events: List[str] = Field(default_factory=list)
+    is_over: bool = False
+    view_fp: str = ""
+    preload_count: int = 0
+    story_source: str = ""
+    story_id: Optional[str] = None
+
+
+# ----------------------------
 # Routes
 # ----------------------------
+
+
+@router.post("/preload", response_model=PreloadResponse)
+def preload_session(
+    req: StartRequest, request: Request, background_tasks: BackgroundTasks
+) -> PreloadResponse:
+    """
+    Splash-screen endpoint:
+    1. Picks a story (AI-first, falls back to sample)
+    2. Creates a session
+    3. Starts generating scene_01_start TTS (first para sync, rest async)
+    4. Returns view_fp + preload_count so Flutter can poll /tts_status until ready
+    """
+    sid = "pending"
+    try:
+        # ① Ensure pool & acquire story
+        _pool.ensure_pool()
+        acq = _pool.acquire_story()
+
+        # ② Create session
+        sid, session = store.create_from_story_pkg(
+            pkg=acq.pkg,
+            seed=req.seed,
+            source=acq.source,
+        )
+        session.state.vars.setdefault("qf_story", {})
+        session.state.vars["qf_story"].update({
+            "source": acq.source,
+            "story_id": acq.story_id,
+        })
+
+        run_id = store.get_current_run_id(sid) or ""
+
+        # ③ Build first-view bundle (TTS also triggered inside here for first para)
+        bundle, events, is_over = _bundle_from_session_and_step(
+            request=request,
+            session_id=sid,
+            run_id=run_id,
+            session=session,
+            step=None,
+            background_tasks=background_tasks,
+        )
+
+        # ④ Figure out view_fp and preload_count from scene_01_start
+        view_json = bundle.view or {}
+        narration = (view_json.get("narration") or "").strip()
+        view_fp = _view_fp_for_narration(narration) if narration else ""
+        preload_count = _count_scene01_start_narration(acq.pkg)
+
+        # ⑤ Trigger remaining paragraphs beyond what _bundle_from_session_and_step already started
+        # (It already does para 0 sync + rest async via _build_sample_runtime_tts,
+        #  so we just ensure the count cap is applied correctly)
+        print(
+            f"[PRELOAD] sid={sid[:6]} source={acq.source} "
+            f"view_fp={view_fp[:8]} preload_count={preload_count}",
+            flush=True,
+        )
+
+        # ⑥ Background ensure pool for next players
+        background_tasks.add_task(_pool.ensure_pool)
+
+        return PreloadResponse(
+            session_id=sid,
+            bundle=bundle,
+            events=events,
+            is_over=is_over,
+            view_fp=view_fp,
+            preload_count=preload_count,
+            story_source=acq.source,
+            story_id=acq.story_id,
+        )
+
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("[preload] error:", repr(e), flush=True)
+        print(tb, flush=True)
+        raise HTTPException(
+            status_code=500, detail=f"preload_error: {type(e).__name__} {repr(e)}"
+        )
+
 
 
 @router.post("/start", response_model=StepResponse)

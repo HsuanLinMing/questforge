@@ -152,7 +152,11 @@ class BridgeControllerV2 {
   bool get chooseLocked => chooseLockVN.value;
 
   /// ✅ 給 TTS controller 用：查目前 view 的 playlist readiness
-  Future<Map<String, dynamic>?> fetchTtsStatusCmd() => _api.fetchTtsStatusCmd();
+  Future<Map<String, dynamic>?> fetchTtsStatusCmd({
+    required String viewFp,
+    required int count,
+  }) =>
+      _api.fetchTtsStatusCmd(viewFp: viewFp, count: count);
 
   /// ✅ 給 TTS controller 用：polling 段落是否生成完成
   Future<TtsStatus> fetchTtsStatus(

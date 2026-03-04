@@ -143,6 +143,40 @@ class TtsStatus {
       );
 }
 
+/// Response from POST /v1/game/preload
+class PreloadResp {
+  final String sessionId;
+  final Map<String, dynamic> bundle;
+  final List<String> events;
+  final bool isOver;
+  final String viewFp;
+  final int preloadCount;
+  final String storySource;
+  final String? storyId;
+
+  PreloadResp({
+    required this.sessionId,
+    required this.bundle,
+    required this.events,
+    required this.isOver,
+    required this.viewFp,
+    required this.preloadCount,
+    required this.storySource,
+    this.storyId,
+  });
+
+  factory PreloadResp.fromJson(Map<String, dynamic> j) => PreloadResp(
+        sessionId: (j['session_id'] ?? '').toString(),
+        bundle: (j['bundle'] as Map?)?.cast<String, dynamic>() ?? {},
+        events: (j['events'] as List?)?.map((e) => e.toString()).toList() ?? [],
+        isOver: (j['is_over'] as bool?) ?? false,
+        viewFp: (j['view_fp'] ?? '').toString(),
+        preloadCount: (j['preload_count'] ?? 0) as int,
+        storySource: (j['story_source'] ?? 'sample').toString(),
+        storyId: j['story_id']?.toString(),
+      );
+}
+
 /// ----------------------------
 /// Errors
 /// ----------------------------
@@ -281,6 +315,20 @@ class FastApiBridge {
     return PoolStatus.fromJson(json);
   }
 
+  /// ✅ Splash 專用：預先選好故事、建 session、觸發 scene_01_start TTS 生成
+  /// 回傳 view_fp + preload_count，供 Splash 輪詢 /tts_status
+  Future<PreloadResp> preload() async {
+    final json = await _postJson(
+      '/v1/game/preload',
+      clearSidOnNotFound: false,
+    );
+    final resp = PreloadResp.fromJson(json);
+    if (resp.sessionId.isNotEmpty) {
+      await saveSessionId(resp.sessionId);
+    }
+    return resp;
+  }
+
   Future<TtsStatus> fetchTtsStatus(
       {required String viewFp, required int count}) async {
     final sid = await loadSessionId();
@@ -291,11 +339,16 @@ class FastApiBridge {
 
   /// ✅ 查詢目前 view 的 TTS playlist 進度（避免音檔還在生成時直接 skip）
   /// 回傳後端的 command（tts_playlist_v1）或 null。
-  Future<Map<String, dynamic>?> fetchTtsStatusCmd() async {
+  Future<Map<String, dynamic>?> fetchTtsStatusCmd({
+    required String viewFp,
+    required int count,
+  }) async {
     final sid = await loadSessionId();
     if (sid == null || sid.isEmpty) return null;
 
-    final json = await _getJson('/v1/game/tts_status?session_id=$sid');
+    final json = await _getJson(
+      '/v1/game/tts_status?view_fp=$viewFp&count=$count&session_id=$sid',
+    );
     final cmd = json['command'];
     if (cmd is Map<String, dynamic>) return cmd;
     if (cmd is Map) return cmd.cast<String, dynamic>();

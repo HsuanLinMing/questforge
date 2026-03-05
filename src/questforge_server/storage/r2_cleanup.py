@@ -24,27 +24,36 @@ def start_r2_cleanup_thread(blob_store: Any) -> None:
     ttl_hours_pool = float(os.getenv("QF_R2_POOL_TTS_TTL_HOURS", "336") or "336")  # default: 14 days
     interval_s = float(os.getenv("QF_R2_CLEANUP_INTERVAL_SECONDS", "3600") or "3600")
 
-    prefixes = [
-        ("runtime_sample/", ttl_hours_rt),
-        ("tts_runs/", ttl_hours_rt),
-        ("pool_tts/", ttl_hours_pool),
-    ]
+    raw_prefixes = os.getenv("QF_R2_CLEANUP_PREFIXES", "runtime_sample/,tts_runs/,pool_tts/")
+    max_delete = int(os.getenv("QF_R2_CLEANUP_MAX_DELETE_PER_RUN", "1000") or "1000")
+
+    prefixes = []
+    for p in raw_prefixes.split(","):
+        p = p.strip()
+        if not p:
+            continue
+        # Assign pool TTL only for pool-related prefixes, else use standard runtime TTS TTL
+        ttl = ttl_hours_pool if "pool" in p.lower() else ttl_hours_rt
+        prefixes.append((p, ttl))
 
     def _loop() -> None:
         while True:
             for prefix, ttl_h in prefixes:
                 try:
-                    _run_cleanup_once(blob_store, prefix, ttl_h)
+                    _run_cleanup_once(blob_store, prefix, ttl_h, max_delete)
                 except Exception as e:
                     print(f"[R2_CLEANUP] error on {prefix}: {e!r}", flush=True)
             time.sleep(interval_s)
 
     t = threading.Thread(target=_loop, name="r2-cleanup", daemon=True)
     t.start()
-    print(f"[R2_CLEANUP] thread started. interval={interval_s}s", flush=True)
+    
+    print(f"[R2_CLEANUP] thread started. interval={interval_s}s, max_delete={max_delete}", flush=True)
+    for p, ttl in prefixes:
+        print(f"  - prefix={p!r} ttl={ttl}h", flush=True)
 
 
-def _run_cleanup_once(blob_store: Any, prefix: str, ttl_hours: float) -> None:
+def _run_cleanup_once(blob_store: Any, prefix: str, ttl_hours: float, max_delete: int = 1000) -> None:
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=ttl_hours)
     
     continuation_token = None
@@ -81,9 +90,9 @@ def _run_cleanup_once(blob_store: Any, prefix: str, ttl_hours: float) -> None:
             break
             
         # Protect against taking forever or overwhelming R2
-        if deleted_count >= 1000:
-            print(f"[R2_CLEANUP] hit arbitrary limit of 1000 deletions for {prefix}", flush=True)
+        if deleted_count >= max_delete:
+            print(f"[R2_CLEANUP] hit arbitrary limit of {max_delete} deletions for {prefix}", flush=True)
             break
             
-    if scanned_count > 0:
-        print(f"[R2_CLEANUP] scanned={scanned_count} deleted={deleted_count} prefix={prefix}", flush=True)
+    if scanned_count > 0 or deleted_count > 0:
+        print(f"[R2_CLEANUP] prefix={prefix!r} ttl_hours={ttl_hours} scanned={scanned_count} deleted={deleted_count}", flush=True)

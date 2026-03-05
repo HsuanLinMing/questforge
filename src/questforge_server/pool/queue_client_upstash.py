@@ -46,7 +46,6 @@ class UpstashRedisRest:
     # -------------------------
 
     def _call_get(self, path: str) -> Any:
-        # ✅ Upstash REST: GET with bearer header, no body
         req = urllib.request.Request(
             url=f"{self._url}/{path.lstrip('/')}",
             method="GET",
@@ -57,7 +56,7 @@ class UpstashRedisRest:
             data = json.loads(raw)
             return data.get("result")
 
-    def _call_post_cmd(self, cmd: list[str]) -> Any:
+    def _call_post_cmd(self, cmd: list) -> Any:
         # ✅ Upstash REST: POST body is a JSON array, e.g. ["SET","k","v"]
         payload = json.dumps(cmd, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
@@ -79,7 +78,7 @@ class UpstashRedisRest:
         return urllib.parse.quote(s, safe="")
 
     # -------------------------
-    # List ops (GET)
+    # List ops
     # -------------------------
 
     def llen(self, key: str) -> int:
@@ -90,14 +89,31 @@ class UpstashRedisRest:
             return 0
 
     def lpush(self, key: str, value: str) -> int:
+        """Push to HEAD of list."""
         r = self._call_get(f"LPUSH/{self._q(key)}/{self._q(value)}")
         try:
             return int(r or 0)
         except Exception:
             return 0
 
+    def rpush(self, key: str, value: str) -> int:
+        """Push to TAIL of list (producer side of FIFO queue)."""
+        r = self._call_get(f"RPUSH/{self._q(key)}/{self._q(value)}")
+        try:
+            return int(r or 0)
+        except Exception:
+            return 0
+
     def rpop(self, key: str) -> Optional[str]:
+        """Pop from TAIL of list."""
         r = self._call_get(f"RPOP/{self._q(key)}")
+        if r is None:
+            return None
+        return str(r)
+
+    def lpop(self, key: str) -> Optional[str]:
+        """Pop from HEAD of list (consumer side of FIFO queue; RPUSH+LPOP = FIFO)."""
+        r = self._call_get(f"LPOP/{self._q(key)}")
         if r is None:
             return None
         return str(r)
@@ -110,13 +126,16 @@ class UpstashRedisRest:
         r = self._call_get(f"GET/{self._q(key)}")
         if r is None:
             return None
-        # Upstash returns raw string or JSON-encoded string depending on stored value
         return str(r)
 
     def set(self, key: str, value: str) -> bool:
-        # ✅ use POST to avoid URL length limits
+        """SET without TTL. Always use POST to avoid URL length limits."""
         r = self._call_post_cmd(["SET", key, value])
-        # Upstash returns "OK" on success
+        return str(r).upper() == "OK"
+
+    def setex(self, key: str, value: str, ex_seconds: int) -> bool:
+        """SET with EX TTL. Always POST for large values."""
+        r = self._call_post_cmd(["SET", key, value, "EX", str(ex_seconds)])
         return str(r).upper() == "OK"
 
     def delete(self, key: str) -> int:
@@ -125,3 +144,37 @@ class UpstashRedisRest:
             return int(r or 0)
         except Exception:
             return 0
+
+    def expire(self, key: str, seconds: int) -> int:
+        """Set TTL on existing key. Returns 1 on success, 0 if key doesn't exist."""
+        r = self._call_get(f"EXPIRE/{self._q(key)}/{seconds}")
+        try:
+            return int(r or 0)
+        except Exception:
+            return 0
+
+    # -------------------------
+    # Hash ops (used for TTS ready map: qf:tts_ready:<view_fp>)
+    # -------------------------
+
+    def hset(self, key: str, field: str, value: str) -> int:
+        """HSET key field value — always POST to handle large values."""
+        r = self._call_post_cmd(["HSET", key, field, value])
+        try:
+            return int(r or 0)
+        except Exception:
+            return 0
+
+    def hget(self, key: str, field: str) -> Optional[str]:
+        r = self._call_get(f"HGET/{self._q(key)}/{self._q(field)}")
+        if r is None:
+            return None
+        return str(r)
+
+    def hgetall(self, key: str) -> dict:
+        """HGETALL — returns {field: value, ...}. Upstash returns flat list."""
+        r = self._call_get(f"HGETALL/{self._q(key)}")
+        if not isinstance(r, list):
+            return {}
+        it = iter(r)
+        return {k: v for k, v in zip(it, it)}

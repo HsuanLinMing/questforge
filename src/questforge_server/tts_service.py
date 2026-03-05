@@ -7,7 +7,11 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from questforge_server.storage.blob_store import BlobStore
+    from questforge_server.pool.queue_client_upstash import UpstashRedisRest
 
 from openai import OpenAI
 
@@ -26,11 +30,12 @@ print("[TTS_KEY]", _key_fingerprint(os.getenv("OPENAI_API_KEY", "")), flush=True
 # ----------------------------
 # models
 # ----------------------------
-@dataclass(frozen=True)
+@dataclass
 class TtsResult:
     filename: str
     file_path: Path
     cache_hit: bool = False
+    public_url: str = ""  # ✅ R2 public URL if uploaded; empty if local-only
 
 
 @dataclass(frozen=True)
@@ -143,6 +148,13 @@ def synthesize_to_wav(
     out_name: Optional[str] = None,
     # ✅ 新增：共享 cache 目錄（用 fp.wav 當 key）
     cache_dir: Optional[Path] = None,
+    # ✅ Day B: 上傳到 R2 + 記錄 ready hash
+    blob_store: Optional["BlobStore"] = None,
+    blob_key: Optional[str] = None,             # R2 object key, e.g. tts_runs/view_fp/000.wav
+    tts_redis: Optional["UpstashRedisRest"] = None,
+    tts_ready_hash_key: Optional[str] = None,  # Redis hash key, e.g. qf:tts_ready:<view_fp>
+    tts_ready_field: Optional[str] = None,     # field = str(index), e.g. "0"
+    tts_ready_hash_ttl: int = 7200,            # seconds
 ) -> Optional[TtsResult]:
     """
     ✅ 你原本的「成功率高」方式保留，但新增兩個能力：
@@ -243,7 +255,20 @@ def synthesize_to_wav(
             )
             return None
 
-        return TtsResult(filename=final_name, file_path=file_path, cache_hit=False)
+        result = TtsResult(filename=final_name, file_path=file_path, cache_hit=False)
+
+        # ✅ Day B: upload to R2 & record in Redis ready hash
+        _maybe_upload_to_blob(
+            result=result,
+            blob_store=blob_store,
+            blob_key=blob_key,
+            tts_redis=tts_redis,
+            tts_ready_hash_key=tts_ready_hash_key,
+            tts_ready_field=tts_ready_field,
+            tts_ready_hash_ttl=tts_ready_hash_ttl,
+        )
+
+        return result
 
     except Exception as e:
         print(
@@ -259,4 +284,49 @@ def synthesize_to_wav(
             },
             flush=True,
         )
+        return None
+
+
+# ----------------------------
+# Day B helper: R2 upload + Redis ready hash
+# ----------------------------
+
+def _maybe_upload_to_blob(
+    *,
+    result: TtsResult,
+    blob_store: Optional[Any],
+    blob_key: Optional[str],
+    tts_redis: Optional[Any],
+    tts_ready_hash_key: Optional[str],
+    tts_ready_field: Optional[str],
+    tts_ready_hash_ttl: int = 7200,
+) -> Optional[str]:
+    """
+    If blob_store is configured, upload WAV and record the public URL in Redis.
+    Returns the public URL, or None if not configured / failed.
+    """
+    if blob_store is None or not blob_key:
+        return None
+
+    try:
+        wav_bytes = result.file_path.read_bytes()
+        public_url = blob_store.put_bytes(blob_key, wav_bytes, "audio/wav")
+
+        if public_url and tts_redis and tts_ready_hash_key and tts_ready_field is not None:
+            tts_redis.hset(tts_ready_hash_key, tts_ready_field, public_url)
+            tts_redis.expire(tts_ready_hash_key, tts_ready_hash_ttl)
+
+        # ✅ Store the R2 URL on the result for callers
+        if public_url:
+            result.public_url = public_url
+
+        print(
+            "[tts_service] blob upload ok",
+            {"key": blob_key, "url": public_url[:60] if public_url else ""},
+            flush=True,
+        )
+        return public_url
+
+    except Exception as e:
+        print(f"[tts_service] blob upload failed key={blob_key!r} err={e!r}", flush=True)
         return None

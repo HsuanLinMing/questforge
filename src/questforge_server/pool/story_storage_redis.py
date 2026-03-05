@@ -37,7 +37,8 @@ class RedisStoryStorage:
         # Compatibility polyfill for _prewarm_tts_for_story / worker dedupe
         return Path("/dev/null/not_used")
 
-    def put_story_pkg(self, story_id: str, pkg: StoryNodesPackage) -> None:
+    def put_story_pkg(self, story_id: str, pkg: StoryNodesPackage, ttl_seconds: int = 604800) -> None:
+        """Store story JSON in Redis with TTL (default 7 days)."""
         if hasattr(pkg, "model_dump"):
             data = pkg.model_dump()
         elif hasattr(pkg, "dict"):
@@ -46,7 +47,7 @@ class RedisStoryStorage:
             data = pkg.to_dict()
         else:
             data = json.loads(json.dumps(pkg, default=lambda o: getattr(o, "__dict__", str(o))))
-        self._redis.set(self._key(story_id), json.dumps(data, ensure_ascii=False))
+        self._redis.setex(self._key(story_id), json.dumps(data, ensure_ascii=False), ex_seconds=ttl_seconds)
 
     def get_story_pkg(self, story_id: str) -> StoryNodesPackage:
         s = self._redis.get(self._key(story_id))

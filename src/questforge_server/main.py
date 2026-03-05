@@ -164,6 +164,57 @@ def create_app() -> FastAPI:
         except Exception as e:
             print(f"[BOOT] Worker thread failed: {e!r}", flush=True)
 
+        # ✅ Start periodic local-disk cleanup thread (R2 is long-term; local is ephemeral cache)
+        try:
+            import time as _time
+            import threading as _threading
+            import shutil as _sh
+
+            _tts_ttl_h = float(os.getenv("QF_LOCAL_TTS_TTL_HOURS", "6") or "6")
+            _pool_tts_ttl_h = float(os.getenv("QF_LOCAL_POOL_TTS_TTL_HOURS", "168") or "168")
+            _cleanup_interval_s = float(os.getenv("QF_CLEANUP_INTERVAL_SECONDS", "1800") or "1800")
+
+            _cleanup_dirs = [
+                (runtime_sample_dir, _tts_ttl_h),
+                (runs_dir, _tts_ttl_h),
+                (Path(".qf_cache/pool_ai/tts").resolve(), _pool_tts_ttl_h),
+            ]
+
+            def _prune_once(base: Path, max_age_hours: float) -> int:
+                if not base.exists():
+                    return 0
+                cutoff = _time.time() - max_age_hours * 3600
+                removed = 0
+                for child in base.iterdir():
+                    try:
+                        if child.stat().st_mtime < cutoff:
+                            if child.is_dir():
+                                _sh.rmtree(str(child), ignore_errors=True)
+                            else:
+                                child.unlink(missing_ok=True)
+                            removed += 1
+                    except Exception:
+                        pass
+                return removed
+
+            def _cleanup_loop() -> None:
+                # Run once at startup, then every interval
+                while True:
+                    for base, ttl_h in _cleanup_dirs:
+                        try:
+                            n = _prune_once(base, ttl_h)
+                            if n:
+                                print(f"[CLEANUP] removed {n} old entries from {base}", flush=True)
+                        except Exception as ex:
+                            print(f"[CLEANUP] error {base}: {ex!r}", flush=True)
+                    _time.sleep(_cleanup_interval_s)
+
+            t = _threading.Thread(target=_cleanup_loop, name="qf-cache-cleanup", daemon=True)
+            t.start()
+            print(f"[BOOT] cache cleanup thread started interval={_cleanup_interval_s}s", flush=True)
+        except Exception as e:
+            print(f"[BOOT] cache cleanup start error: {e!r}", flush=True)
+
 
     # routers
     app.include_router(game_router)

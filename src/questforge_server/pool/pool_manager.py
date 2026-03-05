@@ -37,7 +37,7 @@ class StoryPoolManager:
 
         self._redis = UpstashRedisRest.from_env()
         self._jobs_key = "qf:jobs"
-        self._ready_key = "qf:ready_ai"
+        self._ready_key = "qf:ai_ready_queue"  # FIFO: producer RPUSH, consumer LPOP
 
         import os
         use_redis = os.getenv("QF_POOL_STORAGE", "redis").lower() == "redis"
@@ -109,19 +109,27 @@ class StoryPoolManager:
     def _try_acquire_ai_ready(
         self,
     ) -> Optional[Tuple[str, StoryNodesPackage]]:
-        # ✅ loop: skip broken ids instead of falling back immediately
-        while True:
-            story_id = self._redis.rpop(self._ready_key)
+        # ✅ FIFO: LPOP from head of queue – each story consumed by exactly ONE session
+        max_tries = 5
+        for _ in range(max_tries):
+            story_id = self._redis.lpop(self._ready_key)
             if not story_id:
                 return None
 
             try:
                 pkg = self._storage.get_story_pkg(story_id)
+                # ✅ Consumed: delete from storage immediately (LPOP already removed it from queue)
+                try:
+                    self._storage.delete_story(story_id)
+                except Exception:
+                    pass
+                self._log("acquire_ai_ok", story_id=story_id[:12])
                 return story_id, pkg
             except Exception as e:
-                # file missing / corrupted -> drop & try next
+                # missing / corrupted → drop and try next
                 self._drop_broken_story(str(story_id), reason=repr(e))
                 continue
+        return None
 
     def _drop_broken_story(self, story_id: str, reason: str = "") -> None:
         self._log("drop_broken_ai_story", story_id=story_id[:12], reason=reason[:80])

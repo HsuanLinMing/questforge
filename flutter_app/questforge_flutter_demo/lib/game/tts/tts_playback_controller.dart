@@ -230,6 +230,8 @@ class TtsPlaybackController {
     _stateSub?.cancel();
     _stateSub = _player.playerStateStream.listen((st) {
       if (_tokenSession != _playSession) return;
+      // ⚠️ Skip events fired by our intentional stop() call (to avoid spurious advance)
+      if (_suppressCompletedEvent) return;
       if (st.processingState == ProcessingState.completed) {
         _triggerAdvance('audio_completed');
       }
@@ -521,6 +523,8 @@ class TtsPlaybackController {
   StreamSubscription<PlayerState>? _stateSub;
 
   bool _inited = false;
+  bool _suppressCompletedEvent =
+      false; // ✅ blocks stream during intentional stop
 
   List<StoryParagraph> _playParagraphs = const <StoryParagraph>[];
   String _playViewFp = '';
@@ -749,7 +753,15 @@ class TtsPlaybackController {
         if (stopBeforePlay && retryCount == 0) {
           _fallbackTimer?.cancel();
           _fallbackTimer = null;
-          await _player.stop();
+          // ✅ Suppress stream events fired by stop() to prevent spurious advance
+          _suppressCompletedEvent = true;
+          try {
+            await _player.stop();
+          } finally {
+            _suppressCompletedEvent = false;
+          }
+          // ✅ Reset handled token in case a completed event slipped through
+          _handledToken = -1;
         }
 
         final pending = _pendingActiveParagraphIndex;

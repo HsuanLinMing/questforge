@@ -23,9 +23,32 @@ from questforge_server.tts_service import synthesize_to_wav
 from questforge.ai.tts.voice_map import voice_for_role
 from questforge_server.pool.pool_config import PoolConfig
 from questforge_server.pool.pool_manager import StoryPoolManager
+from questforge_server.storage.blob_store_r2 import BlobStoreR2
+from questforge_server.pool.queue_client_upstash import UpstashRedisRest
 
 _pool = StoryPoolManager(PoolConfig())
 router = APIRouter(prefix="/v1/game", tags=["game"])
+
+# ✅ R2 blob store (no-op if env vars missing)
+_BLOB = BlobStoreR2.from_env()
+
+# ✅ Redis for TTS ready hash (reuse same Redis as pool)
+try:
+    _TTS_REDIS: Optional[UpstashRedisRest] = UpstashRedisRest.from_env()
+except Exception:
+    _TTS_REDIS = None
+
+_TTS_READY_TTL = 7 * 24 * 3600  # 7 days
+
+# ✅ R2 public base URL (empty string if not configured = use local /static/...)
+_R2_PUBLIC_BASE = (os.getenv("QF_R2_PUBLIC_BASE_URL") or "").rstrip("/")
+
+
+def _r2_url(blob_key: str) -> str:
+    """Return R2 public URL if configured, else empty string (caller uses local fallback)."""
+    if _R2_PUBLIC_BASE:
+        return f"{_R2_PUBLIC_BASE}/{blob_key}"
+    return ""
 
 # ✅ dev-only in-memory store
 store = SessionStore()
@@ -349,6 +372,13 @@ def _build_ai_playlist(
     base = str(request.base_url).rstrip("/")
     items: List[Dict[str, Any]] = []
 
+    # ✅ Read Redis ready hash once (worker writes here after each R2 upload)
+    redis_ready: dict = {}
+    try:
+        redis_ready = _pool._redis.hgetall(f"qf:tts_ready:{view_fp}")
+    except Exception:
+        pass
+
     for it in items_raw:
         if not isinstance(it, dict):
             continue
@@ -358,7 +388,13 @@ def _build_ai_playlist(
         if not file:
             continue
 
-        url = f"{base}/static/pool_tts/{story_id}/{view_fp}/{file}"
+        # ✅ Prefer R2 public URL when configured (cross-restart playback)
+        r2 = _r2_url(f"pool_tts/{view_fp}/{file}")
+        url = r2 if r2 else f"{base}/static/pool_tts/{story_id}/{view_fp}/{file}"
+
+        # ✅ ready: check Redis hash first (R2 uploaded), fallback to local file
+        idx_str = str(int(idx) if isinstance(idx, int) else 0)
+        ready = bool(redis_ready.get(idx_str)) or (dirp / file).exists()
 
         items.append(
             {
@@ -371,6 +407,7 @@ def _build_ai_playlist(
                 "speed": float(it.get("speed") or 1.0),
                 "story_id": story_id,
                 "ui_view_fp": str(manifest.get("ui_view_fp") or ""),
+                "ready": ready,
             }
         )
 
@@ -468,6 +505,12 @@ def _build_sample_runtime_tts(
             voice=profile.voice,
             instructions=profile.instructions,
             speed=speed,
+            blob_store=_BLOB,
+            blob_key=f"runtime_sample/{ui_view_fp}/{i:03d}.wav",
+            tts_redis=_TTS_REDIS,
+            tts_ready_hash_key=f"qf:tts_ready:{ui_view_fp}",
+            tts_ready_field=str(i),
+            tts_ready_hash_ttl=_TTS_READY_TTL,
         )
         if not r:
             return
@@ -497,7 +540,9 @@ def _build_sample_runtime_tts(
             background_tasks.add_task(_synth_para, i, para)
 
         filename = _out_name(i)
-        url = f"{base}/static/runtime_sample/{ui_view_fp}/{filename}"
+        # ✅ Prefer R2 public URL when R2 is configured (cross-restart playback)
+        r2 = _r2_url(f"runtime_sample/{ui_view_fp}/{filename}")
+        url = r2 if r2 else f"{base}/static/runtime_sample/{ui_view_fp}/{filename}"
 
         # ✅ ready: 讓前端知道目前檔案是否已存在（可用來等待，不要直接 skip）
         ready = (out_dir / filename).exists()
@@ -579,14 +624,23 @@ class TtsStatusResp(BaseModel):
 
 @router.get("/tts_status", response_model=TtsStatusResp)
 def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optional[str] = None):
-    # This checks in both potential locations (AI pools and runs) and returns status
     base = str(request.base_url).rstrip("/")
     cache_root = Path(os.getenv("QF_CACHE_DIR") or "/tmp/qf_cache").resolve()
 
-    # Check runtime_sample location first
+    # ======================================================
+    # 1) Try Redis hash first (Day B: R2 URLs tracked here)
+    # ======================================================
+    redis_ready: dict = {}
+    try:
+        redis_ready = _pool._redis.hgetall(f"qf:tts_ready:{view_fp}")
+    except Exception:
+        pass
+
+    # ======================================================
+    # 2) Local disk fallback paths
+    # ======================================================
     out_dir_sample = (cache_root / "runtime_sample" / view_fp).resolve()
 
-    # If session_id is provided, check tts_runs too
     out_dir_runs: Optional[Path] = None
     run_id = ""
     if session_id:
@@ -600,14 +654,22 @@ def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optio
     for i in range(count):
         filename = f"{i:03d}.wav"
         found = False
-        url = f"{base}/static/runtime_sample/{view_fp}/{filename}"  # default
+        url = f"{base}/static/runtime_sample/{view_fp}/{filename}"  # default placeholder
 
-        # Check sample dir
-        if out_dir_sample.exists() and (out_dir_sample / filename).exists():
+        # Priority 1: Redis hash (R2 public URL)
+        r2_url = redis_ready.get(str(i))
+        if r2_url:
+            url = r2_url
+            ready_paths.append(url)
+            found = True
+
+        # Priority 2: local runtime_sample
+        elif out_dir_sample.exists() and (out_dir_sample / filename).exists():
             url = f"{base}/static/runtime_sample/{view_fp}/{filename}"
             ready_paths.append(url)
             found = True
-        # Check runs dir
+
+        # Priority 3: local tts_runs (session-specific)
         elif out_dir_runs and out_dir_runs.exists() and (out_dir_runs / filename).exists():
             url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}"
             ready_paths.append(url)
@@ -615,15 +677,6 @@ def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optio
 
         if not found:
             missing.append(i)
-
-    # Debug: log for first poll only (when no files ready yet)
-    if not ready_paths:
-        print(
-            f"[TTS_STATUS] view_fp={view_fp[:8]} count={count} "
-            f"sample_dir={out_dir_sample} sample_exists={out_dir_sample.exists()} "
-            f"runs_dir={out_dir_runs}",
-            flush=True,
-        )
 
         items.append({
             "index": i,
@@ -635,6 +688,16 @@ def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optio
             "speed": 1.0,
             "ready": found,
         })
+
+    # Debug log when nothing ready
+    if not ready_paths:
+        print(
+            f"[TTS_STATUS] view_fp={view_fp[:8]} count={count} "
+            f"redis_keys={len(redis_ready)} "
+            f"sample_exists={out_dir_sample.exists()} "
+            f"sample_dir={out_dir_sample}",
+            flush=True,
+        )
 
     cmd: Dict[str, Any] = {
         "type": "tts_playlist_v1",
@@ -654,6 +717,7 @@ def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optio
         missing=missing,
         command=cmd,
     )
+
 def _bundle_from_session_and_step(
     *,
     request: Request,
@@ -767,6 +831,12 @@ def _bundle_from_session_and_step(
                 voice=profile.voice,
                 instructions=profile.instructions,
                 speed=speed,
+                blob_store=_BLOB,
+                blob_key=f"tts_runs/{session_id}/{run_id}/{view_fp}/{i:03d}.wav",
+                tts_redis=_TTS_REDIS,
+                tts_ready_hash_key=f"qf:tts_ready:{view_fp}",
+                tts_ready_field=str(i),
+                tts_ready_hash_ttl=_TTS_READY_TTL,
             )
             if not r:
                 return
@@ -787,7 +857,9 @@ def _bundle_from_session_and_step(
                 bg_tasks.add_task(_synth_para, i, p)
 
             filename = _out_name(i)
-            url = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}"
+            # ✅ Prefer R2 public URL when R2 is configured (cross-restart playback)
+            r2 = _r2_url(f"tts_runs/{session_id}/{run_id}/{view_fp}/{filename}")
+            url = r2 if r2 else f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}"
             ready = (out_dir / filename).exists()
 
             items.append(
@@ -1248,6 +1320,12 @@ def _trigger_scene01_tts(
                 voice=profile.voice,
                 instructions=profile.instructions,
                 speed=speed,
+                blob_store=_BLOB,
+                blob_key=f"runtime_sample/{view_fp}/{i:03d}.wav",
+                tts_redis=_TTS_REDIS,
+                tts_ready_hash_key=f"qf:tts_ready:{view_fp}",
+                tts_ready_field=str(i),
+                tts_ready_hash_ttl=_TTS_READY_TTL,
             )
         except Exception as e:
             print(f"[PRELOAD_TTS] synth err i={i} err={e!r}", flush=True)

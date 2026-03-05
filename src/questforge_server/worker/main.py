@@ -30,6 +30,15 @@ from questforge_server.tts_service import (
     TtsManifestItem,
 )
 from questforge.ai.tts.voice_map import voice_for_role
+from questforge_server.storage.blob_store_r2 import BlobStoreR2
+
+# ✅ Module-level singletons (initialised once per worker process)
+_BLOB = BlobStoreR2.from_env()
+try:
+    _TTS_REDIS: Optional[UpstashRedisRest] = UpstashRedisRest.from_env()
+except Exception:
+    _TTS_REDIS = None
+_TTS_READY_TTL = 7 * 24 * 3600  # 7 days
 
 
 # ----------------------------
@@ -257,6 +266,12 @@ def _prewarm_tts_for_story(*, storage: Any, story_id: str, pkg: Any) -> int:
                 instructions=profile.instructions,
                 speed=speed,
                 out_name=out_name,
+                blob_store=_BLOB,
+                blob_key=f"pool_tts/{view_fp}/{idx:03d}.wav",
+                tts_redis=_TTS_REDIS,
+                tts_ready_hash_key=f"qf:tts_ready:{view_fp}",
+                tts_ready_field=str(idx),
+                tts_ready_hash_ttl=_TTS_READY_TTL,
             )
 
             if r is not None:
@@ -296,7 +311,7 @@ def main() -> None:
 
     redis = UpstashRedisRest.from_env()
     jobs_key = "qf:jobs"
-    ready_key = "qf:ready_ai"
+    ready_key = "qf:ai_ready_queue"  # FIFO: worker RPUSH, pool_manager LPOP
     dead_key = "qf:dead"
 
     use_redis = os.getenv("QF_POOL_STORAGE", "redis").lower() == "redis"
@@ -351,7 +366,7 @@ def main() -> None:
             
             if story_exists:
                 print(f"[WORKER] story exists, publish ready story_id={sid8}", flush=True)
-                redis.lpush(ready_key, story_id)
+                redis.rpush(ready_key, story_id)  # FIFO: RPUSH tail
                 continue
 
             # 1) generate
@@ -370,8 +385,8 @@ def main() -> None:
             else:
                 print(f"[WORKER] tts disabled story_id={sid8}", flush=True)
 
-            # 5) publish ready
-            redis.lpush(ready_key, story_id)
+            # 5) publish ready (RPUSH for FIFO: oldest ready served first)
+            redis.rpush(ready_key, story_id)
             print(f"[WORKER] ready ok story_id={sid8}", flush=True)
 
         except Exception as e:

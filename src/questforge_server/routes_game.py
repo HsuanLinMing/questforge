@@ -489,11 +489,12 @@ def _build_sample_runtime_tts(
     def _out_name(i: int) -> str:
         return f"{i:03d}.wav"
 
-    def _synth_para(i: int, p: str) -> None:
+    def _synth_para(i: int, p: str) -> str:
+        """Synthesize paragraph i; returns public_url (R2) or empty string."""
         role, text = _parse_paragraph(p)
         spoken_text = (text or "").strip()
         if not spoken_text:
-            return
+            return ""
 
         profile = voice_for_role(role)
         speed = _voice_speed_for_role(role)
@@ -513,16 +514,20 @@ def _build_sample_runtime_tts(
             tts_ready_hash_ttl=_TTS_READY_TTL,
         )
         if not r:
-            return
+            return ""
 
         try:
             print(
                 "[RUNTIME_SAMPLE_TTS] wrote",
-                {"file": str(r.file_path), "size": r.file_path.stat().st_size},
+                {"file": str(r.file_path), "size": r.file_path.stat().st_size,
+                 "r2": bool(r.public_url)},
                 flush=True,
             )
         except Exception:
             pass
+        return r.public_url or ""
+
+    local_base = f"{base}/static/runtime_sample/{ui_view_fp}"
 
     for i, para in enumerate(paras):
         role, text = _parse_paragraph(para)
@@ -533,19 +538,27 @@ def _build_sample_runtime_tts(
         profile = voice_for_role(role)
         speed = _voice_speed_for_role(role)
 
-        # 🚀 同步只做前 sync_limit 段；其餘段落放背景
-        if i < sync_limit or background_tasks is None:
-            _synth_para(i, para)
-        else:
-            background_tasks.add_task(_synth_para, i, para)
-
         filename = _out_name(i)
-        # ✅ Prefer R2 public URL when R2 is configured (cross-restart playback)
-        r2 = _r2_url(f"runtime_sample/{ui_view_fp}/{filename}")
-        url = r2 if r2 else f"{base}/static/runtime_sample/{ui_view_fp}/{filename}"
+        is_sync = i < sync_limit or background_tasks is None
 
-        # ✅ ready: 讓前端知道目前檔案是否已存在（可用來等待，不要直接 skip）
-        ready = (out_dir / filename).exists()
+        if is_sync:
+            # ✅ Sync: run now, use actual R2 URL if upload succeeded
+            public_url = _synth_para(i, para)
+            if public_url:
+                url = public_url
+                ready = True
+            else:
+                # upload failed or no R2 configured → local URL
+                url = f"{local_base}/{filename}"
+                ready = (out_dir / filename).exists()
+        else:
+            # ✅ Async: runs later; return R2 key pattern if R2 configured,
+            # otherwise local URL. ready=False; Flutter polls tts_status.
+            background_tasks.add_task(_synth_para, i, para)
+            r2 = _r2_url(f"runtime_sample/{ui_view_fp}/{filename}")
+            url = r2 if r2 else f"{local_base}/{filename}"
+            ready = False
+
         items.append(
             {
                 "index": i,
@@ -555,10 +568,10 @@ def _build_sample_runtime_tts(
                 "role": role,
                 "voice": profile.voice,
                 "speed": speed,
-                "ready": bool(ready),
+                "ready": ready,
             }
         )
-        
+
     if not items:
         return None
 
@@ -815,11 +828,12 @@ def _bundle_from_session_and_step(
         def _out_name(i: int) -> str:
             return f"{i:03d}.wav"
 
-        def _synth_para(i: int, p: str) -> None:
+        def _synth_para(i: int, p: str) -> str:
+            """Synthesize and return public_url or empty string."""
             role, text = _parse_paragraph(p)
             spoken_text = (text or "").strip()
             if not spoken_text:
-                return
+                return ""
 
             profile = voice_for_role(role)
             speed = _voice_speed_for_role(role)
@@ -838,8 +852,9 @@ def _bundle_from_session_and_step(
                 tts_ready_field=str(i),
                 tts_ready_hash_ttl=_TTS_READY_TTL,
             )
-            if not r:
-                return
+            return (r.public_url or "") if r else ""
+
+        local_base_runs = f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}"
 
         for i, p in enumerate(raw_paras):
             role, text = _parse_paragraph(p)
@@ -850,28 +865,33 @@ def _bundle_from_session_and_step(
             profile = voice_for_role(role)
             speed = _voice_speed_for_role(role)
 
-            # 🚀 同步只做前 sync_limit 段；其餘段落放背景
-            if i < sync_limit or bg_tasks is None:
-                _synth_para(i, p)
+            filename = _out_name(i)
+            is_sync = i < sync_limit or bg_tasks is None
+
+            if is_sync:
+                public_url = _synth_para(i, p)
+                if public_url:
+                    url = public_url
+                    ready = True
+                else:
+                    url = f"{local_base_runs}/{filename}"
+                    ready = (out_dir / filename).exists()
             else:
                 bg_tasks.add_task(_synth_para, i, p)
-
-            filename = _out_name(i)
-            # ✅ Prefer R2 public URL when R2 is configured (cross-restart playback)
-            r2 = _r2_url(f"tts_runs/{session_id}/{run_id}/{view_fp}/{filename}")
-            url = r2 if r2 else f"{base}/static/tts_runs/{session_id}/{run_id}/{view_fp}/{filename}"
-            ready = (out_dir / filename).exists()
+                r2 = _r2_url(f"tts_runs/{session_id}/{run_id}/{view_fp}/{filename}")
+                url = r2 if r2 else f"{local_base_runs}/{filename}"
+                ready = False
 
             items.append(
                 {
                     "index": i,
-                    "text": spoken_text,  # debug
-                    "role": role,  # debug
-                    "voice": profile.voice,  # debug
-                    "speed": speed,  # debug
+                    "text": spoken_text,
+                    "role": role,
+                    "voice": profile.voice,
+                    "speed": speed,
                     "format": "wav",
                     "path": url,
-                    "ready": bool(ready),
+                    "ready": ready,
                 }
             )
 

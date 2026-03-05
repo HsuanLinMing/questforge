@@ -42,7 +42,10 @@ def _env_snapshot() -> dict:
         "QF_POOL_DIR",
         "QF_AI_FALLBACK_TO_STATIC",
         "QF_UPSTASH_REDIS_REST_URL",
-        "QF_WORKER_ENABLED",  # ✅ NEW
+        "QF_WORKER_ENABLED",
+        "QF_R2_ENDPOINT_URL",
+        "QF_R2_BUCKET_NAME",
+        "QF_R2_PUBLIC_BASE_URL",
     ]
     snap = {k: (os.getenv(k) or "") for k in keys}
 
@@ -50,6 +53,10 @@ def _env_snapshot() -> dict:
         snap["QF_UPSTASH_REDIS_REST_TOKEN"] = "***set***"
     else:
         snap["QF_UPSTASH_REDIS_REST_TOKEN"] = ""
+
+    # R2 credentials: show presence only
+    for k in ("QF_R2_ACCESS_KEY_ID", "QF_R2_SECRET_ACCESS_KEY"):
+        snap[k] = "***set***" if os.getenv(k) else "❌ MISSING"
 
     return snap
 

@@ -914,6 +914,8 @@ def _bundle_from_session_and_step(
         view_obj = session.get_view()
         view_json = _to_json_dict(view_obj)
         view_json = _inject_story_meta(view_json)
+        if view_json is not None:
+            view_json["fp"] = _view_fp_for_narration((view_json.get("narration") or "").strip())
 
         tts_cmd = _make_tts_cmd_from_view_json(view_json, background_tasks)
         commands_out = [tts_cmd] if tts_cmd else []
@@ -939,6 +941,8 @@ def _bundle_from_session_and_step(
 
     view_json: Optional[Dict[str, Any]] = _to_json_dict(step.view)
     view_json = _inject_story_meta(view_json)
+    if view_json is not None:
+        view_json["fp"] = _view_fp_for_narration((view_json.get("narration") or "").strip())
 
     ask = None
     quiz = None

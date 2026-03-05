@@ -157,6 +157,16 @@ class BlobStoreR2(BlobStore):
 
     def put_bytes(self, key: str, data: bytes, content_type: str = "audio/wav") -> str:
         url = self._object_url(key)
+        
+        # ✅ Add Cache-Control for edge caching
+        # Max-age defaults to 1 year, immutable for view_fp hashes
+        cache_control = os.getenv("QF_R2_CACHE_CONTROL", "public, max-age=31536000, immutable")
+        
+        extra_headers = {
+            "content-type": content_type,
+            "cache-control": cache_control,
+        }
+        
         signed = _sign_v4(
             method="PUT",
             url=url,
@@ -165,7 +175,7 @@ class BlobStoreR2(BlobStore):
             access_key=self._access_key,
             secret_key=self._secret_key,
             payload=data,
-            extra_headers={"content-type": content_type},
+            extra_headers=extra_headers,
         )
         req = urllib.request.Request(
             url=url,
@@ -176,6 +186,7 @@ class BlobStoreR2(BlobStore):
                 "x-amz-date": signed["x-amz-date"],
                 "x-amz-content-sha256": signed["x-amz-content-sha256"],
                 "Content-Type": content_type,
+                "Cache-Control": cache_control,
                 "Content-Length": str(len(data)),
             },
         )
@@ -218,3 +229,115 @@ class BlobStoreR2(BlobStore):
             return False
         except Exception:
             return False
+
+    def delete_object(self, key: str) -> bool:
+        """Deletes an object. Returns True if successfully deleted (or if it didn't exist)."""
+        url = self._object_url(key)
+        signed = _sign_v4(
+            method="DELETE",
+            url=url,
+            region=self._region,
+            service="s3",
+            access_key=self._access_key,
+            secret_key=self._secret_key,
+            payload=b"",
+        )
+        req = urllib.request.Request(
+            url=url,
+            method="DELETE",
+            headers={
+                "Authorization": signed["Authorization"],
+                "x-amz-date": signed["x-amz-date"],
+                "x-amz-content-sha256": signed["x-amz-content-sha256"],
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp.status in (200, 204)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return True
+            print(f"[BlobStoreR2] Delete HTTPError {e.code}: {e.read().decode('utf-8', errors='replace')[:100]}", flush=True)
+            return False
+        except Exception as ex:
+            print(f"[BlobStoreR2] Delete error: {ex!r}", flush=True)
+            return False
+
+    def list_objects_v2(self, prefix: str = "", continuation_token: Optional[str] = None, max_keys: int = 1000) -> dict:
+        """
+        Implementation of S3 ListObjectsV2.
+        Returns a dict: {"Contents": [{"Key": str, "LastModified": str, ...}], "NextContinuationToken": str, "IsTruncated": bool}
+        """
+        import urllib.parse
+        import xml.etree.ElementTree as ET
+
+        base_url = f"{self._endpoint}/{self._bucket}"
+        query_params = {
+            "list-type": "2",
+            "max-keys": str(max_keys)
+        }
+        if prefix:
+            query_params["prefix"] = prefix
+        if continuation_token:
+            query_params["continuation-token"] = continuation_token
+
+        qs = urllib.parse.urlencode(query_params)
+        url = f"{base_url}?{qs}"
+
+        signed = _sign_v4(
+            method="GET",
+            url=url,
+            region=self._region,
+            service="s3",
+            access_key=self._access_key,
+            secret_key=self._secret_key,
+            payload=b"",
+        )
+
+        req = urllib.request.Request(
+            url=url,
+            method="GET",
+            headers={
+                "Authorization": signed["Authorization"],
+                "x-amz-date": signed["x-amz-date"],
+                "x-amz-content-sha256": signed["x-amz-content-sha256"],
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                xml_data = resp.read()
+
+            root = ET.fromstring(xml_data)
+            ns = {"s3": "http://s3.amazonaws.com/doc/2006-03-01/"}
+            
+            result = {
+                "Contents": [],
+                "IsTruncated": False,
+                "NextContinuationToken": None
+            }
+
+            is_truncated_elem = root.find("s3:IsTruncated", ns)
+            if is_truncated_elem is not None and is_truncated_elem.text == "true":
+                result["IsTruncated"] = True
+
+            next_token_elem = root.find("s3:NextContinuationToken", ns)
+            if next_token_elem is not None:
+                result["NextContinuationToken"] = next_token_elem.text
+
+            contents = root.findall("s3:Contents", ns)
+            for c in contents:
+                k = c.find("s3:Key", ns)
+                lm = c.find("s3:LastModified", ns)
+                if k is not None and lm is not None:
+                    result["Contents"].append({
+                        "Key": k.text,
+                        "LastModified": lm.text,
+                    })
+
+            return result
+
+        except Exception as e:
+            print(f"[BlobStoreR2] list_objects error: {e!r}", flush=True)
+            return {"Contents": [], "IsTruncated": False, "NextContinuationToken": None}
+

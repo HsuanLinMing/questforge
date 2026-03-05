@@ -222,6 +222,14 @@ def create_app() -> FastAPI:
         except Exception as e:
             print(f"[BOOT] cache cleanup start error: {e!r}", flush=True)
 
+        # ✅ Start R2 cleanup thread if enabled
+        try:
+            # We import here to avoid circular dependencies
+            from questforge_server.routes_game import _BLOB
+            from questforge_server.storage.r2_cleanup import start_r2_cleanup_thread
+            start_r2_cleanup_thread(_BLOB)
+        except Exception as e:
+            print(f"[BOOT] R2 cleanup start error: {e!r}", flush=True)
 
     # routers
     app.include_router(game_router)

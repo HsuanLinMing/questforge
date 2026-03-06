@@ -63,6 +63,37 @@ class BridgeSenderApi {
     }());
   }
 
+  void sendNext() {
+    unawaited(() async {
+      try {
+        final r = await _api.next();
+        _onStep(r, type: 'api_next(sender)');
+      } catch (e, st) {
+        _onError(e, st, type: 'api_next(sender)');
+      }
+    }());
+  }
+
+  void sendJump(String targetNodeId) {
+    unawaited(() async {
+      try {
+        final r = await _api.jump(targetNodeId: targetNodeId);
+        _onStep(
+          r,
+          type: 'api_jump(sender)',
+          extra: <String, dynamic>{'target_node_id': targetNodeId},
+        );
+      } catch (e, st) {
+        _onError(
+          e,
+          st,
+          type: 'api_jump(sender)',
+          extra: <String, dynamic>{'target_node_id': targetNodeId},
+        );
+      }
+    }());
+  }
+
   /// Overlay EndScreen 用：kind='end_flow'，id=end_action
   void sendUiAction({
     required String kind,

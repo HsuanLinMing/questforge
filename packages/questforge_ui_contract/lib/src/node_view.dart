@@ -5,12 +5,16 @@ class NodeView implements JsonCodable {
     this.nodeId = '',
     this.title = '',
     this.narration = '',
+    this.next = '',
+    this.meta = const <String, dynamic>{},
     this.choices = const <ChoiceView>[],
   });
 
   final String nodeId;
   final String title;
   final String narration;
+  final String next;
+  final Map<String, dynamic> meta;
   final List<ChoiceView> choices;
 
   static NodeView fromJson(Object? json) {
@@ -19,6 +23,9 @@ class NodeView implements JsonCodable {
       nodeId: asString(pick(m, 'node_id')),
       title: asString(pick(m, 'title')),
       narration: asString(pick(m, 'narration')),
+      next: asString(pick(m, 'next')),
+      meta: (pick(m, 'meta') as Map?)?.cast<String, dynamic>() ??
+          <String, dynamic>{},
       choices: asListOf<ChoiceView>(pick(m, 'choices'), ChoiceView.fromJson),
     );
   }
@@ -28,6 +35,8 @@ class NodeView implements JsonCodable {
         'node_id': nodeId,
         'title': title,
         'narration': narration,
+        'next': next,
+        'meta': meta,
         'choices': choices.map((e) => e.toJson()).toList(growable: false),
       };
 }

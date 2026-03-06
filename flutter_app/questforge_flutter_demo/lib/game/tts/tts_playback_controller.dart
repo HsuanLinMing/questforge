@@ -101,7 +101,9 @@ class _TtsPlaylistItem {
     if (raw.isEmpty) return null;
 
     final idxRaw = m['index'];
-    final idx = (idxRaw is int) ? idxRaw : int.tryParse('$idxRaw') ?? 0;
+    final idx = (idxRaw == null)
+        ? -1
+        : (idxRaw is int ? idxRaw : int.tryParse('$idxRaw') ?? -1);
     final text =
         (m['text'] ?? m['narration'] ?? m['content'] ?? m['subtitle'] ?? '')
             .toString();
@@ -151,8 +153,33 @@ class _TtsPlaylistV1 {
       }
     }
 
-    // ✅ 強制按 index 排序（止血：避免後端 items 順序亂）
-    items.sort((a, b) => a.index.compareTo(b.index));
+    // ✅ 檢查是否所有 item 都有正確的 index
+    bool allIndexed = true;
+    for (var it in items) {
+      if (it.index < 0) {
+        allIndexed = false;
+        break;
+      }
+    }
+
+    if (allIndexed) {
+      // ✅ 強制按 index 排序（如果後端有給且都 >= 0）
+      items.sort((a, b) => a.index.compareTo(b.index));
+    } else {
+      // ✅ 如果有任一 item.index == -1 (缺失)，則不 sort，並依照原順序設定為 0..n-1
+      for (var i = 0; i < items.length; i++) {
+        final orig = items[i];
+        items[i] = _TtsPlaylistItem(
+          index: i,
+          path: orig.path,
+          role: orig.role,
+          voice: orig.voice,
+          text: orig.text,
+          format: orig.format,
+          ready: orig.ready,
+        );
+      }
+    }
 
     return _TtsPlaylistV1(
       scope: '${cmd['scope'] ?? 'view'}',
@@ -586,10 +613,10 @@ class TtsPlaybackController {
         }
       }
 
-      final curIdx =
-          (_playlistCursor >= 0 && _playlistCursor < updatedItems.length)
-              ? updatedItems[_playlistCursor].index
-              : vn.value.activeParagraphIndex;
+      final curCursor = _playlistCursor;
+      final curIdx = (curCursor >= 0 && curCursor < updatedItems.length)
+          ? updatedItems[curCursor].index
+          : vn.value.activeParagraphIndex;
 
       _playlist = _TtsPlaylistV1(
         scope: pl.scope,
@@ -600,7 +627,11 @@ class TtsPlaybackController {
         reason: pl.reason,
         items: updatedItems,
       );
-      _playlistCursor = _firstCursorForParagraph(curIdx);
+
+      // ✅ 保留原 cursor，不要用 index 重算（避免 index 缺失/重複造成跳回 0）
+      _playlistCursor = updatedItems.isEmpty
+          ? 0
+          : curCursor.clamp(0, updatedItems.length - 1);
 
       _log('PLAYLIST_REFRESHED', {
         'ready': status.readyCount,

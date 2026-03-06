@@ -463,6 +463,11 @@ class GameSession:
             title=title,
             narration=narration,
             choices=choices,
+            meta={
+                "node_id": self.current,
+                "node_title": title,
+                "kind": "decision" if len(choices) > 0 else "narration"
+            }
         )
         return self._last_view_cache
 
@@ -688,6 +693,25 @@ class GameSession:
                 )
             )
             return StepResult(view=self.get_view(), events=[resp.text], is_over=False)
+
+        if action.type == "next":
+            node = self.nodes[self.current]
+            next_id = (node.get("next") or "").strip()
+            if not next_id:
+                return StepResult(view=None, events=events + ["故事結束"], is_over=True)
+            self.current = self._coerce_valid_node(next_id)
+            if self._is_end_screen_node(self.current):
+                commands.append(self._make_end_screen_command(node_id=self.current))
+                return StepResult(view=None, events=events, is_over=True, commands=commands)
+            return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
+
+        if action.type == "jump":
+            target = action.target_node_id or ""
+            if target and target in self.nodes:
+                self.current = target
+            else:
+                events.append("無效的跳轉目標")
+            return StepResult(view=self.get_view(), events=events, is_over=False, commands=commands)
 
         if action.type != "choose":
             return StepResult(view=self.get_view(), events=["未知動作"], is_over=False)

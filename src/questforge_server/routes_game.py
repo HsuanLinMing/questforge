@@ -72,6 +72,15 @@ class ReplayRequest(BaseModel):
     session_id: str
 
 
+class NextRequest(BaseModel):
+    session_id: str
+
+
+class JumpRequest(BaseModel):
+    session_id: str
+    target_node_id: str
+
+
 class EndFlowRequest(BaseModel):
     session_id: str
     end_action: str  # go_epilogue / restart_case / switch_case / quit
@@ -1582,6 +1591,73 @@ def replay_action(
         action=action,
         background_tasks=background_tasks,
     )
+
+
+@router.post("/next", response_model=StepResponse)
+def next_action(
+    req: NextRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(type="next")
+    return _step_and_build_response(
+        request=request,
+        session_id=req.session_id,
+        session=session,
+        action=action,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post("/jump", response_model=StepResponse)
+def jump_action(
+    req: JumpRequest, request: Request, background_tasks: BackgroundTasks
+) -> StepResponse:
+    session = _get_session_or_404(req.session_id)
+    action = PlayerAction(type="jump", target_node_id=req.target_node_id)
+    return _step_and_build_response(
+        request=request,
+        session_id=req.session_id,
+        session=session,
+        action=action,
+        background_tasks=background_tasks,
+    )
+
+
+@router.get("/toc")
+def get_toc(session_id: str) -> Dict[str, Any]:
+    session = _get_session_or_404(session_id)
+    toc_list = []
+    
+    # Simple strategy: just list all nodes in the session to construct the TOC
+    nodes = getattr(session, "nodes", {}) or {}
+    for node_id, node in nodes.items():
+        if not isinstance(node, dict):
+            continue
+            
+        title = (node.get("title") or "").strip()
+        if not title:
+            # Skip nodes without titles
+            continue
+            
+        choices = node.get("choices") or []
+        kind = "decision" if len(choices) > 0 else "narration"
+        
+        # We assume visited if the node is the start node, or just mark all true/false (you can adapt tracking if you want)
+        # For a basic approach, we'll just not show visited accurately without a tracking list, or we assume true if it's start node.
+        # Actually session tracks `current`, let's just mark visited based on whether it is equal to current for now as a placeholder.
+        # Better: QuestForge doesn't strictly track visited nodes natively in `DetectiveState` easily. Let's return visited=True for simplicity.
+        
+        toc_list.append({
+            "node_id": node_id,
+            "title": title,
+            "kind": kind,
+            "visited": True
+        })
+        
+    return {
+        "toc": toc_list,
+        "current_node_id": session.current
+    }
 
 
 @router.post("/end_flow", response_model=StepResponse)

@@ -56,8 +56,10 @@ def validate_story_nodes_v1(pkg: StoryNodesPackage) -> None:
         if nid not in pkg.nodes:
             raise StoryNodesValidationError(f"缺少必備節點：{nid}")
 
-    # choices next must exist
+    # choices next and node next must exist
     for nid, node in pkg.nodes.items():
+        if getattr(node, "next", None) and (node.next not in pkg.nodes):
+            raise StoryNodesValidationError(f"[{nid}] next 指向不存在節點：{node.next}")
         for c in node.choices:
             if c.next and (c.next not in pkg.nodes):
                 raise StoryNodesValidationError(f"[{nid}] choices.next 指向不存在節點：{c.next}")

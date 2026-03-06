@@ -180,6 +180,42 @@ class PreloadResp {
 /// ----------------------------
 /// Errors
 /// ----------------------------
+
+class TocItem {
+  final String nodeId;
+  final String title;
+  final String kind;
+  final bool visited;
+
+  TocItem({
+    required this.nodeId,
+    required this.title,
+    required this.kind,
+    required this.visited,
+  });
+
+  factory TocItem.fromJson(Map<String, dynamic> j) => TocItem(
+        nodeId: (j['node_id'] ?? '').toString(),
+        title: (j['title'] ?? '').toString(),
+        kind: (j['kind'] ?? '').toString(),
+        visited: j['visited'] == true,
+      );
+}
+
+class TocResp {
+  final List<TocItem> toc;
+  final String currentNodeId;
+
+  TocResp({required this.toc, required this.currentNodeId});
+
+  factory TocResp.fromJson(Map<String, dynamic> j) => TocResp(
+        toc: (j['toc'] as List? ?? [])
+            .map((e) => TocItem.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        currentNodeId: (j['current_node_id'] ?? '').toString(),
+      );
+}
+
 class ApiException implements Exception {
   ApiException(this.message, {this.statusCode, this.body});
 
@@ -452,6 +488,45 @@ class FastApiBridge {
       body: <String, dynamic>{'session_id': sid},
     );
     return GameStepResp.fromJson(json);
+  }
+
+  Future<GameStepResp> next() async {
+    final sid = await loadSessionId();
+    if (sid == null) {
+      throw ApiException('next failed: no session_id (call start first)');
+    }
+
+    final json = await _postJson(
+      '/v1/game/next',
+      body: <String, dynamic>{'session_id': sid},
+    );
+    return GameStepResp.fromJson(json);
+  }
+
+  Future<GameStepResp> jump({required String targetNodeId}) async {
+    final sid = await loadSessionId();
+    if (sid == null) {
+      throw ApiException('jump failed: no session_id (call start first)');
+    }
+
+    final json = await _postJson(
+      '/v1/game/jump',
+      body: <String, dynamic>{
+        'session_id': sid,
+        'target_node_id': targetNodeId,
+      },
+    );
+    return GameStepResp.fromJson(json);
+  }
+
+  Future<TocResp> toc() async {
+    final sid = await loadSessionId();
+    if (sid == null) {
+      throw ApiException('toc failed: no session_id (call start first)');
+    }
+
+    final json = await _getJson('/v1/game/toc?session_id=$sid');
+    return TocResp.fromJson(json);
   }
 
   Future<GameStepResp> endFlow({required String endAction}) async {

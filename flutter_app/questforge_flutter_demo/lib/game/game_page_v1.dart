@@ -2,6 +2,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../fastapi_bridge.dart';
+
 import 'package:flutter/services.dart';
 import 'package:questforge_flutter_demo/bridge/bridge_controller_v2.dart';
 import 'package:questforge_flutter_demo/bridge/overlay_manager.dart';
@@ -63,6 +65,14 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
 
   // ✅ follow 由 GamePage 管（不塞進 TTS state）
   bool _follow = true;
+
+  // ---------------------------
+  // PageView state
+  // ---------------------------
+  final PageController _pageController = PageController();
+  bool _isAutoPaging = false;
+  Timer? _jumpDebounceTimer;
+  String? _lastTocJumpTarget;
 
   // ---------------------------
   // UI phase
@@ -264,16 +274,45 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     return id.contains('ending') || id.contains('quit');
   }
 
-  bool _isAutoContinueNode(NodeView view) {
-    if (_isMidReasonNode(view)) return false;
-    if (_isAccuseNode(view)) return false;
-    if (_isEndingNode(view)) return false;
+  bool _isContinueLikeChoiceText(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return false;
 
-    final cs = view.choices;
-    if (cs.length != 1) return false;
+    const keys = <String>[
+      '繼續',
+      '繼續聽',
+      '下一段',
+      '往下',
+      '再聽',
+      '再來',
+      '我們去看看',
+      '去看看',
+      '走吧',
+      '出發',
+    ];
 
-    final t = cs.first.text.trim();
-    return t.startsWith('繼續') || t == '下一段';
+    for (final k in keys) {
+      if (t == k) return true;
+      if (t.startsWith(k)) return true;
+    }
+    return false;
+  }
+
+  int? _autoContinueChoiceIndex(NodeView v) {
+    if (v.choices.isEmpty) return null;
+    bool allContinueLike = true;
+    int? firstIdx;
+    for (final c in v.choices) {
+      if (!_isContinueLikeChoiceText(c.text)) {
+        allContinueLike = false;
+        break;
+      }
+      firstIdx ??= c.index;
+    }
+    if (allContinueLike && firstIdx != null) {
+      return firstIdx;
+    }
+    return null;
   }
 
   bool _overlayShowingFromState(BridgeUiStateV2 s) {
@@ -292,10 +331,16 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
 
     final v = s.view;
     if (v == null) return;
-    if (!_isAutoContinueNode(v)) return;
 
-    final idx = v.choices.first.index;
-    widget.controller.sendChoose(idx);
+    if (v.choices.isEmpty && v.next.isNotEmpty) {
+      widget.controller.sendNext();
+      return;
+    }
+
+    final idx = _autoContinueChoiceIndex(v);
+    if (idx != null) {
+      widget.controller.sendChoose(idx);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1019,497 +1064,706 @@ class _GamePageV1State extends State<GamePageV1> with WidgetsBindingObserver {
     return ValueListenableBuilder<BridgeUiStateV2>(
       valueListenable: widget.controller.stateVN,
       builder: (context, state, _) {
-        final view = state.view;
+        return ValueListenableBuilder<TocResp?>(
+          valueListenable: widget.controller.tocVN,
+          builder: (context, tocResp, _) {
+            final view = state.view;
+            final toc = tocResp?.toc ?? [];
+            final currentIndex =
+                toc.indexWhere((t) => t.nodeId == view?.nodeId);
 
-        final ask = state.bundle.ask;
-        final quiz = state.bundle.quiz;
-        final end = state.bundle.end;
+            if (currentIndex >= 0 && _pageController.hasClients) {
+              final page = _pageController.page?.round() ?? 0;
+              if (page != currentIndex && !_isAutoPaging) {
+                _isAutoPaging = true;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _pageController.hasClients) {
+                    _pageController
+                        .animateToPage(
+                      currentIndex,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    )
+                        .then((_) {
+                      if (mounted) _isAutoPaging = false;
+                    });
+                  }
+                });
+              }
+            }
 
-        final overlayShowing = (ask != null) || (quiz != null) || (end != null);
-        final chooseLocked = widget.controller.chooseLockVN.value;
+            final ask = state.bundle.ask;
+            final quiz = state.bundle.quiz;
+            final end = state.bundle.end;
 
-        final phase = _derivePhase(
-          overlayShowing: overlayShowing,
-          chooseLocked: chooseLocked,
-          view: view,
-          hasEnd: end != null,
-        );
+            final overlayShowing =
+                (ask != null) || (quiz != null) || (end != null);
+            final chooseLocked = widget.controller.chooseLockVN.value;
 
-        if (view == null) {
-          return const Center(child: Text('尚未開始（請由 Dev Shell Start+Hello）'));
-        }
-
-        final viewFp = _fingerprint(view);
-        final paragraphs = parseParagraphs(view.narration);
-
-        // ✅ 從 commands 拿 tts_playlist_v1 (scope=view)
-        final playlistCmd = _extractViewPlaylistCmd(state);
-        _debugDumpTtsIfMissing(state, view, viewFp, playlistCmd);
-
-        _scheduleHandleViewChanged(view, paragraphs, playlistCmd: playlistCmd);
-
-        if ((phase.blockAllTap) && _ttsCtl.playing) {
-          // ignore: discarded_futures
-          _ttsCtl.stop(resetToStart: false);
-        }
-
-        if (phase == UiPhase.sending) {
-          _armSendingWatchdog();
-        } else {
-          _cancelSendingWatchdog();
-        }
-
-        final overlay = _overlays.buildOverlay(
-          context: context,
-          ask: ask,
-          quiz: quiz,
-          end: end,
-          onSubmitReasons: (ids, text) {
-            widget.controller.sender.sendSetReasons(reasonIds: ids, text: text);
-          },
-          onCloseAsk: widget.controller.clearAskOverlayLocal,
-          onSubmitQuiz: (answers) {
-            widget.controller.sender.sendConfirmQuizAnswerList(answers);
-          },
-          onCloseQuiz: () {
-            widget.controller.sender.sendConfirmQuizAnswerList(
-              const <Object?>[],
-              skipped: true,
+            final phase = _derivePhase(
+              overlayShowing: overlayShowing,
+              chooseLocked: chooseLocked,
+              view: view,
+              hasEnd: end != null,
             );
-          },
-          endLockVN: widget.controller.endActionLockVN,
-          pendingEndVN: widget.controller.pendingEndActionIdVN,
-          onTapEndAction: (action) =>
-              widget.controller.sendEndActionSpec(action),
-          onCloseEnd: widget.controller.clearEndOverlayLocal,
-        );
 
-        final mq = MediaQuery.of(context);
-        final narrationScaled =
-            mq.copyWith(textScaler: TextScaler.linear(_fontScale));
+            if (view == null) {
+              return const Center(
+                  child: Text('尚未開始（請由 Dev Shell Start+Hello）'));
+            }
 
-        final isAccuse = _isAccuseNode(view);
+            final viewFp = _fingerprint(view);
+            final paragraphs = parseParagraphs(view.narration);
 
-        return ValueListenableBuilder<TtsPlaybackState>(
-          valueListenable: _ttsCtl.vn,
-          builder: (context, ttsState, __) {
-            final activeNow = paragraphs.isEmpty
-                ? 0
-                : ttsState.activeParagraphIndex.clamp(0, paragraphs.length - 1);
+            final playlistCmd = _extractViewPlaylistCmd(state);
+            _debugDumpTtsIfMissing(state, view, viewFp, playlistCmd);
 
-            return Stack(
-              children: [
-                ListView(
-                  key: _pageRebuildKey,
-                  physics:
-                      _pttHolding ? const NeverScrollableScrollPhysics() : null,
-                  padding: const EdgeInsets.all(16),
+            _scheduleHandleViewChanged(view, paragraphs,
+                playlistCmd: playlistCmd);
+
+            if ((phase.blockAllTap) && _ttsCtl.playing) {
+              // ignore: discarded_futures
+              _ttsCtl.stop(resetToStart: false);
+            }
+
+            if (phase == UiPhase.sending) {
+              _armSendingWatchdog();
+            } else {
+              _cancelSendingWatchdog();
+            }
+
+            final overlay = _overlays.buildOverlay(
+              context: context,
+              ask: ask,
+              quiz: quiz,
+              end: end,
+              onSubmitReasons: (ids, text) {
+                widget.controller.sender
+                    .sendSetReasons(reasonIds: ids, text: text);
+              },
+              onCloseAsk: widget.controller.clearAskOverlayLocal,
+              onSubmitQuiz: (answers) {
+                widget.controller.sender.sendConfirmQuizAnswerList(answers);
+              },
+              onCloseQuiz: () {
+                widget.controller.sender.sendConfirmQuizAnswerList(
+                  const <Object?>[],
+                  skipped: true,
+                );
+              },
+              endLockVN: widget.controller.endActionLockVN,
+              pendingEndVN: widget.controller.pendingEndActionIdVN,
+              onTapEndAction: (action) =>
+                  widget.controller.sendEndActionSpec(action),
+              onCloseEnd: widget.controller.clearEndOverlayLocal,
+            );
+
+            final mq = MediaQuery.of(context);
+            final narrationScaled =
+                mq.copyWith(textScaler: TextScaler.linear(_fontScale));
+
+            final isAccuse = _isAccuseNode(view);
+
+            return ValueListenableBuilder<TtsPlaybackState>(
+              valueListenable: _ttsCtl.vn,
+              builder: (context, ttsState, __) {
+                final activeNow = paragraphs.isEmpty
+                    ? 0
+                    : ttsState.activeParagraphIndex
+                        .clamp(0, paragraphs.length - 1);
+
+                return Stack(
                   children: [
-                    _PageHeader(
-                      title: view.title,
-                      fontScale: _fontScale,
-                      onDown: phase.allowTopActions ? _fontDown : null,
-                      onUp: phase.allowTopActions ? _fontUp : null,
-                    ),
-                    const SizedBox(height: 10),
-                    MediaQuery(
-                      data: narrationScaled,
-                      child: StoryCardV2(
-                        key: _storyKey,
-                        rebuildEpoch: _resumeEpoch,
-                        chapterLabel: '第 ${_safeChapterNumber(view.nodeId)} 段',
-                        paragraphs: paragraphs,
-                        activeIndex: activeNow,
-                        isPlaying: ttsState.playing,
-                        ttsReady: ttsState.ready,
-                        scrollEnabled: phase.allowStoryScroll,
-                        rate: ttsState.rate,
-                        onOpenMenu: phase.allowTopActions
-                            ? () => _openStoryMenuSheet(
-                                  paragraphs: paragraphs,
-                                  viewFp: viewFp,
-                                  ttsState: ttsState,
-                                )
-                            : null,
-                        onTogglePlay: phase.allowTopActions
-                            ? () => _ttsCtl.togglePlay(
-                                  paragraphs: paragraphs,
-                                  viewFp: viewFp,
-                                  scrollTo: (i) => _storyKey.currentState
-                                      ?.scrollToParagraph(i),
-                                )
-                            : null,
-                        onPrev: phase.allowTopActions
-                            ? () async {
-                                if (!_tryLockNav()) return;
-                                await _ttsCtl.prev(
-                                  paragraphs: paragraphs,
-                                  viewFp: viewFp,
-                                  scrollTo: (i) => _storyKey.currentState
-                                      ?.scrollToParagraph(i),
-                                );
-                              }
-                            : null,
-                        onNext: phase.allowTopActions
-                            ? () async {
-                                if (!_tryLockNav()) return;
-                                await _ttsCtl.next(
-                                  paragraphs: paragraphs,
-                                  viewFp: viewFp,
-                                  scrollTo: (i) => _storyKey.currentState
-                                      ?.scrollToParagraph(i),
-                                );
-                              }
-                            : null,
-                        onTapParagraph: phase.allowTopActions
-                            ? (i) async {
-                                if (!_tryLockNav()) return;
-                                await _ttsCtl.seekTo(
-                                  index: i,
-                                  paragraphs: paragraphs,
-                                  viewFp: viewFp,
-                                  scrollTo: (idx) => _storyKey.currentState
-                                      ?.scrollToParagraph(idx),
-                                );
-                              }
-                            : null,
-                      ),
-                    ),
+                    PageView.builder(
+                      controller: _pageController,
+                      itemCount: toc.isEmpty ? 1 : toc.length,
+                      onPageChanged: (idx) {
+                        if (_isAutoPaging) return;
+                        if (toc.isEmpty) return;
+                        if (idx == currentIndex) return;
 
-                    // ✅ accuse voice block (real STT + 接住孩子)
-                    if (isAccuse) ...[
-                      const SizedBox(height: 10),
-                      const AccusePanel(
-                        title: '最後推理',
-                        hint: '你可以用說的，或直接點一下。',
-                      ),
-                      const SizedBox(height: 10),
-                      ValueListenableBuilder<SttState>(
-                        valueListenable: _stt.vn,
-                        builder: (context, sttState, _) {
-                          final listening = sttState.listening;
-                          final available = sttState.available;
-                          final userErr = _sttUserError(sttState.error);
-
-                          final teacherIdx = _findTeacherFallbackIndex(view);
-
-                          // ------------------------------------------------------------
-                          // Option B: evaluator-driven
-                          // - Always "catch" child's speech.
-                          // - Evaluator decides accuse vs defer_to_teacher.
-                          // - If evaluator fails, fallback to local best-effort match.
-                          // ------------------------------------------------------------
-                          int? resolvedIdx;
-                          final eval = _accuseEval;
-
-                          if (_heardText.isNotEmpty && eval != null) {
-                            if (eval.decision == AccuseDecisionV2.accuse) {
-                              resolvedIdx = eval.matchedChoiceIndex;
-                            } else {
-                              resolvedIdx = eval.deferChoiceIndex ?? teacherIdx;
-                            }
+                        final targetId = toc[idx].nodeId;
+                        _jumpDebounceTimer?.cancel();
+                        _jumpDebounceTimer =
+                            Timer(const Duration(milliseconds: 400), () {
+                          if (mounted) {
+                            widget.controller.sendJump(targetId);
                           }
+                        });
+                      },
+                      itemBuilder: (ctx, idx) {
+                        if (toc.isEmpty || idx == currentIndex) {
+                          return ListView(
+                            key: _pageRebuildKey,
+                            physics: _pttHolding
+                                ? const NeverScrollableScrollPhysics()
+                                : null,
+                            padding: const EdgeInsets.all(16),
+                            children: [
+                              _PageHeader(
+                                title: view.title,
+                                fontScale: _fontScale,
+                                onDown:
+                                    phase.allowTopActions ? _fontDown : null,
+                                onUp: phase.allowTopActions ? _fontUp : null,
+                                onOpenToc: phase.allowTopActions
+                                    ? () =>
+                                        _showTocSheet(context, tocResp, view)
+                                    : null,
+                              ),
+                              const SizedBox(height: 10),
+                              MediaQuery(
+                                data: narrationScaled,
+                                child: StoryCardV2(
+                                  key: _storyKey,
+                                  rebuildEpoch: _resumeEpoch,
+                                  chapterLabel:
+                                      '第 ${_safeChapterNumber(view.nodeId)} 段',
+                                  paragraphs: paragraphs,
+                                  activeIndex: activeNow,
+                                  isPlaying: ttsState.playing,
+                                  ttsReady: ttsState.ready,
+                                  scrollEnabled: phase.allowStoryScroll,
+                                  rate: ttsState.rate,
+                                  onOpenMenu: phase.allowTopActions
+                                      ? () => _openStoryMenuSheet(
+                                            paragraphs: paragraphs,
+                                            viewFp: viewFp,
+                                            ttsState: ttsState,
+                                          )
+                                      : null,
+                                  onTogglePlay: phase.allowTopActions
+                                      ? () => _ttsCtl.togglePlay(
+                                            paragraphs: paragraphs,
+                                            viewFp: viewFp,
+                                            scrollTo: (i) => _storyKey
+                                                .currentState
+                                                ?.scrollToParagraph(i),
+                                          )
+                                      : null,
+                                  onPrev: phase.allowTopActions
+                                      ? () async {
+                                          if (!_tryLockNav()) return;
+                                          await _ttsCtl.prev(
+                                            paragraphs: paragraphs,
+                                            viewFp: viewFp,
+                                            scrollTo: (i) => _storyKey
+                                                .currentState
+                                                ?.scrollToParagraph(i),
+                                          );
+                                        }
+                                      : null,
+                                  onNext: phase.allowTopActions
+                                      ? () async {
+                                          if (!_tryLockNav()) return;
+                                          await _ttsCtl.next(
+                                            paragraphs: paragraphs,
+                                            viewFp: viewFp,
+                                            scrollTo: (i) => _storyKey
+                                                .currentState
+                                                ?.scrollToParagraph(i),
+                                          );
+                                        }
+                                      : null,
+                                  onTapParagraph: phase.allowTopActions
+                                      ? (i) async {
+                                          if (!_tryLockNav()) return;
+                                          await _ttsCtl.seekTo(
+                                            index: i,
+                                            paragraphs: paragraphs,
+                                            viewFp: viewFp,
+                                            scrollTo: (idx) => _storyKey
+                                                .currentState
+                                                ?.scrollToParagraph(idx),
+                                          );
+                                        }
+                                      : null,
+                                ),
+                              ),
+
+                              // ✅ accuse voice block (real STT + 接住孩子)
+                              if (isAccuse) ...[
+                                const SizedBox(height: 10),
+                                const AccusePanel(
+                                  title: '最後推理',
+                                  hint: '你可以用說的，或直接點一下。',
+                                ),
+                                const SizedBox(height: 10),
+                                ValueListenableBuilder<SttState>(
+                                  valueListenable: _stt.vn,
+                                  builder: (context, sttState, _) {
+                                    final listening = sttState.listening;
+                                    final available = sttState.available;
+                                    final userErr =
+                                        _sttUserError(sttState.error);
+
+                                    final teacherIdx =
+                                        _findTeacherFallbackIndex(view);
+
+                                    // ------------------------------------------------------------
+                                    // Option B: evaluator-driven
+                                    // - Always "catch" child's speech.
+                                    // - Evaluator decides accuse vs defer_to_teacher.
+                                    // - If evaluator fails, fallback to local best-effort match.
+                                    // ------------------------------------------------------------
+                                    int? resolvedIdx;
+                                    final eval = _accuseEval;
+
+                                    if (_heardText.isNotEmpty && eval != null) {
+                                      if (eval.decision ==
+                                          AccuseDecisionV2.accuse) {
+                                        resolvedIdx = eval.matchedChoiceIndex;
+                                      } else {
+                                        resolvedIdx =
+                                            eval.deferChoiceIndex ?? teacherIdx;
+                                      }
+                                    }
 
 // fallback: local matching
-                          resolvedIdx ??= _voiceMatchedIndex;
+                                    resolvedIdx ??= _voiceMatchedIndex;
 
 // final fallback: teacher (should exist in accuse nodes)
-                          if (_heardText.isNotEmpty) {
-                            resolvedIdx ??= teacherIdx;
-                          }
+                                    if (_heardText.isNotEmpty) {
+                                      resolvedIdx ??= teacherIdx;
+                                    }
 
-                          final resolvedChoice = (resolvedIdx == null)
-                              ? null
-                              : _choiceByIndex(view, resolvedIdx!);
-                          final isTeacher =
-                              teacherIdx != null && resolvedIdx == teacherIdx;
+                                    final resolvedChoice = (resolvedIdx == null)
+                                        ? null
+                                        : _choiceByIndex(view, resolvedIdx!);
+                                    final isTeacher = teacherIdx != null &&
+                                        resolvedIdx == teacherIdx;
 
 // ✅ 不要在 evaluator loading 時就送（避免先送 teacher）
-                          final canSubmit = phase.allowChoiceTap &&
-                              !_accuseSending &&
-                              !_accuseEvalLoading &&
-                              _heardText.isNotEmpty &&
-                              resolvedIdx != null;
+                                    final canSubmit = phase.allowChoiceTap &&
+                                        !_accuseSending &&
+                                        !_accuseEvalLoading &&
+                                        _heardText.isNotEmpty &&
+                                        resolvedIdx != null;
 
-                          final fifi =
-                              (eval != null && eval.fifiReply.trim().isNotEmpty)
-                                  ? eval.fifiReply
-                                  : _buildFifiEcho(
-                                      heard: _heardText,
-                                      selectedName: resolvedChoice?.text,
-                                      isTeacher: isTeacher,
-                                      confident: _voiceConfident && !isTeacher,
-                                    );
+                                    final fifi = (eval != null &&
+                                            eval.fifiReply.trim().isNotEmpty)
+                                        ? eval.fifiReply
+                                        : _buildFifiEcho(
+                                            heard: _heardText,
+                                            selectedName: resolvedChoice?.text,
+                                            isTeacher: isTeacher,
+                                            confident:
+                                                _voiceConfident && !isTeacher,
+                                          );
 
-                          return Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surface,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '用說的回答',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  available
-                                      ? '按下麥克風，說出你覺得是誰（也可以說：交給老師）'
-                                      : '語音辨識尚未就緒（請確認麥克風/語音辨識權限）',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-
-                                if (userErr.isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text('（語音錯誤）$userErr',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall),
-                                ],
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: IgnorePointer(
-                                        ignoring: (!available ||
-                                            _accuseSending ||
-                                            !phase.allowChoiceTap),
-                                        child: Opacity(
-                                          opacity: (!available ||
-                                                  _accuseSending ||
-                                                  !phase.allowChoiceTap)
-                                              ? 0.45
-                                              : 1,
-                                          child: Listener(
-                                            behavior: HitTestBehavior.opaque,
-                                            onPointerDown: (_) async {
-                                              final v = widget.controller
-                                                  .stateVN.value.view;
-                                              if (v == null) return;
-                                              if (!_isAccuseNode(v)) return;
-                                              await _pttStart(v,
-                                                  ttsPlaying: ttsState.playing);
-                                            },
-                                            onPointerUp: (_) async =>
-                                                _pttStop(),
-                                            onPointerCancel: (_) async =>
-                                                _pttStop(),
-                                            child: Container(
-                                              height: 44,
-                                              decoration: BoxDecoration(
-                                                color: (_pttHolding ||
-                                                        listening)
-                                                    ? Colors.deepPurple.shade700
-                                                    : Colors.deepPurple,
-                                                borderRadius:
-                                                    BorderRadius.circular(999),
-                                              ),
-                                              child: Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(
-                                                      (_pttHolding || listening)
-                                                          ? Icons.mic
-                                                          : Icons.mic_none,
-                                                      color: Colors.white),
-                                                  const SizedBox(width: 8),
-                                                  Text(
-                                                    (_pttHolding || listening)
-                                                        ? '錄音中…（放開停止）'
-                                                        : '按住說話',
-                                                    style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontWeight:
-                                                            FontWeight.w700),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
+                                    return Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .surface,
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .outlineVariant),
                                       ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    OutlinedButton(
-                                      onPressed: (_accuseSending ||
-                                              !phase.allowChoiceTap)
-                                          ? null
-                                          : () async {
-                                              await _pttStop();
-                                              await _stt.cancel();
-                                              if (!mounted) return;
-                                              _clearAccuseVoiceLocal();
-                                            },
-                                      child: const Text('重來'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-
-// evaluator status
-                                if (_heardText.isNotEmpty) ...[
-                                  if (_accuseEvalLoading) ...[
-                                    Row(
-                                      children: [
-                                        const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2)),
-                                        const SizedBox(width: 8),
-                                        Text('菲菲正在幫你整理…',
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '用說的回答',
                                             style: Theme.of(context)
                                                 .textTheme
-                                                .bodySmall),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                  ] else if (_accuseEvalError.isNotEmpty) ...[
-                                    Text('（AI 判斷暫時失敗，先用本地比對）$_accuseEvalError',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall),
-                                    const SizedBox(height: 8),
-                                  ] else if (_accuseEval != null) ...[
-                                    Text(
-                                      '（AI 分數：${_accuseEval!.score.toStringAsFixed(2)} / 門檻：${_accuseEval!.threshold.toStringAsFixed(2)}）',
-                                      style:
-                                          Theme.of(context).textTheme.bodySmall,
-                                    ),
-                                    const SizedBox(height: 8),
-                                  ],
-                                ],
+                                                .titleMedium
+                                                ?.copyWith(
+                                                    fontWeight:
+                                                        FontWeight.w800),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            available
+                                                ? '按下麥克風，說出你覺得是誰（也可以說：交給老師）'
+                                                : '語音辨識尚未就緒（請確認麥克風/語音辨識權限）',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
+                                          ),
 
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: FilledButton(
-                                    onPressed: canSubmit
-                                        ? () => _sendAccuseIndex(
-                                              view: view,
-                                              idx: resolvedIdx!,
-                                              displayText:
-                                                  resolvedChoice?.text ??
-                                                      '交給老師',
-                                              heard: _heardText,
-                                            )
-                                        : null,
-                                    child: Text(_accuseSending
-                                        ? '送出中…'
-                                        : (_heardText.isEmpty
-                                            ? '先說一句話再送出'
-                                            : (resolvedChoice == null
-                                                ? '請再說一次或點選'
-                                                : (isTeacher
-                                                    ? '送出（交給老師）'
-                                                    : '送出這個答案')))),
-                                  ),
+                                          if (userErr.isNotEmpty) ...[
+                                            const SizedBox(height: 6),
+                                            Text('（語音錯誤）$userErr',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall),
+                                          ],
+                                          const SizedBox(height: 10),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: IgnorePointer(
+                                                  ignoring: (!available ||
+                                                      _accuseSending ||
+                                                      !phase.allowChoiceTap),
+                                                  child: Opacity(
+                                                    opacity: (!available ||
+                                                            _accuseSending ||
+                                                            !phase
+                                                                .allowChoiceTap)
+                                                        ? 0.45
+                                                        : 1,
+                                                    child: Listener(
+                                                      behavior: HitTestBehavior
+                                                          .opaque,
+                                                      onPointerDown: (_) async {
+                                                        final v = widget
+                                                            .controller
+                                                            .stateVN
+                                                            .value
+                                                            .view;
+                                                        if (v == null) return;
+                                                        if (!_isAccuseNode(v))
+                                                          return;
+                                                        await _pttStart(v,
+                                                            ttsPlaying: ttsState
+                                                                .playing);
+                                                      },
+                                                      onPointerUp: (_) async =>
+                                                          _pttStop(),
+                                                      onPointerCancel:
+                                                          (_) async =>
+                                                              _pttStop(),
+                                                      child: Container(
+                                                        height: 44,
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: (_pttHolding ||
+                                                                  listening)
+                                                              ? Colors
+                                                                  .deepPurple
+                                                                  .shade700
+                                                              : Colors
+                                                                  .deepPurple,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(
+                                                                      999),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisAlignment:
+                                                              MainAxisAlignment
+                                                                  .center,
+                                                          children: [
+                                                            Icon(
+                                                                (_pttHolding ||
+                                                                        listening)
+                                                                    ? Icons.mic
+                                                                    : Icons
+                                                                        .mic_none,
+                                                                color: Colors
+                                                                    .white),
+                                                            const SizedBox(
+                                                                width: 8),
+                                                            Text(
+                                                              (_pttHolding ||
+                                                                      listening)
+                                                                  ? '錄音中…（放開停止）'
+                                                                  : '按住說話',
+                                                              style: const TextStyle(
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              OutlinedButton(
+                                                onPressed: (_accuseSending ||
+                                                        !phase.allowChoiceTap)
+                                                    ? null
+                                                    : () async {
+                                                        await _pttStop();
+                                                        await _stt.cancel();
+                                                        if (!mounted) return;
+                                                        _clearAccuseVoiceLocal();
+                                                      },
+                                                child: const Text('重來'),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 10),
+
+// evaluator status
+                                          if (_heardText.isNotEmpty) ...[
+                                            if (_accuseEvalLoading) ...[
+                                              Row(
+                                                children: [
+                                                  const SizedBox(
+                                                      width: 18,
+                                                      height: 18,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                              strokeWidth: 2)),
+                                                  const SizedBox(width: 8),
+                                                  Text('菲菲正在幫你整理…',
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .bodySmall),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 8),
+                                            ] else if (_accuseEvalError
+                                                .isNotEmpty) ...[
+                                              Text(
+                                                  '（AI 判斷暫時失敗，先用本地比對）$_accuseEvalError',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall),
+                                              const SizedBox(height: 8),
+                                            ] else if (_accuseEval != null) ...[
+                                              Text(
+                                                '（AI 分數：${_accuseEval!.score.toStringAsFixed(2)} / 門檻：${_accuseEval!.threshold.toStringAsFixed(2)}）',
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall,
+                                              ),
+                                              const SizedBox(height: 8),
+                                            ],
+                                          ],
+
+                                          SizedBox(
+                                            width: double.infinity,
+                                            child: FilledButton(
+                                              onPressed: canSubmit
+                                                  ? () => _sendAccuseIndex(
+                                                        view: view,
+                                                        idx: resolvedIdx!,
+                                                        displayText:
+                                                            resolvedChoice
+                                                                    ?.text ??
+                                                                '交給老師',
+                                                        heard: _heardText,
+                                                      )
+                                                  : null,
+                                              child: Text(_accuseSending
+                                                  ? '送出中…'
+                                                  : (_heardText.isEmpty
+                                                      ? '先說一句話再送出'
+                                                      : (resolvedChoice == null
+                                                          ? '請再說一次或點選'
+                                                          : (isTeacher
+                                                              ? '送出（交給老師）'
+                                                              : '送出這個答案')))),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
 
-                    const SizedBox(height: 14),
+                              const SizedBox(height: 14),
 
-                    // choices
-                    ...view.choices.map((c) {
-                      final disabled = !phase.allowChoiceTap || !c.enabled;
-                      final highlighted = _pressedChoiceIndex == c.index;
-                      final pendingThis =
-                          chooseLocked && _pressedChoiceIndex == c.index;
+                              // choices
+                              ...view.choices.map((c) {
+                                final disabled =
+                                    !phase.allowChoiceTap || !c.enabled;
+                                final highlighted =
+                                    _pressedChoiceIndex == c.index;
+                                final pendingThis = chooseLocked &&
+                                    _pressedChoiceIndex == c.index;
 
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: ChoiceCardV2(
-                          index: c.index,
-                          text: c.text,
-                          enabled: !disabled,
-                          highlighted: highlighted,
-                          pending: pendingThis,
-                          onTap: () async {
-                            if (disabled) return;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: ChoiceCardV2(
+                                    index: c.index,
+                                    text: c.text,
+                                    enabled: !disabled,
+                                    highlighted: highlighted,
+                                    pending: pendingThis,
+                                    onTap: () async {
+                                      if (disabled) return;
 
-                            if (ttsState.playing) {
-                              await _ttsCtl.stop(resetToStart: false);
-                            }
+                                      if (ttsState.playing) {
+                                        await _ttsCtl.stop(resetToStart: false);
+                                      }
 
-                            // ✅ accuse：先停麥克風，避免同時輸入
-                            if (isAccuse) {
-                              await _stt.stop();
-                            }
+                                      // ✅ accuse：先停麥克風，避免同時輸入
+                                      if (isAccuse) {
+                                        await _stt.stop();
+                                      }
 
-                            _setPressedChoice(c.index);
-                            _onChoiceTapHook(c);
+                                      _setPressedChoice(c.index);
+                                      _onChoiceTapHook(c);
 
-                            if (isAccuse) {
-                              // 點選：也走同一套確認（但不需要 heard）
-                              setState(() {
-                                _heardText = '';
-                                _voiceMatchedIndex = c.index;
-                                _voiceConfident = true;
-                              });
-                              await _sendAccuseIndex(
-                                view: view,
-                                idx: c.index,
-                                displayText: c.text,
-                                heard: null,
-                              );
-                              return;
-                            }
+                                      if (isAccuse) {
+                                        // 點選：也走同一套確認（但不需要 heard）
+                                        setState(() {
+                                          _heardText = '';
+                                          _voiceMatchedIndex = c.index;
+                                          _voiceConfident = true;
+                                        });
+                                        await _sendAccuseIndex(
+                                          view: view,
+                                          idx: c.index,
+                                          displayText: c.text,
+                                          heard: null,
+                                        );
+                                        return;
+                                      }
 
-                            if (!mounted) return;
-                            final ok = widget.controller.sendChoose(c.index);
-                            if (!ok) return;
-                          },
-                        ),
-                      );
-                    }),
+                                      if (!mounted) return;
+                                      final ok =
+                                          widget.controller.sendChoose(c.index);
+                                      if (!ok) return;
+                                    },
+                                  ),
+                                );
+                              }),
 
-                    if (phase == UiPhase.sending && !overlayShowing) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '送出中…請稍等一下',
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.outline,
+                              if (phase == UiPhase.sending &&
+                                  !overlayShowing) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  '送出中…請稍等一下',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelMedium
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outline,
+                                      ),
                                 ),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    const SizedBox(height: 16),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: phase.blockAllTap
-                          ? null
-                          : () async {
-                              if (ttsState.playing)
-                                await _ttsCtl.stop(resetToStart: false);
-                              await _stt.stop();
-                              await _confirmQuit(context);
-                            },
-                      icon: const Icon(Icons.exit_to_app),
-                      label: const Text('離開'),
+                                const SizedBox(height: 10),
+                              ],
+                              const SizedBox(height: 16),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                onPressed: phase.blockAllTap
+                                    ? null
+                                    : () async {
+                                        if (ttsState.playing)
+                                          await _ttsCtl.stop(
+                                              resetToStart: false);
+                                        await _stt.stop();
+                                        await _confirmQuit(context);
+                                      },
+                                icon: const Icon(Icons.exit_to_app),
+                                label: const Text('離開'),
+                              ),
+                            ],
+                          );
+                        }
+
+                        return Center(
+                            child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: 16),
+                            Text('前往段落: \n${toc[idx].title}',
+                                textAlign: TextAlign.center),
+                          ],
+                        ));
+                      },
                     ),
+                    if (overlay != null) overlay,
                   ],
-                ),
-                if (overlay != null) overlay,
-              ],
+                );
+              },
             );
           },
+        );
+      },
+    );
+  }
+
+  void _showTocSheet(
+      BuildContext context, TocResp? tocResp, NodeView currentView) {
+    if (tocResp == null || tocResp.toc.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.75,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color:
+                      Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '故事目錄',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: tocResp.toc.length,
+                  itemBuilder: (ctx, idx) {
+                    final item = tocResp.toc[idx];
+                    final isActive = item.nodeId == currentView.nodeId;
+
+                    return ListTile(
+                      leading: Icon(
+                        item.kind == 'narration'
+                            ? Icons.menu_book
+                            : Icons.help_outline,
+                        color: isActive
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.5),
+                      ),
+                      title: Text(
+                        item.title,
+                        style: TextStyle(
+                          fontWeight:
+                              isActive ? FontWeight.bold : FontWeight.normal,
+                          color: isActive
+                              ? Theme.of(context).colorScheme.primary
+                              : null,
+                        ),
+                      ),
+                      trailing: isActive
+                          ? const Icon(Icons.play_arrow, size: 16)
+                          : null,
+                      onTap: () {
+                        widget.controller.sendJump(item.nodeId);
+                        Navigator.of(ctx).pop();
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1530,12 +1784,14 @@ class _PageHeader extends StatelessWidget {
     required this.fontScale,
     required this.onDown,
     required this.onUp,
+    required this.onOpenToc,
   });
 
   final String title;
   final double fontScale;
   final VoidCallback? onDown;
   final VoidCallback? onUp;
+  final VoidCallback? onOpenToc;
 
   @override
   Widget build(BuildContext context) {
@@ -1551,6 +1807,12 @@ class _PageHeader extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
+        if (onOpenToc != null)
+          IconButton(
+            onPressed: onOpenToc,
+            icon: const Icon(Icons.menu_book),
+            tooltip: '目錄',
+          ),
         const SizedBox(width: 8),
         _FontControls(
           scale: fontScale,

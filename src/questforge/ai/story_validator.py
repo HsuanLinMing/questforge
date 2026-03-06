@@ -7,10 +7,8 @@ from typing import Any, Dict, List, Tuple, Optional
 JsonMap = Dict[str, Any]
 
 
-ALLOWED_NODE_FIELDS = {"title", "narration", "choices", "gain_clue", "lesson"}
+ALLOWED_NODE_FIELDS = {"title", "narration", "choices", "next", "gain_clue", "lesson", "can_replay", "can_quit"}
 ALLOWED_CHOICE_FIELDS = {"text", "next", "after"}
-
-AUTO_CONTINUE_TEXT = {"繼續聽故事"}  # ✅ 建議統一，只收這個（最穩）
 
 # 必備節點（模板骨架）
 REQUIRED_NODE_IDS = {
@@ -113,8 +111,8 @@ def validate_story_nodes(story_nodes: JsonMap) -> ValidationResult:
         if "lesson" not in node:
             errors.append("ending_result: 必須包含 lesson:list[str]")
         cs = node.get("choices", [])
-        if isinstance(cs, list) and len(cs) != 1:
-            errors.append("ending_result: choices 必須只有 1 個（結束故事）")
+        if isinstance(cs, list) and len(cs) != 0:
+            errors.append("ending_result: choices 必須為空（[]）")
 
     # - quit：choices 必須是空 list
     if "quit" in story_nodes and isinstance(story_nodes["quit"], dict):
@@ -134,19 +132,26 @@ def validate_story_nodes(story_nodes: JsonMap) -> ValidationResult:
         # 視為「主線自動播放」節點的條件：scene_ 或 start
         if node_id == "start" or node_id.startswith("scene_"):
             cs = node.get("choices", [])
-            if isinstance(cs, list):
-                if len(cs) != 1:
-                    errors.append(f"{node_id}: auto-continue 節點 choices 必須只有 1 個")
-                else:
-                    t = (cs[0].get("text") or "").strip()
-                    if t not in AUTO_CONTINUE_TEXT:
-                        errors.append(f"{node_id}: auto-continue 選項文字必須是 {sorted(list(AUTO_CONTINUE_TEXT))}，目前是「{t}」")
+            if isinstance(cs, list) and len(cs) != 0:
+                errors.append(f"{node_id}: narration-only 節點 choices 必須為空陣列 []")
+            nxt = node.get("next")
+            # Usually needs 'next' unless it's an ending node (not caught by ENDING_NODE_PREFIXES if it's scene_10_ending)
+            if node_id.startswith("scene_10_ending") or "ending" in node_id:
+                pass
+            elif not nxt or not isinstance(nxt, str) or not nxt.strip():
+                errors.append(f"{node_id}: narration-only 節點必須有有效的 'next' 指向下一節點")
 
     # 6) next 指向必須存在（或允許 quit 結尾）
     node_ids = set(story_nodes.keys())
     for node_id, node in story_nodes.items():
         if not isinstance(node, dict):
             continue
+            
+        # check node level next
+        node_nxt = (node.get("next") or "").strip()
+        if node_nxt and node_nxt not in node_ids:
+            errors.append(f"{node_id}: node.next 指向不存在節點「{node_nxt}」")
+            
         for i, c in enumerate(node.get("choices", []) or []):
             if not isinstance(c, dict):
                 continue

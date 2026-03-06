@@ -24,6 +24,7 @@ class StoryNode:
     title: str
     narration: List[NarrationItem]
     choices: List[ChoiceItem]
+    next: Optional[str] = None
     solution_index: Optional[int] = None
     can_replay: Optional[bool] = None
     can_quit: Optional[bool] = None
@@ -151,6 +152,7 @@ def story_nodes_package_from_dict(d: Dict[str, Any]) -> StoryNodesPackage:
             title=str(nd.get("title") or ""),
             narration=narration_items,
             choices=choices,
+            next=nd.get("next"),
             solution_index=nd.get("solution_index"),
             can_replay=nd.get("can_replay"),
             can_quit=nd.get("can_quit"),
@@ -260,6 +262,7 @@ def story_nodes_package_from_dict(d: Dict[str, Any]) -> StoryNodesPackage:
             title=str(nd.get("title") or ""),
             narration=narration_items,
             choices=choices,
+            next=nd.get("next"),
             solution_index=sol,
             can_replay=can_replay,
             can_quit=can_quit,

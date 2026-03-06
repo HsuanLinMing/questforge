@@ -148,6 +148,11 @@ class BridgeControllerV2 {
   final Duration _chooseTimeoutDur;
   Timer? _chooseTimeoutTimer;
 
+  // ------------------------------------------------------------
+  // TOC
+  // ------------------------------------------------------------
+  final ValueNotifier<TocResp?> tocVN = ValueNotifier<TocResp?>(null);
+
   bool get isStarted => _started;
   bool get endActionLocked => endActionLockVN.value;
   bool get chooseLocked => chooseLockVN.value;
@@ -163,6 +168,9 @@ class BridgeControllerV2 {
   Future<TtsStatus> fetchTtsStatus(
           {required String viewFp, required int count}) =>
       _api.fetchTtsStatus(viewFp: viewFp, count: count);
+
+  /// ✅ 取得目錄 (Table of Contents)
+  Future<TocResp> fetchToc() => _api.toc();
 
   bool get isUiBlocked {
     final b = stateVN.value.bundle;
@@ -219,6 +227,7 @@ class BridgeControllerV2 {
     pendingEndActionIdVN.dispose();
     chooseLockVN.dispose();
     pendingChoiceIndexVN.dispose();
+    tocVN.dispose();
   }
 
   Future<void> _startNewSession() async {
@@ -354,6 +363,24 @@ class BridgeControllerV2 {
       }
     }());
 
+    return true;
+  }
+
+  bool sendNext() {
+    if (chooseLockVN.value) return false;
+    if (isUiBlocked) return false;
+
+    lockChoose(-4);
+    sender.sendNext();
+    return true;
+  }
+
+  bool sendJump(String targetNodeId) {
+    if (chooseLockVN.value) return false;
+    if (isUiBlocked) return false;
+
+    lockChoose(-5);
+    sender.sendJump(targetNodeId);
     return true;
   }
 
@@ -565,6 +592,19 @@ class BridgeControllerV2 {
       'id=${stateVN.value.currentStoryId ?? "-"} '
       'node=${stateVN.value.view?.nodeId ?? "-"}',
     );
+
+    _refreshToc();
+  }
+
+  void _refreshToc() {
+    unawaited(() async {
+      try {
+        final resp = await _api.toc();
+        tocVN.value = resp;
+      } catch (e) {
+        debugPrint('[BridgeControllerV2] fetchToc error: $e');
+      }
+    }());
   }
 
   void _updateStateRawOnly(Map<String, dynamic> raw) {

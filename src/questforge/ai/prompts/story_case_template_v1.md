@@ -51,9 +51,9 @@ def _n(*lines: str) -> str:
 
 ## 2) choices 規則（非常重要）
 ### 2.1 自動播放節點（scene_*）
-- 除了 `final_accuse` 與 `quit` 以外，所有 `scene_*` 都必須只有 **1 個 choice**：
-  - `{"text": "繼續聽故事", "next": "<下一節點>"}`
-- `text` 建議固定用「繼續聽故事」（可接受「繼續」但避免混用太多）
+- 除了 `final_accuse` 與 `quit` 等互動節點以外，所有的 `scene_*` 都必須是 Narration-only：
+  - `choices: []` （**必須為空陣列，絕對不能有「繼續聽故事」這種選項**）
+  - 必須在節點層級加上 `next` 屬性，指向下一個節點：`"next": "<下一節點>"`
 
 ### 2.2 指認節點（final_accuse）
 - `final_accuse` 必須有 4 個選項（可依案件調整嫌疑人名單），其中一定包含：

@@ -281,7 +281,13 @@ class BlobStoreR2(BlobStore):
         if continuation_token:
             query_params["continuation-token"] = continuation_token
 
-        qs = urllib.parse.urlencode(query_params)
+        # AWS SigV4 requires the query string to be sorted by key alphabetically
+        sorted_params = sorted(query_params.items(), key=lambda x: x[0])
+        
+        def quote_aws(val):
+            return urllib.parse.quote(str(val), safe="~")
+
+        qs = "&".join(f"{quote_aws(k)}={quote_aws(v)}" for k, v in sorted_params)
         url = f"{base_url}?{qs}"
 
         signed = _sign_v4(
@@ -337,6 +343,13 @@ class BlobStoreR2(BlobStore):
 
             return result
 
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            if e.code == 403:
+                print(f"[BlobStoreR2] WARNING: list_objects 403 Forbidden. Body: {body[:250]}", flush=True)
+            else:
+                print(f"[BlobStoreR2] list_objects HTTPError {e.code}: {body[:250]}", flush=True)
+            return {"Contents": [], "IsTruncated": False, "NextContinuationToken": None}
         except Exception as e:
             print(f"[BlobStoreR2] list_objects error: {e!r}", flush=True)
             return {"Contents": [], "IsTruncated": False, "NextContinuationToken": None}

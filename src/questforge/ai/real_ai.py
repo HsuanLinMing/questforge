@@ -5,6 +5,7 @@ import os
 from openai import OpenAI
 
 from questforge.ai.ai_client import AiClient
+from questforge.ai.openai_env import get_clean_openai_api_key
 from questforge.ai.response_guard import guard_response
 from questforge.ai.schemas import ResponsePackage, ResponseRequest, StoryPackage
 from questforge.ai.prompt_builder import SYSTEM_RULES, build_user_prompt
@@ -40,7 +41,7 @@ class RealAiClient(AiClient):
 
     def __init__(self) -> None:
         # SDK 會自動讀 OPENAI_API_KEY，但我們也明確傳入以便 debug
-        self._client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self._client = OpenAI(api_key=get_clean_openai_api_key())
         self._model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
 
     def generate_story(self) -> StoryPackage:

@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from questforge.ai.openai_env import clean_openai_api_key
+
 
 @dataclass(frozen=True)
 class TtsResult:
@@ -29,7 +31,7 @@ class OpenAiTtsClient:
         base_url: str | None = None,
     ) -> None:
         self.model = (model or os.getenv("QF_TTS_MODEL") or "gpt-4o-mini-tts").strip()
-        self.api_key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
+        self.api_key = clean_openai_api_key(api_key or os.getenv("OPENAI_API_KEY"))
         self.base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "").strip()
 
     def synthesize(

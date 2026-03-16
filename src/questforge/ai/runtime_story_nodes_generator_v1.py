@@ -1,6 +1,7 @@
 # src/questforge/ai/runtime_story_nodes_generator_v1.py
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from typing import Any, Dict, Optional
 
 from openai import OpenAI
 
+from questforge.ai.openai_env import build_openai_client
 from questforge.ai.story_spec_v1 import StorySpecV1
 from questforge.contracts.story_nodes_v1 import (
     StoryNodesPackage,
@@ -46,6 +48,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_str(*names: str) -> str:
+    for name in names:
+        v = (os.getenv(name) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def _strip_code_fence(s: str) -> str:
     t = (s or "").strip()
     if t.startswith("```"):
@@ -57,8 +67,7 @@ def _strip_code_fence(s: str) -> str:
 def _sanitize_json_common(text: str) -> str:
     """
     嘗試修復常見「幾乎是 JSON 但壞在字串內容」的情況：
-    - 字串中出現原生換行 -> 轉成 \\n
-    - 字串中出現原生 tab -> 轉成 \\t
+    - 字串中出現原生控制字元 -> 轉成合法 escape
     """
     s = text
 
@@ -91,14 +100,18 @@ def _sanitize_json_common(text: str) -> str:
             in_str = False
             continue
 
-        # ✅ JSON string 不能直接出現真換行/制表
+        # ✅ JSON string 不能直接出現控制字元
         if ch == "\n":
             out.append("\\n")
             continue
         if ch == "\r":
+            out.append("\\r")
             continue
         if ch == "\t":
             out.append("\\t")
+            continue
+        if ord(ch) < 0x20:
+            out.append(f"\\u{ord(ch):04x}")
             continue
 
         out.append(ch)
@@ -136,11 +149,41 @@ def _extract_first_json(text: str) -> Any:
             continue
         try:
             obj, _end = decoder.raw_decode(_sanitize_json_common(s[i:]))
-            return obj
+            if isinstance(obj, dict) and isinstance(obj.get("nodes"), dict):
+                return obj
         except Exception:
             continue
 
-    raise RuntimeError("no_json_object_found")
+    raise RuntimeError("no_story_package_object_found")
+
+
+def _responses_create(
+    client: OpenAI,
+    *,
+    model: str,
+    input: str,
+    max_output_tokens: int,
+    temperature: float | None = None,
+    **kwargs: Any,
+) -> Any:
+    params: Dict[str, Any] = {
+        "model": model,
+        "input": input,
+        "max_output_tokens": max_output_tokens,
+    }
+    params.update(kwargs)
+    if temperature is not None:
+        params["temperature"] = temperature
+
+    try:
+        return client.responses.create(**params)
+    except Exception as e:
+        msg = str(e)
+        if ("temperature" in params) and ("temperature" in msg) and ("not supported" in msg):
+            params.pop("temperature", None)
+            print(f"[AI_GEN] retry_without_temperature model={model}", flush=True)
+            return client.responses.create(**params)
+        raise
 
 
 def _contains_any(s: str, terms: list[str]) -> bool:
@@ -163,6 +206,14 @@ def _deep_replace_nl_escapes(obj: Any) -> Any:
     if isinstance(obj, dict):
         return {k: _deep_replace_nl_escapes(v) for k, v in obj.items()}
     return obj
+
+
+def _normalize_narration_text(text: str) -> str:
+    t = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"(?<!\n)\n(?=[^\n]{1,18}[：:])", "\n\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
 
 
 def _autofix_package_dict(
@@ -203,6 +254,14 @@ def _autofix_package_dict(
     if not isinstance(nodes, dict):
         # 交給 validator / repair prompt，不硬塞模板故事
         return data
+
+    # normalize narration paragraph breaks so validator sees real paragraphs
+    for node in nodes.values():
+        if not isinstance(node, dict):
+            continue
+        nar = node.get("narration")
+        if isinstance(nar, str) and nar.strip():
+            node["narration"] = _normalize_narration_text(nar)
 
     # 1) final_accuse：只做結構保險，不寫死嫌疑人名字
     fa = nodes.get("final_accuse")
@@ -270,16 +329,75 @@ class RuntimeStoryNodesGeneratorV1:
 
     def __init__(self) -> None:
         self._ai_mode = (os.getenv("AI_MODE") or "mock").strip().lower()
-        self._model = (os.getenv("QF_STORY_MODEL") or "gpt-4o-mini").strip()
+        self._generate_model = _env_str("QF_STORY_GENERATE_MODEL", "QF_STORY_MODEL") or "gpt-5.1"
+        self._fix_model = _env_str("QF_STORY_FIX_MODEL", "QF_STORY_REPAIR_MODEL", "QF_STORY_MODEL") or "gpt-5-mini"
+        self._polish_model = _env_str("QF_STORY_POLISH_MODEL", "QF_STORY_FIX_MODEL", "QF_STORY_REPAIR_MODEL", "QF_STORY_MODEL") or "gpt-5-mini"
         self._max_attempts = _env_int("QF_STORY_MAX_ATTEMPTS", 4)
         self._include_old_rival = _env_bool("QF_INCLUDE_OLD_RIVAL", False)
+        self._main_max_output_tokens = _env_int("QF_STORY_MAIN_MAX_OUTPUT_TOKENS", 12000)
+        self._polish_max_output_tokens = _env_int("QF_STORY_POLISH_MAX_OUTPUT_TOKENS", 12000)
+        self._generate_temp = float(os.getenv("QF_STORY_GENERATE_TEMP") or "0.82")
         self._enrich_temp = float(os.getenv("QF_STORY_ENRICH_TEMP") or "0.55")
+        self._recent_theme_window = max(0, _env_int("QF_STORY_THEME_RECENT_WINDOW", 3))
+        self._recent_theme_file = Path(".qf_cache/story_theme_history.json")
 
         self._spec = StorySpecV1()
 
         self._client: Optional[OpenAI] = None
         if self._ai_mode == "real":
-            self._client = OpenAI()
+            self._client = build_openai_client()
+
+    def _model_for_mode(self, mode: str) -> str:
+        if mode == "generate":
+            return self._generate_model
+        if mode == "polish":
+            return self._polish_model
+        return self._fix_model
+
+    def _load_recent_themes(self) -> list[str]:
+        try:
+            if not self._recent_theme_file.exists():
+                return []
+            obj = json.loads(self._recent_theme_file.read_text(encoding="utf-8"))
+            if isinstance(obj, list):
+                return [str(x).strip() for x in obj if str(x).strip()]
+        except Exception:
+            return []
+        return []
+
+    def _save_recent_theme(self, theme: str) -> None:
+        t = str(theme or "").strip()
+        if not t:
+            return
+        recent = [x for x in self._load_recent_themes() if x != t]
+        recent.append(t)
+        recent = recent[-12:]
+        try:
+            self._recent_theme_file.parent.mkdir(parents=True, exist_ok=True)
+            self._recent_theme_file.write_text(
+                json.dumps(recent, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            return
+
+    def _pick_theme(self, seed: Optional[int], nonce: str) -> str:
+        themes = list(dict.fromkeys(self._spec.allowed_background_themes or []))
+        if not themes:
+            return ""
+        if self._recent_theme_window > 0:
+            recent = self._load_recent_themes()
+            blocked = set(recent[-self._recent_theme_window :])
+            filtered = [t for t in themes if t not in blocked]
+            if filtered:
+                themes = filtered
+
+        original = self._spec.allowed_background_themes
+        try:
+            self._spec.allowed_background_themes = themes
+            return self._spec.pick_theme(seed, nonce)
+        finally:
+            self._spec.allowed_background_themes = original
 
     def generate(self, *, seed: Optional[int] = None, forced_case_id: str | None = None) -> StoryNodesPackage:
         if self._ai_mode != "real":
@@ -287,10 +405,10 @@ class RuntimeStoryNodesGeneratorV1:
 
         assert self._client is not None
 
-        rules_text = (self._spec.prompts_dir / "story_prompt_v1.md").read_text(encoding="utf-8").strip()
+        rules_text = self._spec.load_story_prompt_text()
 
         nonce = uuid.uuid4().hex[:8]
-        theme = self._spec.pick_theme(seed, nonce)
+        theme = self._pick_theme(seed, nonce)
 
         base_prompt = self._spec.build_user_prompt(
             rules_text=rules_text,
@@ -311,7 +429,7 @@ class RuntimeStoryNodesGeneratorV1:
         for attempt in range(1, max(1, self._max_attempts) + 1):
             if attempt == 1:
                 input_text = base_prompt
-                temp = 0.6
+                temp = self._generate_temp
                 mode = "generate"
             else:
                 if (last_err or "").startswith("ENRICH_FAIL"):
@@ -354,26 +472,29 @@ class RuntimeStoryNodesGeneratorV1:
             last_prompt = input_text
             last_mode = mode
             last_attempt = attempt
+            current_model = self._model_for_mode(mode)
 
-            print(f"[AI_GEN] attempt={attempt} mode={mode} model={self._model}", flush=True)
+            print(f"[AI_GEN] attempt={attempt} mode={mode} model={current_model}", flush=True)
 
             try:
-                resp = self._client.responses.create(
-                    model=self._model,
+                resp = _responses_create(
+                    self._client,
+                    model=current_model,
                     input=input_text,
                     temperature=temp,
-                    max_output_tokens=7000,
+                    max_output_tokens=self._main_max_output_tokens,
                     text={"format": {"type": "json_object"}},
                 )
                 used_json_object = True
             except Exception as e:
                 used_json_object = False
                 print(f"[AI_GEN] response_format(json_object) unsupported -> fallback: {e!r}", flush=True)
-                resp = self._client.responses.create(
-                    model=self._model,
+                resp = _responses_create(
+                    self._client,
+                    model=current_model,
                     input=input_text,
                     temperature=temp,
-                    max_output_tokens=7000,
+                    max_output_tokens=self._main_max_output_tokens,
                 )
 
             raw_text = (resp.output_text or "").strip()
@@ -382,7 +503,7 @@ class RuntimeStoryNodesGeneratorV1:
                 print("[AI_GEN] empty output_text", flush=True)
                 _dump_failed_ai_story_files(
                     case_id_hint=case_id_hint,
-                    model=self._model,
+                    model=current_model,
                     mode=last_mode,
                     attempt=attempt,
                     last_err=last_err,
@@ -402,7 +523,7 @@ class RuntimeStoryNodesGeneratorV1:
                     last_err = "top_level_not_object"
                     _dump_failed_ai_story_files(
                         case_id_hint=case_id_hint,
-                        model=self._model,
+                        model=current_model,
                         mode=last_mode,
                         attempt=attempt,
                         last_err=last_err,
@@ -423,10 +544,14 @@ class RuntimeStoryNodesGeneratorV1:
                 pkg = story_nodes_package_from_dict(data)
 
                 # ✅ 第一次 validate：失敗就做 micro-repair（只修 scene_01_start）
+                validator_res = "ok"
+                validator_err = ""
                 try:
                     validate_story_nodes_v1(pkg)
                 except StoryNodesValidationError as ve:
+                    validator_res = "fail"
                     err_txt = _story_err_text(ve)
+                    validator_err = err_txt
 
                     # (A) 開場段落不足 → micro append
                     pp = self._is_opening_paragraph_error(err_txt)
@@ -460,13 +585,63 @@ class RuntimeStoryNodesGeneratorV1:
                         raise
 
                 nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
+                rep = self._spec.enrich_report(nodes=nodes, theme=theme)
 
-                if self._spec.needs_enrich(nodes=nodes):
+                # 先做最小化專項修補，避免為了補 endings 或 generic prose 又整包重生一次
+                if rep.get("reasons"):
+                    if any(
+                        ("結尾不完整" in str(r)) or ("三個 endings 提到的嫌疑人不一致" in str(r))
+                        for r in (rep.get("reasons") or [])
+                    ):
+                        if self._micro_repair_endings(data=data, theme=theme, rep=rep):
+                            pkg = story_nodes_package_from_dict(data)
+                            validate_story_nodes_v1(pkg)
+                            nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
+                            rep = self._spec.enrich_report(nodes=nodes, theme=theme)
+
+                    if any("出現空泛 AI 說書套句" in str(r) for r in (rep.get("reasons") or [])):
+                        polished = self._best_effort_polish_story(data=data, theme=theme)
+                        if polished is not None:
+                            data = polished
+                            pkg = story_nodes_package_from_dict(data)
+                            validate_story_nodes_v1(pkg)
+                            nodes = data.get("nodes") if isinstance(data.get("nodes"), dict) else {}
+                            rep = self._spec.enrich_report(nodes=nodes, theme=theme)
+
+                # ====================================================
+                # QUALITY METRICS LOGGING
+                # ====================================================
+                total_paras = self._spec._count_total_paragraphs(nodes)
+                inc_nid = self._spec._find_first_incident_node(nodes)
+                before_paras = self._spec._count_paragraphs_before_node(nodes, inc_nid) if inc_nid else 0
+                ratio = (before_paras / max(1, total_paras)) if total_paras > 0 else 0.0
+
+                metrics_log = {
+                    "opening_lines": rep.get("opening_paragraphs", 0),
+                    "incident_delayed_ratio": round(ratio, 2),
+                    "incident_check_ok": "事件出現太早" not in "".join(rep.get("reasons", [])),
+                    "validator_res": validator_res,
+                    "validator_err": validator_err,
+                    "enrich_reasons": rep.get("reasons", []),
+                }
+                print(f"[AI_GEN_METRICS] {json.dumps(metrics_log, ensure_ascii=False)}", flush=True)
+                # ====================================================
+
+                # needs_enrich depends on the same logic internally, we can just use rep
+                if rep.get("reasons") or self._spec.needs_enrich(nodes=nodes):
                     rep = self._spec.enrich_report(nodes=nodes, theme=theme)
                     last_err = "ENRICH_FAIL " + json.dumps(rep, ensure_ascii=False)
                     raw_text = json.dumps(data, ensure_ascii=False, indent=2)
                     print(f"[AI_GEN] enrich_gate_fail: {rep}", flush=True)
                     continue
+
+                # ✅ 第二次潤句：只修語句自然度，不動結構/choices/solution_index
+                if self._spec.enable_post_polish:
+                    polished = self._best_effort_polish_story(data=data, theme=theme)
+                    if polished is not None:
+                        data = polished
+                        pkg = story_nodes_package_from_dict(data)
+                        validate_story_nodes_v1(pkg)
 
                 if not pkg.meta.case_id.strip():
                     pkg.meta.case_id = forced_case_id or f"ai_{uuid.uuid4().hex[:10]}"
@@ -475,6 +650,7 @@ class RuntimeStoryNodesGeneratorV1:
 
                 dt = time.time() - t0
                 _dump_story_package_files(pkg_dict=data)
+                self._save_recent_theme(theme)
                 print(
                     f"[AI_GEN] ok attempt={attempt} dt={dt:.2f}s nodes={len(pkg.nodes)} case_id={pkg.meta.case_id}",
                     flush=True,
@@ -493,7 +669,7 @@ class RuntimeStoryNodesGeneratorV1:
 
                 _dump_failed_ai_story_files(
                     case_id_hint=case_id_hint,
-                    model=self._model,
+                    model=current_model,
                     mode=last_mode,
                     attempt=attempt,
                     last_err=last_err,
@@ -508,7 +684,7 @@ class RuntimeStoryNodesGeneratorV1:
                 print("[AI_GEN] validation_fail:", last_err, flush=True)
                 _dump_failed_ai_story_files(
                     case_id_hint=case_id_hint,
-                    model=self._model,
+                    model=current_model,
                     mode=last_mode,
                     attempt=attempt,
                     last_err=last_err,
@@ -523,7 +699,7 @@ class RuntimeStoryNodesGeneratorV1:
                 print("[AI_GEN] fail:", last_err, flush=True)
                 _dump_failed_ai_story_files(
                     case_id_hint=case_id_hint,
-                    model=self._model,
+                    model=current_model,
                     mode=last_mode,
                     attempt=attempt,
                     last_err=last_err,
@@ -535,7 +711,7 @@ class RuntimeStoryNodesGeneratorV1:
 
         _dump_failed_ai_story_files(
             case_id_hint=case_id_hint,
-            model=self._model,
+            model=self._model_for_mode(last_mode or "generate"),
             mode=last_mode,
             attempt=last_attempt,
             last_err=last_err or "unknown_error",
@@ -610,8 +786,9 @@ theme={theme}
 """.strip()
 
         try:
-            resp = self._client.responses.create(
-                model=self._model,
+            resp = _responses_create(
+                self._client,
+                model=self._fix_model,
                 input=prompt,
                 temperature=0.0,
                 max_output_tokens=2500,
@@ -690,8 +867,9 @@ theme={theme}
 """.strip()
 
         try:
-            resp = self._client.responses.create(
-                model=self._model,
+            resp = _responses_create(
+                self._client,
+                model=self._fix_model,
                 input=prompt,
                 temperature=0.2,
                 max_output_tokens=1800,
@@ -727,6 +905,144 @@ theme={theme}
             return True
         except Exception:
             return False
+
+    def _micro_repair_endings(self, *, data: Dict[str, Any], theme: str, rep: Dict[str, Any]) -> bool:
+        if not self._client:
+            return False
+
+        nodes = data.get("nodes")
+        if not isinstance(nodes, dict):
+            return False
+
+        ending_ids: list[str] = []
+        reasons = rep.get("reasons") or []
+        force_all_endings = any("三個 endings 提到的嫌疑人不一致" in str(r) for r in reasons)
+
+        for eid in ("scene_10_ending_clear", "scene_10_ending_nudge", "scene_10_ending_defer"):
+            if force_all_endings or any(eid in str(r) and "結尾不完整" in str(r) for r in reasons):
+                ending_ids.append(eid)
+
+        if not ending_ids:
+            return False
+
+        candidate = copy.deepcopy(data)
+        candidate_nodes = candidate.get("nodes")
+        if not isinstance(candidate_nodes, dict):
+            return False
+
+        prompt = self._spec.build_endings_repair_prompt(
+            raw_json=json.dumps(candidate, ensure_ascii=False, indent=2),
+            theme=theme,
+            ending_ids=ending_ids,
+        )
+
+        try:
+            resp = _responses_create(
+                self._client,
+                model=self._fix_model,
+                input=prompt,
+                temperature=0.15,
+                max_output_tokens=2800,
+                text={"format": {"type": "json_object"}},
+            )
+            patch_raw = (resp.output_text or "").strip()
+            if not patch_raw:
+                return False
+
+            patch = _extract_first_json(patch_raw)
+            if not isinstance(patch, dict):
+                return False
+
+            changed = False
+            for eid in ending_ids:
+                new_nar = patch.get(eid)
+                if not isinstance(new_nar, str) or not new_nar.strip():
+                    return False
+                new_nar = _normalize_narration_text(new_nar)
+                if not self._spec._ending_ok(new_nar):
+                    return False
+
+                node = candidate_nodes.get(eid)
+                if not isinstance(node, dict):
+                    return False
+                node["narration"] = new_nar
+                candidate_nodes[eid] = node
+                changed = True
+
+            if not changed:
+                return False
+
+            candidate["nodes"] = candidate_nodes
+            candidate_rep = self._spec.enrich_report(
+                nodes=candidate_nodes,
+                theme=theme,
+            )
+            if any("三個 endings 提到的嫌疑人不一致" in str(r) for r in (candidate_rep.get("reasons") or [])):
+                return False
+            if any(eid in str(r) and "結尾不完整" in str(r) for eid in ending_ids for r in (candidate_rep.get("reasons") or [])):
+                return False
+
+            data.clear()
+            data.update(candidate)
+            return True
+        except Exception:
+            return False
+
+    def _best_effort_polish_story(self, *, data: Dict[str, Any], theme: str) -> Dict[str, Any] | None:
+        """
+        在 validate / enrich 都已通過後，再做一次只針對語句自然度的潤句。
+        若潤句輸出有任何結構問題，直接回退原稿，不讓生成失敗。
+        """
+        if not self._client:
+            return None
+
+        original = copy.deepcopy(data)
+        raw_json = json.dumps(original, ensure_ascii=False, indent=2)
+        prompt = self._spec.build_polish_prompt(raw_json=raw_json, theme=theme)
+
+        try:
+            resp = _responses_create(
+                self._client,
+                model=self._polish_model,
+                input=prompt,
+                temperature=0.15,
+                max_output_tokens=self._polish_max_output_tokens,
+                text={"format": {"type": "json_object"}},
+            )
+            polished_raw = (resp.output_text or "").strip()
+            if not polished_raw:
+                print("[AI_POLISH] empty output_text; keep original", flush=True)
+                return None
+
+            polished = _extract_first_json(polished_raw)
+            if not isinstance(polished, dict):
+                print("[AI_POLISH] top-level not object; keep original", flush=True)
+                return None
+
+            merged = _merge_polished_package_dict(original=original, polished=polished)
+            merged = _deep_replace_nl_escapes(merged)
+            merged = _autofix_package_dict(
+                data=merged,
+                theme=theme,
+                forced_case_id=str(((original.get("meta") or {}).get("case_id")) or "").strip() or None,
+                spec=self._spec,
+            )
+
+            pkg = story_nodes_package_from_dict(merged)
+            validate_story_nodes_v1(pkg)
+            merged_nodes = merged.get("nodes") if isinstance(merged.get("nodes"), dict) else {}
+            merged_rep = self._spec.enrich_report(nodes=merged_nodes, theme=theme)
+            if merged_rep.get("reasons"):
+                print(
+                    f"[AI_POLISH] skip because enrich reasons returned: {merged_rep.get('reasons')}",
+                    flush=True,
+                )
+                return None
+            print("[AI_POLISH] ok", flush=True)
+            return merged
+        except Exception as e:
+            print(f"[AI_POLISH] skip due to {type(e).__name__}: {e}", flush=True)
+            return None
 
     def _mock_story_nodes(self, *, seed: Optional[int]) -> StoryNodesPackage:
         from questforge.content.story_case_generated_demo_v10 import STORY_NODES as DEMO_NODES  # type: ignore
@@ -767,6 +1083,48 @@ def _engine_nodes_dict_to_story_nodes_v1(nodes: Dict[str, Any]) -> Dict[str, Any
         if "can_quit" in node:
             out[node_id]["can_quit"] = node.get("can_quit")
 
+    return out
+
+
+def _merge_polished_package_dict(*, original: Dict[str, Any], polished: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    只接收 polish 後較自然的文字內容，保留原本已驗證通過的結構欄位。
+    """
+    out = copy.deepcopy(original)
+
+    o_meta = out.get("meta")
+    p_meta = polished.get("meta") if isinstance(polished, dict) else None
+    if isinstance(o_meta, dict) and isinstance(p_meta, dict):
+        p_title = str(p_meta.get("title") or "").strip()
+        if p_title:
+            o_meta["title"] = p_title
+        out["meta"] = o_meta
+
+    o_nodes = out.get("nodes")
+    p_nodes = polished.get("nodes") if isinstance(polished, dict) else None
+    if not isinstance(o_nodes, dict) or not isinstance(p_nodes, dict):
+        return out
+
+    for nid, o_node in o_nodes.items():
+        if not isinstance(o_node, dict):
+            continue
+        p_node = p_nodes.get(nid)
+        if not isinstance(p_node, dict):
+            continue
+
+        p_title = p_node.get("title")
+        if isinstance(p_title, str) and p_title.strip():
+            o_node["title"] = p_title.strip()
+
+        p_nar = p_node.get("narration")
+        if isinstance(p_nar, str) and p_nar.strip():
+            o_node["narration"] = _normalize_narration_text(p_nar)
+        elif isinstance(p_nar, list) and p_nar:
+            o_node["narration"] = p_nar
+
+        o_nodes[nid] = o_node
+
+    out["nodes"] = o_nodes
     return out
 
 

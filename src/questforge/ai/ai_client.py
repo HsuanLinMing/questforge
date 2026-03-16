@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from openai import OpenAI
 
+from questforge.ai.openai_env import build_openai_client
 from questforge.ai.schemas import StoryPackage
 from questforge.ai.storypackage_codec import storypackage_from_dict, StoryPackageParseError
 
@@ -29,7 +30,7 @@ class MockAiClient:
 
 class RealAiClient:
     def __init__(self) -> None:
-        self._client = OpenAI()
+        self._client = build_openai_client()
 
     def _load_prompt(self) -> str:
         try:

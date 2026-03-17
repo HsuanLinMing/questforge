@@ -26,9 +26,9 @@ JsonDict = Dict[str, Any]
 # -------------------------
 GOLDEN_OPENING_EXAMPLE = """
 【黃金開場示範（僅示範節奏，禁止照抄內容）】
-旁白：操場今天不像操場，比較像一個把全校都倒進來攪一攪的大鍋子。
+旁白：廣播阿姨阿秀一手按著快滑下來的耳機，一手朝舞台那頭揮，像恨不得自己多長兩隻手。
 
-旁白：舞台那邊在試音，攤位那邊在貼價目表，報到桌前面一排人拿著表演單、名牌和膠帶，誰都說自己只差最後一下。
+旁白：今天是學校的才藝園遊會，舞台那邊在試音，攤位那邊在貼價目表，報到桌前面一排人拿著表演單、名牌和膠帶，誰都說自己只差最後一下。
 
 霏霏：每次有人說「只差最後一下」，通常後面都還有十下。
 
@@ -50,9 +50,9 @@ GOLDEN_OPENING_EXAMPLE = """
 
 霏霏：放心，他先發射的應該是口水。
 
-旁白：報到桌前，班長妙妙抱著一疊號碼牌，嘴上一直說不急不急，腳步卻快得像在跟時間打架。
+旁白：報到桌前，鉛筆小白抱著一疊號碼牌，嘴上一直說不急不急，腳步卻快得像在跟時間打架。
 
-妙妙：三年二班先來領表演牌！拿到的人不要亂放，真的不要亂放，我今天已經說第八次了！
+鉛筆小白：三年二班先來領表演牌！拿到的人不要亂放，真的不要亂放，我今天已經說第八次了！
 
 樂樂：她嘴巴說不急，聲音像快要起飛。
 
@@ -68,7 +68,7 @@ GOLDEN_OPENING_EXAMPLE = """
 
 旁白：旁邊的工作人員剛把抽獎箱搬到服務台，另一頭又有人叫他去幫忙掛海報，整個場子像每一個角落都在同時喊「先來這邊」。
 
-廣播：請表演隊伍注意，第一輪彩排五分鐘後開始。還沒報到的班級，不要再派一個人慢慢走過來了。
+廣播阿姨阿秀：請表演隊伍注意，第一輪彩排五分鐘後開始。還沒報到的班級，不要再派一個人慢慢走過來了。
 
 樂樂：廣播姊姊是不是已經生氣了？
 
@@ -110,8 +110,8 @@ class StorySpecV1:
     unsure_choice_text: str = "我還不確定，交給大人"
 
     # 開場段落數（以 \n\n 分段）
-    opening_min_paragraphs: int = 12
-    pre_incident_min_paragraphs: int = 24
+    opening_min_paragraphs: int = 14
+    pre_incident_min_paragraphs: int = 30
 
     # 事件節點 id（用來判定「有事件」）
     incident_node_id: str = "scene_02_incident"
@@ -324,6 +324,20 @@ class StorySpecV1:
                     "mislead": "先讓人以為他只是手腳快，後來才看出他根本一直在偷挪、偷藏、偷改。",
                     "human_core": "真相和貪心、想佔便宜、覺得『一下下應該沒差』有關。",
                 },
+                {
+                    "name": "報復破壞型",
+                    "setup": "有人不是只想鬧一下，而是真的氣不過，故意去動別人的道具、設備或安全安排。",
+                    "pressure": "一旦成功，不只會害人難堪，還可能讓東西壞掉、流程停擺，甚至差點害人受傷。",
+                    "mislead": "先讓大家以為是現場忙亂弄壞的，後來才發現某個人早就帶著不爽和報復心在靠近關鍵物件。",
+                    "human_core": "真相和報復、嫉妒、想讓別人也吃一次苦頭有關。",
+                },
+                {
+                    "name": "危險邊緣型",
+                    "setup": "有人逞強、愛現或想幫朋友扳回一城，先動了一個『應該不會怎樣吧』的小手腳。",
+                    "pressure": "那個小手腳把事情推到差點受傷、差點燙到、差點砸壞設備或整個流程被迫喊停的邊緣。",
+                    "mislead": "先讓大家覺得只是小亂子，後來才從被拉住的人、差點倒下的東西、被喊停的流程看出嚴重性。",
+                    "human_core": "真相和低估後果、愛逞強、想出一口氣有關。",
+                },
             ]
 
         if self.incident_shape_cards is None:
@@ -407,6 +421,21 @@ class StorySpecV1:
                     "name": "藏起關鍵物品害人卡關",
                     "shape": "有人偷偷把關鍵物品、票券、名牌、裝備、號碼牌、路線圖藏起來，本來只想卡別人一下，結果差點害人錯過大流程或進到不安全的狀況。",
                     "drift_guard": "不要只收成『藏起來又拿出來』；要寫出它差點造成的更大後果，以及大人如何介入處理。",
+                },
+                {
+                    "name": "破壞道具或設備",
+                    "shape": "有人故意或半故意去動表演道具、麥克風線、裝飾、器材、房卡、票券或安全物件，結果不只害流程亂掉，還差點讓東西壞掉或害人受傷。",
+                    "drift_guard": "不要只寫成『東西壞了』；要寫出誰動過、為什麼動、差點造成什麼實際衝擊，以及大人怎麼立刻接手。",
+                },
+                {
+                    "name": "安全動線被搞亂",
+                    "shape": "有人把指示、號碼、方向牌、安全線或排隊動線偷偷改掉，本來想害別人出糗或拖慢，結果差點讓人撞上、絆倒、誤闖危險區，整個流程一度停擺。",
+                    "drift_guard": "重點是它真的差點出事，不只是大家跑錯邊；一定要寫出實際危險邊緣和大人接手穩場。",
+                },
+                {
+                    "name": "惡意弄壞重要物件",
+                    "shape": "有人把服裝、裝備、展示品、餐點、名牌或關鍵道具弄髒、弄壞、泡濕、扯裂，想讓別人上不了場或當場難堪。",
+                    "drift_guard": "不要只剩『東西壞掉』；要把做壞事的人當時的氣、嫉妒或報復心，以及差點擴大的現場後果寫出來。",
                 },
             ]
 
@@ -583,6 +612,7 @@ class StorySpecV1:
             self.opening_overview_regex_patterns = [
                 r"從[^。！？\n]{0,12}到[^。！？\n]{0,12}都",
                 r"到處都是[^。！？\n]{0,12}",
+                r"^旁白：一年一度的[^。！？\n]{0,26}(今天正式開始|正式登場|今天開始)",
             ]
 
         if self.ending_moralizing_patterns is None:
@@ -705,6 +735,9 @@ class StorySpecV1:
                 "隊友",
                 "搭檔",
                 "對手",
+                "助理",
+                "負責",
+                "幫忙",
                 "去年冠軍",
                 "上一屆",
                 "班導",
@@ -891,6 +924,8 @@ class StorySpecV1:
             "惡作劇過頭型": 5,
             "替朋友出氣型": 3,
             "貪心占便宜型": 3,
+            "報復破壞型": 5,
+            "危險邊緣型": 5,
             "兩層誤會型": 2,
             "說半套型": 2,
         }
@@ -908,13 +943,16 @@ class StorySpecV1:
         if not cards:
             return {}
         weights = {
-            "偷偷藏起來": 4,
-            "故意偷改順序或標記": 4,
+            "偷偷藏起來": 3,
+            "故意偷改順序或標記": 2,
             "搶風頭害人出糗": 4,
-            "報復式惡作劇": 4,
-            "惡作劇差點釀成危險": 5,
+            "報復式惡作劇": 5,
+            "惡作劇差點釀成危險": 6,
             "藏起關鍵物品害人卡關": 4,
-            "被懷疑作弊或搶位": 3,
+            "破壞道具或設備": 6,
+            "安全動線被搞亂": 6,
+            "惡意弄壞重要物件": 6,
+            "被懷疑作弊或搶位": 1,
             "誤傳公告": 2,
         }
         weighted_cards: list[Dict[str, Any]] = []
@@ -1056,7 +1094,107 @@ class StorySpecV1:
             and p0.count("，") >= 3
         ):
             hits.append("今天活動總覽起手")
+        if (
+            (p0.startswith("旁白：一年一度的") or p0.startswith("旁白：今天是一年一度的") or p0.startswith("旁白：今晚是一年一度的"))
+            and not any(mark in p0 for mark in ["霏霏", "樂樂", "爸爸", "媽媽", "同學", "老師", "阿姨阿", "叔叔阿"])
+            and "「" not in p0
+            and "」" not in p0
+        ):
+            hits.append("一年一度活動口播起手")
         return hits
+
+    def _opening_person_action_ok(self, text: str) -> bool:
+        first_para = self.split_paragraphs(text or "")
+        if not first_para:
+            return False
+        p0 = first_para[0]
+        human_tokens = [
+            "霏霏",
+            "樂樂",
+            "爸爸",
+            "媽媽",
+            "老師",
+            "阿姨",
+            "叔叔",
+            "同學",
+            "志工",
+            "工作人員",
+            "主持人",
+            "站務員",
+            "老闆",
+            "家長",
+        ]
+        action_tokens = [
+            "忙",
+            "衝",
+            "跑",
+            "扛",
+            "拉",
+            "抱",
+            "揮",
+            "喊",
+            "擦",
+            "找",
+            "追",
+            "擠",
+            "搬",
+            "端",
+            "塞",
+            "掉",
+            "滑",
+            "喘",
+            "翻",
+            "拽",
+            "蹲",
+            "跳",
+        ]
+        has_human = any(token in p0 for token in human_tokens)
+        has_action = any(token in p0 for token in action_tokens)
+        return has_human and has_action
+
+    def _memorable_name_style_hits(self, nodes: Dict[str, Any]) -> List[str]:
+        hits: list[str] = []
+        for name in self._collect_preaccuse_named_cast(nodes):
+            base = self._speaker_label_base_name(name)
+            if not base or base in {"旁白", "霏霏", "樂樂"}:
+                continue
+            if self._name_is_too_generic_or_placeholder(base):
+                continue
+            if re.search(r"阿[\u4e00-\u9fff]{1,3}", base):
+                hits.append(base)
+                continue
+            if re.search(r"[\u4e00-\u9fff]{1,4}小[\u4e00-\u9fff]{1,3}", base):
+                hits.append(base)
+                continue
+            if re.search(r"([\u4e00-\u9fff])\1", base):
+                hits.append(base)
+                continue
+        return sorted(dict.fromkeys(hits))
+
+    def _queue_dispute_hits(self, nodes: Dict[str, Any]) -> int:
+        blob = "\n".join(
+            [
+                self._node_narration(nodes, self.incident_node_id),
+                self._node_narration(nodes, "scene_03_check_1"),
+                self._node_narration(nodes, "scene_04_check_2"),
+                self._node_narration(nodes, "scene_05_check_3"),
+                self._node_narration(nodes, "scene_06_hypothesis_1"),
+            ]
+        )
+        marks = [
+            "排隊",
+            "插隊",
+            "換位置",
+            "換位",
+            "順序",
+            "順位",
+            "搶先",
+            "排回",
+            "隊伍",
+            "號碼牌",
+            "先進去",
+        ]
+        return min(sum(blob.count(mark) for mark in marks if mark in blob), 199)
 
     def _opening_arrival_context_hits(self, text: str) -> List[str]:
         head = "\n".join(self.split_paragraphs(text or "")[:5])
@@ -1346,6 +1484,64 @@ class StorySpecV1:
         ]
         return min(sum(blob.count(mark) for mark in marks if mark in blob), 199)
 
+    def _pre_incident_dialogue_hits(self, nodes: Dict[str, Any]) -> Dict[str, int]:
+        paras = self.split_paragraphs(self.pre_incident_text(nodes))
+        total_dialogue = 0
+        sibling_dialogue = 0
+        for para in paras:
+            m = re.match(r"^([^：:\n]{1,16})[：:]", para)
+            if not m:
+                continue
+            speaker = self._speaker_label_base_name(m.group(1))
+            if not speaker or speaker == "旁白":
+                continue
+            total_dialogue += 1
+            if speaker in {"霏霏", "樂樂"}:
+                sibling_dialogue += 1
+        return {
+            "pre_incident_dialogue_hits": min(total_dialogue, 199),
+            "sibling_banter_hits": min(sibling_dialogue, 199),
+        }
+
+    def _damage_risk_hits(self, nodes: Dict[str, Any]) -> int:
+        blob = "\n".join(
+            [
+                self._node_narration(nodes, self.incident_node_id),
+                self._node_narration(nodes, "scene_03_check_1"),
+                self._node_narration(nodes, "scene_04_check_2"),
+                self._node_narration(nodes, "scene_05_check_3"),
+                self._node_narration(nodes, "scene_06_hypothesis_1"),
+                self._node_narration(nodes, "scene_10_ending_clear"),
+                self._node_narration(nodes, "scene_10_ending_nudge"),
+                self._node_narration(nodes, "scene_10_ending_defer"),
+            ]
+        )
+        marks = [
+            "受傷",
+            "擦傷",
+            "撞到",
+            "絆倒",
+            "摔倒",
+            "滑倒",
+            "燙到",
+            "燙傷",
+            "打翻",
+            "砸到",
+            "壞掉",
+            "裂開",
+            "斷掉",
+            "冒煙",
+            "設備",
+            "道具",
+            "線路",
+            "推車",
+            "玻璃",
+            "暫停流程",
+            "停擺",
+            "宣布暫停",
+        ]
+        return min(sum(blob.count(mark) for mark in marks if mark in blob), 199)
+
     def _premature_certainty_hits(self, text: str) -> List[str]:
         t = text or ""
         patterns = [
@@ -1445,6 +1641,8 @@ class StorySpecV1:
         wrongdoing = self._wrongdoing_scale_report(blob)
         stakes = self._stakes_scale_report(nodes)
         cast_intro_issues = self._first_appearance_grounding_issues(nodes)
+        pre_incident_dialogue = self._pre_incident_dialogue_hits(nodes)
+        memorable_names = self._memorable_name_style_hits(nodes)
         investigation_blob = "\n".join(
             [
                 self._node_narration(nodes, self.incident_node_id),
@@ -1467,6 +1665,11 @@ class StorySpecV1:
             "bigger_consequence_hits": int(stakes.get("bigger_consequence_hits") or 0),
             "adult_takeover_hits": int(stakes.get("adult_takeover_hits") or 0),
             "late_flip_hits": self._late_flip_hits(nodes),
+            "pre_incident_dialogue_hits": int(pre_incident_dialogue.get("pre_incident_dialogue_hits") or 0),
+            "sibling_banter_hits": int(pre_incident_dialogue.get("sibling_banter_hits") or 0),
+            "damage_risk_hits": self._damage_risk_hits(nodes),
+            "memorable_name_hits": len(memorable_names),
+            "queue_dispute_hits": self._queue_dispute_hits(nodes),
         }
 
     def style_quality_report(self, nodes: Dict[str, Any]) -> Dict[str, Any]:
@@ -1710,6 +1913,8 @@ class StorySpecV1:
         opening_overview_hits = self._opening_overview_hits(s01)
         if opening_overview_hits:
             reasons.append(f"scene_01_start 首段太像總覽口播：{opening_overview_hits[:3]}")
+        if not self._opening_person_action_ok(s01):
+            reasons.append("scene_01_start 第一段還沒有先讓人出現（最好一進來就看到某個人在忙、衝、找人或出糗）")
 
         arrival_hits = self._opening_arrival_context_hits(s01)
         if not arrival_hits:
@@ -1863,6 +2068,19 @@ class StorySpecV1:
             reasons.append(
                 f"配角第一次出場太跳（這些名字初登場時沒有順手交代關係/職責：{cast_intro_issues[:4]}）"
             )
+        if (
+            int(clue.get("side_speaker_count") or 0) >= 3
+            and int(clue.get("memorable_name_hits") or 0) < 1
+        ):
+            reasons.append("配角名字記憶點偏弱（至少留一兩個像「鉛筆小白 / 狐狸小右 / 廣播阿姨阿秀」這種一聽就記得住的名字）")
+        if int(clue.get("pre_incident_dialogue_hits") or 0) < 10:
+            reasons.append(
+                f"前段互動太少（事件前真正的對話/打鬧還不夠：{int(clue.get('pre_incident_dialogue_hits') or 0)}）"
+            )
+        if int(clue.get("sibling_banter_hits") or 0) < 4:
+            reasons.append(
+                f"霏霏樂樂前段打鬧感不足（事件前姊弟互動太少：{int(clue.get('sibling_banter_hits') or 0)}）"
+            )
         if int(clue.get("twist_hits") or 0) < 6:
             reasons.append(
                 f"誤導層次偏弱（說法互撞/改口/遮掩太少：{int(clue.get('twist_hits') or 0)}）"
@@ -1880,6 +2098,13 @@ class StorySpecV1:
             )
         if int(clue.get("bigger_consequence_hits") or 0) < 2:
             reasons.append("案件後果太輕（還像小小惡作劇，沒有長成差點釀成更大麻煩的感覺）")
+        if int(clue.get("damage_risk_hits") or 0) < 2:
+            reasons.append("事件真實衝擊太弱（還沒有明顯碰到受傷風險、設備受損或流程停擺的邊緣）")
+        if (
+            int(clue.get("queue_dispute_hits") or 0) >= 6
+            and int(clue.get("sneaky_wrongdoing_hits") or 0) < 5
+        ):
+            reasons.append("核心麻煩又縮成排隊/順位糾紛（除非背後還連著更大的破壞、危險或偷動手腳，否則不要只靠插隊換位撐整案）")
         if (
             int(clue.get("bigger_consequence_hits") or 0) >= 2
             and int(clue.get("adult_takeover_hits") or 0) < 1
@@ -1965,12 +2190,12 @@ class StorySpecV1:
   "nodes": {{
     "scene_01_start": {{
       "title": "開場節點標題（可自訂）",
-      "narration": "至少 {self.opening_min_paragraphs} 段；用 \\n\\n 分段；前 2~4 段可以先交代今天到底是什麼活動、現場有哪些區域/比賽/流程、霏霏和樂樂為什麼會來、今天被分到什麼或本來想玩什麼；但不要只有導覽詞，馬上要落回具體人和正在發生的事",
+      "narration": "至少 {self.opening_min_paragraphs} 段；用 \\n\\n 分段；前半要更像一整段生活現場：今天到底是什麼活動、現場有哪些區域/比賽/流程、霏霏和樂樂為什麼會來、今天被分到什麼、至少兩三輪姊弟打鬧和配角互動；但不要只有導覽詞，馬上要落回具體人和正在發生的事",
       "choices": [{{"text":"繼續","next":"scene_01_warmup_2"}}]
     }},
     "scene_01_warmup_2": {{
       "title": "warmup 節點標題（可自訂）",
-      "narration": "延續同一場景；讓人物互相擦撞、逞強、嘴硬、搶快、幫倒忙、亂傳話都可以；玩笑要自然，不要像作者硬加進來；先不要把案件講破",
+      "narration": "延續同一場景；讓人物互相擦撞、逞強、嘴硬、搶快、幫倒忙、亂傳話都可以；玩笑要自然，不要像作者硬加進來；多補一點任務、分工、排隊、東西香味、誰在忙誰在喘；先不要把案件講破",
       "choices": [{{"text":"再繼續","next":"scene_01_warmup_3"}}]
     }},
     "scene_01_warmup_3": {{
@@ -1980,7 +2205,7 @@ class StorySpecV1:
     }},
     "{self.incident_node_id}": {{
       "title": "事件節點標題（可自訂）",
-      "narration": "案件發生：用自然方式描述今天冒出一件真的會讓場面卡住、讓人難堪、或把大家的判斷帶歪的事；更像樣本的是有人故意亂動、偷偷藏、偷改、搶風頭、害人出糗，甚至讓事情差點變危險，但最後仍由大人穩住現場，不要寫成嚇人的重刑場面",
+      "narration": "案件發生：用自然方式描述今天冒出一件真的會讓場面卡住、讓人難堪、把大家判斷帶歪，甚至差點害人受傷、差點弄壞設備或道具、差點讓流程被迫喊停的事；更像樣本的是有人故意亂動、偷偷破壞、偷改、安全動線被搞亂、搶風頭害人出糗；最後仍由大人穩住現場，不要寫成嚇人的重刑場面",
       "choices": [{{"text":"一起看看發生什麼事","next":"scene_03_check_1"}}]
     }},
     "scene_03_check_1": {{
@@ -2106,15 +2331,20 @@ class StorySpecV1:
 - 先把場子寫活，再讓事件長出來。scene_01_start 與 warmup 不只是過場，而是要讓這個活動像一整集真的正在運轉。
 - 背景要有大場面感，不要只剩一個角落。最好讓讀者能看見至少幾個正在動的區域，例如舞台、報到桌、攤位、服務台、後台、排隊區、休息區。
 - 開場第一句就要有戲。你可以先用 1~2 段交代「今天是一年一度的什麼活動、這裡到底在辦什麼」，但那兩段必須帶活動名字、現場區域、比賽/流程內容，不能只有空拍總覽；接著馬上要落到一個具體人、一句話、一個狼狽動作或一個卡住的場面。
+- 第一個畫面最好直接先看見某個人正在忙、衝、扛、擦汗、找人、拌嘴或出糗，再順手知道今天到底在辦什麼；不要讓第一句完整停在「一年一度的什麼活動今天開始了」。
 - 第一段盡量不要只用「今天這裡正在舉辦……」起手。更像樣本的是：先看到某個人正在忙、衝、喊、擦汗、搶話、出糗，再在同一段裡順手帶出今天到底在辦什麼。
 - 開場前 3 到 5 段也要自然交代霏霏和樂樂為什麼今天會在這裡、跟誰來、原本是來玩/來住/來參加什麼、今天被分到什麼或想先衝哪一區，不要像鏡頭一開他們就已經憑空站在場中央。
-- 前半可以更有溫度、更久一點。scene_01_start 加上兩個 warmup，應該先讓讀者認識人、喜歡場子、記住誰在搶話誰在鬧，然後才真的出事，不要一兩個轉身就直接進案子。
+- 前半可以更有溫度、更久一點。scene_01_start 加上兩個 warmup，通常應該長到像故事前半集：先讓讀者認識人、喜歡場子、記住誰在搶話誰在鬧、知道今天各自負責什麼，然後才真的出事，不要一兩個轉身就直接進案子。
+- 在真正出事前，最好先有 2 到 3 輪姊弟打鬧、配角插話、現場任務或小狼狽，讓孩子真的逛進這個場合。
 - 開頭先讓配角有記憶點。不要只有「有幾個同學」，而是要有會搶話的人、愛逞強的人、忙到快飛起來的人、嘴硬的人；而且最好第一次開口就帶出毛病。
+- 配角名字最好留一兩個一聽就記得住的名字。孩子角色可以偏可愛綽號式或外號式，例如「鉛筆小白 / 狐狸小右 / 糖果小莓」；大人也可以用「職責/關係 + 暱稱」，例如「廣播阿姨阿秀 / 點心叔叔阿發」。
 - 配角第一次出場時，順手交代他是誰、跟主角或活動的關係、為什麼會跟大家站在一起。最好直接寫成「關係/職責 + 名字 + 當下在做什麼」的樣子，例如「霏霏的同學阿棠正抱著號碼牌喘氣」；不要只丟一串名字，讓讀者自己猜這些人是不是路人。
 - final_accuse 前那三個嫌疑人，不能像突然路過的名字。前半就要先讓讀者知道：他是誰、為什麼會在現場、跟主角靠近在哪個區域、剛剛在忙什麼。
 - 案件不要老是退回「一個普通東西不見了」。可以有失物，但更像樣本的是：流程卡住、話被講歪、有人遮難堪、有人假會、有人替別人擋、有人快被全場誤會。
 - 不要把每件事都洗成小失誤或好心辦壞事。這次更常要像樣本那樣，真的有某個孩子或年紀小的人故意亂動、偷偷藏、偷改、搶風頭、卡別人、害人出糗；尺度仍然是兒童故事，但可以有明確的小壞心眼。
-- 惡作劇可以只是想鬧一下，但後果可以比做壞事的人原本想得更嚴重，例如差點讓人受傷、錯過車次、打翻熱東西、衝進危險區、整個流程停住。不用真的寫到可怕傷害，但要讓大家意識到這已經不是小玩笑，而是差點要出事。
+- 惡作劇可以只是想鬧一下，但後果可以比做壞事的人原本想得更嚴重，例如差點讓人受傷、差點打翻熱東西、差點扯倒道具、差點撞壞設備、差點讓舞台或流程被迫喊停。不用真的寫到可怕傷害，但要讓大家意識到這已經不是小玩笑，而是差點要出事。
+- 事件不要老是停在「亂喊一聲 / 換一下號碼 / 偷偷藏一張牌」。也請多往「破壞道具、動到設備、安全動線被搞亂、差點害人受傷、差點讓重要東西壞掉」這種更有重量的方向寫。
+- 除非「插隊 / 換位 / 順序亂掉」只是表面現象，背後還連著更大的破壞、危險或偷動手腳，否則不要把核心案件縮在排隊糾紛。
 - 推進不要只靠撿東西、看痕跡。多用說法互撞、改口、時間差、面子、護短、丟臉、硬撐，做出至少兩層「原本以為是這樣，結果又不是」。
 - 誤導要夠狠：至少先讓一個人看起來 70% 像真的做了，再用第二層說法把讀者翻走，不要只是有人被輕輕懷疑一下。
 - `scene_05_check_3` 最好不是確認上一輪懷疑，而是再丟出一個差點把讀者翻走的新方向、新目擊、新說法或新動機。
@@ -2185,6 +2415,7 @@ nonce={nonce}
 - 這個背景是不是像一整集會發生事的大場面，而不是只有一個角落？
 - 這個場景是不是像它自己？如果把地名拿掉後，還像 generic 園遊會模板，請重寫得更落地。
 - scene_01_start 第一段如果只有活動簡介，卻沒有很快接到具體人物、任務、區域或正在發生的事，請重寫。
+- scene_01_start 第一段如果還沒有任何一個人在做事，只剩夜景、燈光、氣氛或活動名稱，也請重寫。
 - {self.incident_node_id} 結束時，麻煩有沒有真的還留著，值得往下查？
 - 這個案件如果拿掉，現場活動是不是還會照常進行？如果答案是會，通常代表案件太小了。
 - 這次是不是又偷懶寫成「某樣東西不見了」？如果是，請再往人物的嘴硬、丟臉、遮掩、搶風頭和誤會多推一步。
@@ -2549,6 +2780,17 @@ theme={theme}
 - 改名時要前後一致：前文、指認、three endings 都要是同一個人
 """.strip()
 
+        memorable_name_focus = ""
+        if any("配角名字記憶點偏弱" in str(r) for r in reasons):
+            memorable_name_focus = f"""
+【本次配角名字記憶點修補指令（必做）】
+- 你至少要修改：scene_01_start 與 warmup 前半；必要時可連帶修改嫌疑人名字與 three endings，讓人名前後一致
+- 不要把所有孩子都寫成普通本名。至少留 1 到 2 個一聽就記得住的名字，偏可愛綽號式或外號式也可以
+- 可接受的方向例子：鉛筆小白、狐狸小右、糖果小莓、廣播阿姨阿秀、點心叔叔阿發
+- 名字要好叫、好記、自然，不要寫成奇幻稱號、網名或過度中二的代號
+- 第一次提到時，仍然要一起交代關係/職責/當下動作，不要只換名字不補關係
+""".strip()
+
         incident_focus = ""
         if any(
             isinstance(r, str) and (
@@ -2578,12 +2820,18 @@ theme={theme}
 """.strip()
 
         opening_generic_focus = ""
-        if any("scene_01_start 首段太像總覽口播" in str(r) for r in reasons):
+        if any(
+            ("scene_01_start 首段太像總覽口播" in str(r))
+            or ("scene_01_start 第一段還沒有先讓人出現" in str(r))
+            for r in reasons
+        ):
             opening_generic_focus = f"""
 【本次開場首段修補指令（必做）】
 - 你至少要修改：scene_01_start 的第一段；必要時可連帶微調後面 1~2 段讓銜接更順
 - 可以先交代「一年一度的什麼活動 / 今天這裡正在辦什麼」，但不要只有導覽口播
 - 第一段最好同時帶活動名字、具體區域和一個正在發生的動作：某個人正在忙、某句話正在飛、某個區域正在卡、某個配角正在出糗
+- 第一個畫面最好是「人先出現」，例如某個配角正在扛東西跑、正在擦汗找人、正在和另一個人拌嘴；不要讓第一句完整停在「一年一度的什麼活動今天開始了」
+- 如果第一段還沒有具體的人在做事，就重寫到有為止；不要只用燈光、旗子、天氣、熱鬧程度撐第一段
 - 盡量不要用「今天這裡正在舉辦……」純背景起手；更像樣本的是先見到人，再順手知道今天在辦什麼
 - 要有觸手可摸的東西，不要只做空拍總覽或只剩活動簡介
 """.strip()
@@ -2605,6 +2853,7 @@ theme={theme}
 - 你至少要修改：scene_01_start 與兩個 warmup；必要時可把原本太快跑進事件的資訊往後挪
 - 在真正出事前，先讓讀者記住幾個人、知道今天是什麼活動、現場有哪些區域/比賽/流程、霏霏樂樂今天扮什麼角色
 - 可以補更多姊弟打鬧、配角出場、今天的任務與想做的事，讓場子更有溫度，再讓事件闖進來
+- 事件前最好先有 2 到 3 輪真的在互動的對話，不要只有旁白帶資訊
 - 不要只是灌水；每多一段都要讓角色更鮮、場合更立得住、後面線索更有根
 """.strip()
 
@@ -2675,7 +2924,7 @@ theme={theme}
 - 你至少要修改：incident 與 incident 後面的 check / hypothesis 節點；必要時可連帶微調 warmup，讓前面先埋不甘心、嫉妒、搶風頭、偷偷亂動的情緒
 - 不要再把事情收成單純手忙腳亂。更像樣本的是：有人故意亂動、偷偷藏、偷改、想害別人出糗、想搶表現、想卡掉別人的機會
 - 尺度仍然是兒童故事，不用黑暗，但一定要有「他就是故意弄一下」的主動性
-- 可以讓他本來只想惡作劇一下，但後果比他預想的大，例如差點害人受傷、差點錯過車次、差點打翻燙的東西、差點闖進危險區，讓現場不得不由大人接手
+- 可以讓他本來只想惡作劇一下，但後果比他預想的大，例如差點害人受傷、差點打翻燙的東西、差點扯倒道具、差點撞壞設備、差點讓舞台或流程被迫喊停，讓現場不得不由大人接手
 - 如果真相裡本來就有失手，也請再往前補出：為什麼他要先偷動、先硬撐、先遮掩，而不是只有事後道歉
 """.strip()
 
@@ -2685,8 +2934,18 @@ theme={theme}
 【本次案件後果修補指令（必做）】
 - 你至少要修改：incident 與 incident 後面的 check / hypothesis；必要時可微調 ending
 - 壞事起點可以還是孩子氣惡作劇，但後果不能只像小小搗蛋；要長成差點釀成更大麻煩
-- 可以是差點害人跌倒、差點打翻熱食、差點闖進危險區、差點錯過大流程、差點讓現場整段停住
+- 可以是差點害人跌倒、差點打翻熱食、差點扯倒道具、差點撞壞設備、差點闖進危險區、差點錯過大流程、差點讓現場整段停住
 - 不用寫成真的受重傷或可怕事故，但要讓角色意識到：這已經不是普通玩笑
+""".strip()
+
+        queue_focus = ""
+        if any("核心麻煩又縮成排隊/順位糾紛" in str(r) for r in reasons):
+            queue_focus = f"""
+【本次核心事件修補指令（必做）】
+- 你至少要修改：incident 與 incident 後面的 check / hypothesis；必要時可微調 warmup，把原本的隊伍/順序問題降成表面現象
+- 不要再把核心衝突收成插隊、換位、誰排前面這種糾紛
+- 如果要保留隊伍或順序，只能把它當成第一層假象；真正要查的核心，必須是更大的破壞、危險或偷動手腳，例如有人動了設備、亂了安全動線、差點害人受傷、差點讓主流程喊停
+- 保持同一個場景與已登場人物，不要整篇換案
 """.strip()
 
         adult_takeover_focus = ""
@@ -2743,6 +3002,8 @@ theme={theme}
 
 {naming_focus}
 
+{memorable_name_focus}
+
 {opening_generic_focus}
 
 {arrival_focus}
@@ -2766,6 +3027,8 @@ theme={theme}
 {villain_scale_focus}
 
 {consequence_focus}
+
+{queue_focus}
 
 {adult_takeover_focus}
 

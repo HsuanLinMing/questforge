@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import urllib.request
 import urllib.error
+import urllib.parse
 import hashlib
 import hmac
 import datetime
@@ -23,6 +24,30 @@ import json
 from typing import Optional
 
 from questforge_server.storage.blob_store import BlobStore, BlobStoreNoop
+
+
+def _url_parts(raw: str) -> tuple[str, str, str, list[str]]:
+    text = (raw or "").strip()
+    if not text:
+        return "", "", "", ["missing"]
+
+    parsed = urllib.parse.urlparse(text)
+    issues: list[str] = []
+    if parsed.scheme not in ("http", "https"):
+        issues.append("invalid_scheme")
+    if not parsed.netloc:
+        issues.append("missing_host")
+    return parsed.scheme, parsed.netloc, parsed.path or "/", issues
+
+
+def _url_diag(name: str, raw: str) -> str:
+    scheme, host, path, issues = _url_parts(raw)
+    status = "ok" if not issues else ",".join(issues)
+    value = (raw or "").strip() or "<empty>"
+    return (
+        f"{name} value={value!r} scheme={scheme or '<empty>'} "
+        f"host={host or '<empty>'} path={path or '<empty>'} status={status}"
+    )
 
 
 def _sign_v4(
@@ -128,6 +153,99 @@ class BlobStoreR2(BlobStore):
         self._public_base = public_base_url.rstrip("/")
         self._region = region
 
+    @property
+    def endpoint_url(self) -> str:
+        return self._endpoint
+
+    @property
+    def public_base_url(self) -> str:
+        return self._public_base
+
+    @property
+    def endpoint_host(self) -> str:
+        return urllib.parse.urlparse(self._endpoint).netloc or "<empty>"
+
+    @property
+    def public_host(self) -> str:
+        return urllib.parse.urlparse(self._public_base).netloc or "<empty>"
+
+    @staticmethod
+    def env_summary() -> str:
+        endpoint = (os.getenv("QF_R2_ENDPOINT_URL") or "").strip()
+        public_base = (os.getenv("QF_R2_PUBLIC_BASE_URL") or "").strip()
+        bucket = (os.getenv("QF_R2_BUCKET_NAME") or "").strip()
+        access_key = bool((os.getenv("QF_R2_ACCESS_KEY_ID") or "").strip())
+        secret_key = bool((os.getenv("QF_R2_SECRET_ACCESS_KEY") or "").strip())
+        return (
+            f"{_url_diag('QF_R2_ENDPOINT_URL', endpoint)} "
+            f"{_url_diag('QF_R2_PUBLIC_BASE_URL', public_base)} "
+            f"QF_R2_BUCKET_NAME={bucket!r} "
+            f"QF_R2_ACCESS_KEY_ID_set={access_key} "
+            f"QF_R2_SECRET_ACCESS_KEY_set={secret_key}"
+        )
+
+    def startup_check(self) -> dict:
+        probe_key = "__qf_startup_probe__"
+        url = self._object_url(probe_key)
+        signed = _sign_v4(
+            method="HEAD",
+            url=url,
+            region=self._region,
+            service="s3",
+            access_key=self._access_key,
+            secret_key=self._secret_key,
+            payload=b"",
+        )
+        req = urllib.request.Request(
+            url=url,
+            method="HEAD",
+            headers={
+                "Authorization": signed["Authorization"],
+                "x-amz-date": signed["x-amz-date"],
+                "x-amz-content-sha256": signed["x-amz-content-sha256"],
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return {
+                    "ok": True,
+                    "status": resp.status,
+                    "host": self.endpoint_host,
+                    "url": url,
+                    "public_host": self.public_host,
+                    "public_base_url": self.public_base_url,
+                }
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            if e.code == 404:
+                return {
+                    "ok": True,
+                    "status": 404,
+                    "host": self.endpoint_host,
+                    "url": url,
+                    "public_host": self.public_host,
+                    "public_base_url": self.public_base_url,
+                    "detail": "probe_not_found",
+                }
+            return {
+                "ok": False,
+                "status": e.code,
+                "host": self.endpoint_host,
+                "url": url,
+                "public_host": self.public_host,
+                "public_base_url": self.public_base_url,
+                "error": body[:200],
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "host": self.endpoint_host,
+                "url": url,
+                "public_host": self.public_host,
+                "public_base_url": self.public_base_url,
+                "error": str(e),
+            }
+
     @staticmethod
     def from_env() -> "BlobStore":
         endpoint = (os.getenv("QF_R2_ENDPOINT_URL") or "").strip()
@@ -136,11 +254,41 @@ class BlobStoreR2(BlobStore):
         bucket = (os.getenv("QF_R2_BUCKET_NAME") or "").strip()
         public_base = (os.getenv("QF_R2_PUBLIC_BASE_URL") or "").strip()
 
-        if not all([endpoint, access_key, secret_key, bucket, public_base]):
-            print("[BlobStore] R2 env vars missing → using BlobStoreNoop (local-only)", flush=True)
+        issues: list[str] = []
+        if not endpoint:
+            issues.append("QF_R2_ENDPOINT_URL missing/empty")
+        else:
+            _, _, _, endpoint_issues = _url_parts(endpoint)
+            if endpoint_issues:
+                issues.append(_url_diag("QF_R2_ENDPOINT_URL", endpoint))
+
+        if not public_base:
+            issues.append("QF_R2_PUBLIC_BASE_URL missing/empty")
+        else:
+            _, _, _, public_issues = _url_parts(public_base)
+            if public_issues:
+                issues.append(_url_diag("QF_R2_PUBLIC_BASE_URL", public_base))
+
+        if not access_key:
+            issues.append("QF_R2_ACCESS_KEY_ID missing/empty")
+        if not secret_key:
+            issues.append("QF_R2_SECRET_ACCESS_KEY missing/empty")
+        if not bucket:
+            issues.append("QF_R2_BUCKET_NAME missing/empty")
+
+        if issues:
+            print("[BlobStore] R2 disabled → using BlobStoreNoop (local-only)", flush=True)
+            for issue in issues:
+                print(f"[BlobStore] {issue}", flush=True)
             return BlobStoreNoop()
 
-        print(f"[BlobStore] R2 configured bucket={bucket}", flush=True)
+        _, endpoint_host, _, _ = _url_parts(endpoint)
+        _, public_host, _, _ = _url_parts(public_base)
+        print(
+            f"[BlobStore] R2 configured bucket={bucket} "
+            f"endpoint_host={endpoint_host or '<empty>'} public_host={public_host or '<empty>'}",
+            flush=True,
+        )
         return BlobStoreR2(
             endpoint_url=endpoint,
             access_key_id=access_key,
@@ -157,6 +305,9 @@ class BlobStoreR2(BlobStore):
 
     def put_bytes(self, key: str, data: bytes, content_type: str = "audio/wav") -> str:
         url = self._object_url(key)
+        public_url = self.public_url(key)
+        object_host = urllib.parse.urlparse(url).netloc or "<empty>"
+        public_host = urllib.parse.urlparse(public_url).netloc or "<empty>"
         
         # ✅ Add Cache-Control for edge caching
         # Max-age defaults to 1 year, immutable for view_fp hashes
@@ -191,14 +342,70 @@ class BlobStoreR2(BlobStore):
             },
         )
         try:
+            print(
+                "[BlobStoreR2] PUT start",
+                {
+                    "key": key,
+                    "host": object_host,
+                    "url": url,
+                    "public_host": public_host,
+                    "public_url": public_url,
+                    "bytes": len(data),
+                },
+                flush=True,
+            )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 status = resp.status
             if status not in (200, 201, 204):
                 raise RuntimeError(f"R2 PUT failed status={status}")
-            return self.public_url(key)
+            return public_url
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"R2 PUT HTTPError {e.code}: {body[:200]}") from e
+            print(
+                "[BlobStoreR2] PUT HTTPError",
+                {
+                    "key": key,
+                    "host": object_host,
+                    "url": url,
+                    "public_url": public_url,
+                    "status": e.code,
+                    "body": body[:200],
+                },
+                flush=True,
+            )
+            raise RuntimeError(
+                f"R2 PUT HTTPError status={e.code} host={object_host!r} "
+                f"url={url!r} public_url={public_url!r} body={body[:200]!r}"
+            ) from e
+        except urllib.error.URLError as e:
+            print(
+                "[BlobStoreR2] PUT URLError",
+                {
+                    "key": key,
+                    "host": object_host,
+                    "url": url,
+                    "public_url": public_url,
+                    "err": repr(e),
+                },
+                flush=True,
+            )
+            raise RuntimeError(
+                f"R2 PUT URLError host={object_host!r} url={url!r} "
+                f"public_url={public_url!r} key={key!r} err={e!r}"
+            ) from e
+        except Exception as e:
+            print(
+                "[BlobStoreR2] PUT error",
+                {
+                    "key": key,
+                    "host": object_host,
+                    "url": url,
+                    "public_url": public_url,
+                    "err": repr(e),
+                },
+                flush=True,
+            )
+            raise
 
     def exists(self, key: str) -> bool:
         url = self._object_url(key)
@@ -353,4 +560,3 @@ class BlobStoreR2(BlobStore):
         except Exception as e:
             print(f"[BlobStoreR2] list_objects error: {e!r}", flush=True)
             return {"Contents": [], "IsTruncated": False, "NextContinuationToken": None}
-

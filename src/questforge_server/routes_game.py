@@ -9,6 +9,7 @@ import threading
 import traceback
 import time
 import json
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,7 +42,50 @@ except Exception:
 _TTS_READY_TTL = 7 * 24 * 3600  # 7 days
 
 # ✅ R2 public base URL (empty string if not configured = use local /static/...)
-_R2_PUBLIC_BASE = (os.getenv("QF_R2_PUBLIC_BASE_URL") or "").rstrip("/")
+def _url_env_summary(*names: str) -> str:
+    chosen_name = names[0]
+    raw = ""
+    for name in names:
+        candidate = (os.getenv(name) or "").strip()
+        if candidate:
+            chosen_name = name
+            raw = candidate
+            break
+
+    if not raw:
+        return f"{'/'.join(names)}=<empty>"
+
+    parsed = urllib.parse.urlparse(raw)
+    issues: List[str] = []
+    if parsed.scheme not in ("http", "https"):
+        issues.append("invalid_scheme")
+    if not parsed.netloc:
+        issues.append("missing_host")
+    status = "ok" if not issues else ",".join(issues)
+    return (
+        f"{chosen_name}={raw!r} "
+        f"scheme={parsed.scheme or '<empty>'} "
+        f"host={parsed.netloc or '<empty>'} "
+        f"path={parsed.path or '/'} status={status}"
+    )
+
+
+def _validated_public_base() -> str:
+    raw = (os.getenv("QF_R2_PUBLIC_BASE_URL") or "").strip()
+    if not raw:
+        return ""
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        print(
+            f"[R2_PUBLIC] invalid env {_url_env_summary('QF_R2_PUBLIC_BASE_URL')}; "
+            "falling back to local /static URLs",
+            flush=True,
+        )
+        return ""
+    return raw.rstrip("/")
+
+
+_R2_PUBLIC_BASE = _validated_public_base()
 
 
 def _r2_url(blob_key: str) -> str:
@@ -382,11 +426,7 @@ def _build_ai_playlist(
     items: List[Dict[str, Any]] = []
 
     # ✅ Read Redis ready hash once (worker writes here after each R2 upload)
-    redis_ready: dict = {}
-    try:
-        redis_ready = _pool._redis.hgetall(f"qf:tts_ready:{view_fp}")
-    except Exception:
-        pass
+    redis_ready = _pool.tts_ready_map(view_fp)
 
     for it in items_raw:
         if not isinstance(it, dict):
@@ -652,11 +692,7 @@ def get_tts_status(view_fp: str, count: int, request: Request, session_id: Optio
     # ======================================================
     # 1) Try Redis hash first (Day B: R2 URLs tracked here)
     # ======================================================
-    redis_ready: dict = {}
-    try:
-        redis_ready = _pool._redis.hgetall(f"qf:tts_ready:{view_fp}")
-    except Exception:
-        pass
+    redis_ready = _pool.tts_ready_map(view_fp)
 
     # ======================================================
     # 2) Local disk fallback paths
@@ -1405,12 +1441,27 @@ def preload_session(
     4. Returns view_fp + preload_count so Flutter can poll /tts_status until ready
     """
     sid = "pending"
+    stage = "init"
     try:
+        print(
+            f"[PRELOAD] stage={stage} request_base={str(request.base_url).rstrip('/')}",
+            flush=True,
+        )
+        print(
+            f"[PRELOAD] env {_url_env_summary('QF_UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_URL')}",
+            flush=True,
+        )
+        print(f"[PRELOAD] env {_url_env_summary('QF_R2_ENDPOINT_URL')}", flush=True)
+        print(f"[PRELOAD] env {_url_env_summary('QF_R2_PUBLIC_BASE_URL')}", flush=True)
+
         # ① Ensure pool & acquire story
+        stage = "ensure_pool"
         _pool.ensure_pool()
+        stage = "acquire_story"
         acq = _pool.acquire_story()
 
         # ② Create session
+        stage = "create_session"
         sid, session = store.create_from_story_pkg(
             pkg=acq.pkg,
             seed=req.seed,
@@ -1425,6 +1476,7 @@ def preload_session(
         run_id = store.get_current_run_id(sid) or ""
 
         # ③ Build first-view bundle (TTS also triggered inside here for first para)
+        stage = "build_first_view"
         bundle, events, is_over = _bundle_from_session_and_step(
             request=request,
             session_id=sid,
@@ -1446,6 +1498,14 @@ def preload_session(
         # (bundle building only does para 0 sync + may have already enqueued rest via
         # _build_sample_runtime_tts; this ensures we cover the AI fallback case too)
         if narration and preload_count > 0:
+            print(
+                f"[PRELOAD] resource=tts_wav scope=runtime_sample "
+                f"blob_prefix=runtime_sample/{view_fp}/ "
+                f"local_prefix=/static/runtime_sample/{view_fp}/ "
+                f"preload_count={preload_count}",
+                flush=True,
+            )
+            stage = "trigger_scene01_tts"
             _trigger_scene01_tts(
                 request=request,
                 session_id=sid,
@@ -1462,6 +1522,7 @@ def preload_session(
         )
 
         # ⑤ Background ensure pool for next players
+        stage = "ensure_pool_background"
         background_tasks.add_task(_pool.ensure_pool)
 
         return PreloadResponse(
@@ -1477,10 +1538,11 @@ def preload_session(
 
     except Exception as e:
         tb = traceback.format_exc()
-        print("[preload] error:", repr(e), flush=True)
+        print(f"[preload] error stage={stage} sid={sid[:6]} err={e!r}", flush=True)
         print(tb, flush=True)
         raise HTTPException(
-            status_code=500, detail=f"preload_error: {type(e).__name__} {repr(e)}"
+            status_code=500,
+            detail=f"preload_error stage={stage}: {type(e).__name__} {e}",
         )
 
 

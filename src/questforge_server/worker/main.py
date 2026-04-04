@@ -309,14 +309,27 @@ def main() -> None:
         print("[WORKER] disabled by QF_WORKER_ENABLED=0", flush=True)
         return
 
-    redis = UpstashRedisRest.from_env()
+    try:
+        redis = UpstashRedisRest.from_env()
+    except Exception as e:
+        print(
+            f"[WORKER] redis unavailable; worker exiting. summary={UpstashRedisRest.env_summary()} err={e}",
+            flush=True,
+        )
+        return
     jobs_key = "qf:jobs"
     ready_key = "qf:ai_ready_queue"  # FIFO: worker RPUSH, pool_manager LPOP
     dead_key = "qf:dead"
 
     use_redis = os.getenv("QF_POOL_STORAGE", "redis").lower() == "redis"
     if use_redis:
-        storage = RedisStoryStorage(RedisStoryStorageConfig())
+        try:
+            storage = RedisStoryStorage(RedisStoryStorageConfig())
+        except Exception as e:
+            print(f"[WORKER] redis storage unavailable; falling back to local storage err={e}", flush=True)
+            storage = LocalStoryStorage(
+                LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))
+            )
     else:
         storage = LocalStoryStorage(
             LocalStoryStorageConfig(root_dir=Path(".qf_cache/pool_ai"))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -34,33 +35,121 @@ class UpstashRedisRest:
         self._token = (cfg.rest_token or "").strip()
         if not self._url or not self._token:
             raise RuntimeError("missing_upstash_config")
+        parsed = urllib.parse.urlparse(self._url)
+        issues: list[str] = []
+        if parsed.scheme not in ("http", "https"):
+            issues.append("invalid_scheme")
+        if not parsed.netloc:
+            issues.append("missing_host")
+        if issues:
+            raise RuntimeError(
+                f"invalid_upstash_config url={self._url!r} "
+                f"scheme={parsed.scheme or '<empty>'} "
+                f"host={parsed.netloc or '<empty>'} issues={','.join(issues)}"
+            )
+
+    @property
+    def base_url(self) -> str:
+        return self._url
+
+    @property
+    def host(self) -> str:
+        return urllib.parse.urlparse(self._url).netloc or "<empty>"
 
     @staticmethod
     def from_env() -> "UpstashRedisRest":
         url = (os.getenv("QF_UPSTASH_REDIS_REST_URL") or os.getenv("UPSTASH_REDIS_REST_URL") or "").strip()
         token = (os.getenv("QF_UPSTASH_REDIS_REST_TOKEN") or os.getenv("UPSTASH_REDIS_REST_TOKEN") or "").strip()
-        return UpstashRedisRest(UpstashConfig(rest_url=url, rest_token=token))
+        try:
+            return UpstashRedisRest(UpstashConfig(rest_url=url, rest_token=token))
+        except Exception as e:
+            raise RuntimeError(
+                "upstash_env_error "
+                f"url={url!r} token_set={bool(token)} err={e}"
+            ) from e
+
+    @staticmethod
+    def env_summary() -> str:
+        url = (os.getenv("QF_UPSTASH_REDIS_REST_URL") or os.getenv("UPSTASH_REDIS_REST_URL") or "").strip()
+        parsed = urllib.parse.urlparse(url) if url else None
+        issues: list[str] = []
+        if not url:
+            issues.append("missing")
+        else:
+            if parsed and parsed.scheme not in ("http", "https"):
+                issues.append("invalid_scheme")
+            if parsed and not parsed.netloc:
+                issues.append("missing_host")
+        status = "ok" if not issues else ",".join(issues)
+        return (
+            f"url={url!r} "
+            f"host={(parsed.netloc if parsed else '') or '<empty>'} "
+            f"token_set={bool((os.getenv('QF_UPSTASH_REDIS_REST_TOKEN') or os.getenv('UPSTASH_REDIS_REST_TOKEN') or '').strip())} "
+            f"status={status}"
+        )
+
+    def startup_check(self) -> dict:
+        try:
+            jobs_len = self.llen("qf:jobs")
+            return {
+                "ok": True,
+                "host": self.host,
+                "url": self.base_url,
+                "jobs_len": jobs_len,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "host": self.host,
+                "url": self.base_url,
+                "error": str(e),
+            }
 
     # -------------------------
     # Low-level calls
     # -------------------------
 
     def _call_get(self, path: str) -> Any:
+        url = f"{self._url}/{path.lstrip('/')}"
         req = urllib.request.Request(
-            url=f"{self._url}/{path.lstrip('/')}",
+            url=url,
             method="GET",
             headers={"Authorization": f"Bearer {self._token}"},
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            raw = resp.read().decode("utf-8")
-            data = json.loads(raw)
-            return data.get("result")
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                raw = resp.read().decode("utf-8")
+                data = json.loads(raw)
+                return data.get("result")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            host = urllib.parse.urlparse(url).netloc or "<empty>"
+            print(
+                "[Upstash] GET HTTPError",
+                {"host": host, "url": url, "status": e.code, "body": body[:200]},
+                flush=True,
+            )
+            raise RuntimeError(
+                f"Upstash GET HTTPError status={e.code} host={host!r} "
+                f"url={url!r} body={body[:200]!r}"
+            ) from e
+        except urllib.error.URLError as e:
+            host = urllib.parse.urlparse(url).netloc or "<empty>"
+            print(
+                "[Upstash] GET URLError",
+                {"host": host, "url": url, "err": repr(e)},
+                flush=True,
+            )
+            raise RuntimeError(
+                f"Upstash GET URLError host={host!r} url={url!r} err={e!r}"
+            ) from e
 
     def _call_post_cmd(self, cmd: list) -> Any:
         # ✅ Upstash REST: POST body is a JSON array, e.g. ["SET","k","v"]
         payload = json.dumps(cmd, ensure_ascii=False).encode("utf-8")
+        url = f"{self._url}"
         req = urllib.request.Request(
-            url=f"{self._url}",
+            url=url,
             method="POST",
             headers={
                 "Authorization": f"Bearer {self._token}",
@@ -68,10 +157,40 @@ class UpstashRedisRest:
             },
             data=payload,
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            raw = resp.read().decode("utf-8")
-            data = json.loads(raw)
-            return data.get("result")
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                raw = resp.read().decode("utf-8")
+                data = json.loads(raw)
+                return data.get("result")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            host = urllib.parse.urlparse(url).netloc or "<empty>"
+            print(
+                "[Upstash] POST HTTPError",
+                {
+                    "host": host,
+                    "url": url,
+                    "status": e.code,
+                    "cmd": cmd[:3],
+                    "body": body[:200],
+                },
+                flush=True,
+            )
+            raise RuntimeError(
+                f"Upstash POST HTTPError status={e.code} host={host!r} "
+                f"url={url!r} cmd={cmd[:3]!r} body={body[:200]!r}"
+            ) from e
+        except urllib.error.URLError as e:
+            host = urllib.parse.urlparse(url).netloc or "<empty>"
+            print(
+                "[Upstash] POST URLError",
+                {"host": host, "url": url, "cmd": cmd[:3], "err": repr(e)},
+                flush=True,
+            )
+            raise RuntimeError(
+                f"Upstash POST URLError host={host!r} url={url!r} "
+                f"cmd={cmd[:3]!r} err={e!r}"
+            ) from e
 
     @staticmethod
     def _q(s: str) -> str:

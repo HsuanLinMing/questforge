@@ -13,10 +13,22 @@ router = APIRouter(prefix="/v1/pool", tags=["pool"])
 
 @router.get("/status")
 def pool_status() -> Dict[str, Any]:
-    redis = UpstashRedisRest.from_env()
+    redis = None
+    upstash: Dict[str, Any] = {
+        "available": False,
+        "summary": UpstashRedisRest.env_summary(),
+        "jobs_len": 0,
+        "ready_ai_len": 0,
+        "dead_len": 0,
+    }
+    try:
+        redis = UpstashRedisRest.from_env()
+        upstash["available"] = True
+    except Exception as e:
+        upstash["error"] = str(e)
 
     jobs_key = "qf:jobs"
-    ready_key = "qf:ready_ai"
+    ready_key = "qf:ai_ready_queue"
     dead_key = "qf:dead"
 
     root = Path(".qf_cache/pool_ai")
@@ -31,12 +43,23 @@ def pool_status() -> Dict[str, Any]:
         except Exception:
             return 0
 
+    def _llen_safe(key: str) -> int:
+        if redis is None:
+            return 0
+        try:
+            return redis.llen(key)
+        except Exception as e:
+            upstash["available"] = False
+            upstash["error"] = str(e)
+            return 0
+
     return {
         "ok": True,
         "upstash": {
-            "jobs_len": redis.llen(jobs_key),
-            "ready_ai_len": redis.llen(ready_key),
-            "dead_len": redis.llen(dead_key),
+            **upstash,
+            "jobs_len": _llen_safe(jobs_key),
+            "ready_ai_len": _llen_safe(ready_key),
+            "dead_len": _llen_safe(dead_key),
         },
         "local_storage": {
             "root": str(root.resolve()),

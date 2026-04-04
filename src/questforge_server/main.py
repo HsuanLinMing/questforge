@@ -21,6 +21,8 @@ from questforge_server.routes_game import router as game_router
 from questforge_server.routes_voice_lab import router as tts_router
 from questforge_server.pool.pool_config import PoolConfig
 from questforge_server.pool.pool_manager import StoryPoolManager
+from questforge_server.pool.queue_client_upstash import UpstashRedisRest
+from questforge_server.storage.blob_store_r2 import BlobStoreR2
 from questforge_server.worker.main import start_worker_in_thread  # ✅ NEW
 
 _pool = StoryPoolManager(PoolConfig())
@@ -42,6 +44,7 @@ def _env_snapshot() -> dict:
         "QF_POOL_DIR",
         "QF_AI_FALLBACK_TO_STATIC",
         "QF_UPSTASH_REDIS_REST_URL",
+        "UPSTASH_REDIS_REST_URL",
         "QF_WORKER_ENABLED",
         "QF_R2_ENDPOINT_URL",
         "QF_R2_BUCKET_NAME",
@@ -57,8 +60,30 @@ def _env_snapshot() -> dict:
     # R2 credentials: show presence only
     for k in ("QF_R2_ACCESS_KEY_ID", "QF_R2_SECRET_ACCESS_KEY"):
         snap[k] = "***set***" if os.getenv(k) else "❌ MISSING"
+    snap["OPENAI_API_KEY"] = "***set***" if os.getenv("OPENAI_API_KEY") else "❌ MISSING"
 
     return snap
+
+
+def _startup_dependency_checks() -> None:
+    print(f"[BOOT][CHECK] OPENAI_API_KEY_set={bool((os.getenv('OPENAI_API_KEY') or '').strip())}", flush=True)
+
+    print(f"[BOOT][CHECK] Redis env {UpstashRedisRest.env_summary()}", flush=True)
+    try:
+        redis = UpstashRedisRest.from_env()
+        redis_result = redis.startup_check()
+        print(f"[BOOT][CHECK] Redis startup_check={redis_result}", flush=True)
+    except Exception as e:
+        print(f"[BOOT][CHECK] Redis startup_check failed err={e}", flush=True)
+
+    print(f"[BOOT][CHECK] Pool redis_status={_pool.redis_status()}", flush=True)
+
+    print(f"[BOOT][CHECK] R2 env {BlobStoreR2.env_summary()}", flush=True)
+    blob = BlobStoreR2.from_env()
+    if isinstance(blob, BlobStoreR2):
+        print(f"[BOOT][CHECK] R2 startup_check={blob.startup_check()}", flush=True)
+    else:
+        print("[BOOT][CHECK] R2 startup_check skipped (BlobStoreNoop)", flush=True)
 
 
 def create_app() -> FastAPI:
@@ -157,6 +182,7 @@ def create_app() -> FastAPI:
         print(f"[BOOT] runs_dir={runs_dir}", flush=True)
         print(f"[BOOT] runtime_sample_dir={runtime_sample_dir}", flush=True)
         print(f"[BOOT] pool_tts_dir={pool_tts_dir}", flush=True)
+        _startup_dependency_checks()
 
         # ✅ warmup ensure_pool
         try:

@@ -1,4 +1,4 @@
-platform :ios, '13.0'   # ✅ 先用 13.0（穩），之後你要降到 12 再試也行
+platform :ios, '13.0'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
@@ -24,11 +24,9 @@ end
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 flutter_ios_podfile_setup
-use_modular_headers!
 
 target 'Runner' do
   use_frameworks!
-  # ✅ 不要 use_frameworks（Flutter 預設就是不用）
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
   target 'RunnerTests' do
@@ -46,4 +44,3 @@ post_install do |installer|
     end
   end
 end
-
